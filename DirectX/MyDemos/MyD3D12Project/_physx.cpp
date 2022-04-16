@@ -24,13 +24,29 @@ void Physics::Init() {
 	if (!PxInitExtensions(*gPhysics, gPvd))
 		throw std::runtime_error("PxInitExtensions Failed!!");
 
+	PxCudaContextManagerDesc cudaContextManagerDesc;
+
+	PxCudaContextManager* gCudaContextManager = PxCreateCudaContextManager(*gFoundation, cudaContextManagerDesc);
+
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
 	sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
-	gDispatcher = PxDefaultCpuDispatcherCreate(2);
+	gDispatcher = PxDefaultCpuDispatcherCreate(4);
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;
+	sceneDesc.gpuDispatcher = gCudaContextManager->getGpuDispatcher();
+
+	sceneDesc.flags |= PxSceneFlag::eENABLE_GPU_DYNAMICS;
+	sceneDesc.broadPhaseType = PxBroadPhaseType::eGPU;
 
 	gScene = gPhysics->createScene(sceneDesc);
+
+	//PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
+	//sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
+	//gDispatcher = PxDefaultCpuDispatcherCreate(2);
+	//sceneDesc.cpuDispatcher = gDispatcher;
+	//sceneDesc.filterShader = PxDefaultSimulationFilterShader;
+
+	//gScene = gPhysics->createScene(sceneDesc);
 
 	PxPvdSceneClient* pvdClient = gScene->getScenePvdClient();
 	if (pvdClient)
@@ -41,6 +57,22 @@ void Physics::Init() {
 	}
 
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.5f);
+
+	//PxCudaContextManagerDesc cudaContextManagerDesc;
+	//PxCudaContextManager* mCudaContextManager = NULL;
+	//mCudaContextManager = PxCreateCudaContextManager(
+	//	*gFoundation,
+	//	cudaContextManagerDesc
+	//);
+	//if (mCudaContextManager)
+	//{
+	//	if (!mCudaContextManager->contextIsValid())
+	//	{
+	//		mCudaContextManager->release();
+	//		mCudaContextManager = NULL;
+	//	}
+	//}
+	//sceneDesc.gpuDispatcher = mCudaContextManager->getGpuDispatcher();
 
 	PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 0), *gMaterial);
 	gScene->addActor(*groundPlane);

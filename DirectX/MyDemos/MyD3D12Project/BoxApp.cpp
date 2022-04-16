@@ -359,12 +359,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 	ResetEvent(mClothReadEvent);
 	SetEvent(mClothWriteEvent);
 
-	// mPhys.Update();
-
 	while (!StopThread)
 	{
 		// Cloth Vertices가 Write Layer가 될 때 까지 대기
 		WaitForSingleObject(mClothWriteEvent, INFINITE);
+
 		if (StopThread) break;
 
 		// Update Cloth Vertices
@@ -387,7 +386,8 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 			// 서브메쉬 단위로 애니메이션을 업데이트 하는 경우 (cloth)
 			for (UINT submeshIDX = 0; submeshIDX < _RenderData->SubmeshCount; submeshIDX++)
 			{
-				if (_RenderData->isRigidBody[submeshIDX]) {
+				if (_RenderData->isRigidBody[submeshIDX]) 
+				{
 					// Adapted Cloth Physx
 					mRootF44 = _RenderData->mBoneMatrix[_RenderData->currentFrame][2];
 					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
@@ -402,7 +402,8 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					_RenderData->mRigidbody[submeshIDX]->setKinematicTarget(mPose);
 				}
 
-				if (_RenderData->isCloth[submeshIDX]) {
+				if (_RenderData->isCloth[submeshIDX]) 
+				{
 					// Adapted Cloth Physx
 					mRootF44 = _RenderData->mBoneMatrix[_RenderData->currentFrame][2];
 					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
@@ -426,31 +427,17 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					if (nbParticles != vertexSize)
 						throw std::runtime_error("Wrong Vertices NUMBER");
 
-					// 현재 Submesh의 ClothParticlesData를 가지고 옴.
-					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eREADABLE);
+					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eWRITABLE);
 
 					for (UINT vertexIDX = 0; vertexIDX < vertexSize; vertexIDX++)
 					{
 						if (ppd->particles[vertexIDX].invWeight != 0.0f)
 						{
-							mClothOffset[vertexIDX].Pos.x =
-								ppd->particles[vertexIDX].pos[0];
-							mClothOffset[vertexIDX].Pos.y =
-								ppd->particles[vertexIDX].pos[1];
-							mClothOffset[vertexIDX].Pos.z =
-								ppd->particles[vertexIDX].pos[2];
+							mClothOffset[vertexIDX].Pos.x = ppd->particles[vertexIDX].pos[0];
+							mClothOffset[vertexIDX].Pos.y = ppd->particles[vertexIDX].pos[1];
+							mClothOffset[vertexIDX].Pos.z = ppd->particles[vertexIDX].pos[2];
 						}
-					}
-
-					ppd->unlock();
-
-					// InvWeights == 0 인 Vertex는 Cloth Physx Calc의 이상한 결과 도출로 인해 끊어져 버리므로 
-					// 아래 InvWeights > 0.0 인 Vertex가 가라안지 않도록 실제 버텍스 위치로 원위치 시켜, 동봉한다.
-					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eWRITABLE);
-
-					for (UINT vertexIDX = 0; vertexIDX < vertexSize; vertexIDX++)
-					{
-						if (ppd->particles[vertexIDX].invWeight == 0.0f)
+						else
 						{
 							ppd->particles[vertexIDX].pos[0] = mClothOffset[vertexIDX].Pos.x;
 							ppd->particles[vertexIDX].pos[1] = mClothOffset[vertexIDX].Pos.y;
@@ -461,43 +448,14 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					ppd->unlock();
 				} // if (_RenderData->isCloth[submeshIDX])
 			}
-
-			////////////////////////////////////////////////////////////////////////////////
-			//// Update Morph
-			////////////////////////////////////////////////////////////////////////////////
-
-			//if (_RenderData->mMorphDirty.size() > 0) {
-			//	struct ObjectData::_VERTEX_MORPH_DESCRIPTOR mMorph;
-			//	float weight = 0.0f;
-			//	Vertex* DestPos = NULL;
-			//	float* DefulatPos = NULL;
-
-			//	for (int mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++) {
-			//		mMorph = _RenderData->mMorph[mIDX];
-			//		weight = mMorph.mVertWeight;
-
-			//		for (int i = 0; i < mMorph.mVertIndices.size(); i++)
-			//		{
-			//			DestPos = clothPos + mMorph.mVertIndices[i];
-			//			DefulatPos = _RenderData->mModel.vertices[mMorph.mVertIndices[i]].position;
-
-			//			DestPos->Pos.x = DefulatPos[0] + mMorph.mVertOffset[i][0] * weight;
-			//			DestPos->Pos.y = DefulatPos[1] + mMorph.mVertOffset[i][1] * weight;
-			//			DestPos->Pos.z = DefulatPos[2] + mMorph.mVertOffset[i][2] * weight;
-			//		}
-			//	}
-			//	_RenderData->mMorphDirty.resize(0);
-			//}
 		}
-
-		//////////////////////////////////////////////////////////////////////////////
-
-		// 현 판을 갈아 엎고 다시 대기 
-		mPhys.Update();
 
 		// Cloth Vertices를 Read Layer로 변경
 		ResetEvent(mClothWriteEvent);
 		SetEvent(mClothReadEvent);
+
+		// 현 판을 갈아 엎고 다시 대기 
+		//mPhys.Update();
 	}
 
 
@@ -644,27 +602,31 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			// Update Morph
 			//////////////////////////////////////////////////////////////////////////////
 
-			//if (_RenderData->mMorphDirty.size() > 0) {
-			//	struct ObjectData::_VERTEX_MORPH_DESCRIPTOR mMorph;
-			//	float weight = 0.0f;
-			//	Vertex* DestPos = NULL;
-			//	float* DefulatPos = NULL;
+			if (_RenderData->mMorphDirty.size() > 0) 
+			{
+				struct ObjectData::_VERTEX_MORPH_DESCRIPTOR mMorph;
+				float weight = 0.0f;
+				Vertex* DestPos = NULL;
+				DirectX::XMFLOAT3* DesctinationPos = NULL;
+				float* DefaultPos;
 
-			//	for (int mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++) {
-			//		mMorph = _RenderData->mMorph[mIDX];
-			//		weight = mMorph.mVertWeight;
+				for (int mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++) 
+				{
+					mMorph = _RenderData->mMorph[mIDX];
+					weight = mMorph.mVertWeight;
 
-			//		for (int i = 0; i < mMorph.mVertIndices.size(); i++)
-			//		{
-			//			DefulatPos = _RenderData->mModel.vertices[mMorph.mVertIndices[i]].position;
+					for (int i = 0; i < mMorph.mVertIndices.size(); i++)
+					{
+						DesctinationPos = &_RenderData->vertices[mMorph.mVertIndices[i]].Pos;
+						DefaultPos = _RenderData->mModel.vertices[mMorph.mVertIndices[i]].position;
 
-			//			DefulatPos[0] += mMorph.mVertOffset[i][0] * weight;
-			//			DefulatPos[1] += mMorph.mVertOffset[i][1] * weight;
-			//			DefulatPos[2] += mMorph.mVertOffset[i][2] * weight;
-			//		}
-			//	}
-			//	_RenderData->mMorphDirty.resize(0);
-			//}
+						DesctinationPos->x = DefaultPos[0] + mMorph.mVertOffset[i][0] * weight;
+						DesctinationPos->y = DefaultPos[1] + mMorph.mVertOffset[i][1] * weight;
+						DesctinationPos->z = DefaultPos[2] + mMorph.mVertOffset[i][2] * weight;
+					}
+				}
+				_RenderData->mMorphDirty.resize(0);
+			}
 		}
 
 		// Cloth Vertices를 Read Layer로 변경
@@ -1598,6 +1560,8 @@ void BoxApp::Draw(const GameTimer& gt)
 			WaitForSingleObject(_event, INFINITE);
 			CloseHandle(_event);
 		}
+
+		printf("");
 	}
 }
 
@@ -3680,7 +3644,7 @@ void BoxApp::CreatePMXObject(
 	//			if (mWeightBones[j] == name1)
 	//			{
 	//				//dWeight = 1.0f;
-	//				dWeight = 0.0f;
+	//				dWeight = 0.3f;
 	//				break;
 	//			}
 	//		}
@@ -3719,7 +3683,7 @@ void BoxApp::CreatePMXObject(
 	//				mWeightBones[j] == name2)
 	//			{
 	//				//dWeight = 1.0f;
-	//				dWeight = 0.0f;
+	//				dWeight = 0.3f;
 	//				break;
 	//			}
 	//		}
@@ -3773,8 +3737,7 @@ void BoxApp::CreatePMXObject(
 	//				mWeightBones[j] == name3 ||
 	//				mWeightBones[j] == name4)
 	//			{
-	//				//dWeight = 1.0f;
-	//				dWeight = 0.0f;
+	//				dWeight = 0.3f;
 	//				break;
 	//			}
 	//		}
@@ -3790,14 +3753,14 @@ void BoxApp::CreatePMXObject(
 	//std::vector<std::string> isClothSubmeshNames;
 	//bool clothValue;
 	//isClothSubmeshNames.push_back(std::string("Hair"));
-	////isClothSubmeshNames.push_back(std::string("FrontCloth"));
-	////isClothSubmeshNames.push_back(std::string("FlontCloth_Metal"));
-	////isClothSubmeshNames.push_back(std::string("Cloth"));
-	////isClothSubmeshNames.push_back(std::string("Cloth_Blue"));
-	//////isClothSubmeshNames.push_back(std::string("Cloth_Metal"));
-	//////isClothSubmeshNames.push_back(std::string("Cloth_Jwel"));
-	////isClothSubmeshNames.push_back(std::string("WaistString"));
-	////isClothSubmeshNames.push_back(std::string("WaistString_Metal"));
+	//isClothSubmeshNames.push_back(std::string("FrontCloth"));
+	//isClothSubmeshNames.push_back(std::string("FlontCloth_Metal"));
+	//isClothSubmeshNames.push_back(std::string("Cloth"));
+	//isClothSubmeshNames.push_back(std::string("Cloth_Blue"));
+	////isClothSubmeshNames.push_back(std::string("Cloth_Metal"));
+	////isClothSubmeshNames.push_back(std::string("Cloth_Jwel"));
+	//isClothSubmeshNames.push_back(std::string("WaistString"));
+	//isClothSubmeshNames.push_back(std::string("WaistString_Metal"));
 
 	//// Cloth Submesh List
 	//for (int i = 0; i < model->material_count; i++)
@@ -3824,7 +3787,7 @@ void BoxApp::CreatePMXObject(
 
 	//throw std::runtime_error("");
 
-	//////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////
 
 	std::ifstream inFile(std::string("Weights"), std::ios::in | std::ios::binary);
 	if (!inFile.is_open())
