@@ -33,20 +33,12 @@ void Physics::Init() {
 	gDispatcher = PxDefaultCpuDispatcherCreate(4);
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;
-	sceneDesc.gpuDispatcher = gCudaContextManager->getGpuDispatcher();
 
-	sceneDesc.flags |= PxSceneFlag::eENABLE_GPU_DYNAMICS;
-	sceneDesc.broadPhaseType = PxBroadPhaseType::eGPU;
+	//sceneDesc.gpuDispatcher = gCudaContextManager->getGpuDispatcher();
+	//sceneDesc.flags |= PxSceneFlag::eENABLE_GPU_DYNAMICS;
+	//sceneDesc.broadPhaseType = PxBroadPhaseType::eGPU;
 
 	gScene = gPhysics->createScene(sceneDesc);
-
-	//PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
-	//sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
-	//gDispatcher = PxDefaultCpuDispatcherCreate(2);
-	//sceneDesc.cpuDispatcher = gDispatcher;
-	//sceneDesc.filterShader = PxDefaultSimulationFilterShader;
-
-	//gScene = gPhysics->createScene(sceneDesc);
 
 	PxPvdSceneClient* pvdClient = gScene->getScenePvdClient();
 	if (pvdClient)
@@ -57,22 +49,6 @@ void Physics::Init() {
 	}
 
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.5f);
-
-	//PxCudaContextManagerDesc cudaContextManagerDesc;
-	//PxCudaContextManager* mCudaContextManager = NULL;
-	//mCudaContextManager = PxCreateCudaContextManager(
-	//	*gFoundation,
-	//	cudaContextManagerDesc
-	//);
-	//if (mCudaContextManager)
-	//{
-	//	if (!mCudaContextManager->contextIsValid())
-	//	{
-	//		mCudaContextManager->release();
-	//		mCudaContextManager = NULL;
-	//	}
-	//}
-	//sceneDesc.gpuDispatcher = mCudaContextManager->getGpuDispatcher();
 
 	PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 0), *gMaterial);
 	gScene->addActor(*groundPlane);
@@ -130,7 +106,7 @@ PhyxResource* Physics::getTranspose(int idx) {
 }
 
 void Physics::Update() {
-	gScene->simulate(1.0f / 60.0f);
+	gScene->simulate(1.0f / 30.0f);
 	gScene->fetchResults(true);
 }
 
@@ -302,7 +278,7 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 	fabric->release();
 
 	// Cloth Update FPS
-	cloth->setSolverFrequency(30.0f);
+	cloth->setSolverFrequency(60.0f);
 
 	gScene->addActor(*cloth);
 

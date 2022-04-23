@@ -128,18 +128,16 @@ int D3DApp::Run()
         {	
 			mTimer.Tick();
 
-			//if( !mAppPaused )
+			if( !mAppPaused )
 			{
-				printf("");
 				CalculateFrameStats();
 				Update(mTimer);	
                 Draw(mTimer);
-				printf("");
 			}
-			//else
-			//{
-			//	Sleep(100);
-			//}
+			else
+			{
+				_sleep(100);
+			}
         }
     }
 

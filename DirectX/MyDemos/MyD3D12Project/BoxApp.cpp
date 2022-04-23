@@ -65,7 +65,9 @@ BoxApp::~BoxApp()
 	SetEvent(mClothWriteEvent);
 	SetEvent(mAnimationWriteEvent);
 
-	for (auto& it = mGameObjectDatas.begin(); it != mGameObjectDatas.end(); it++)
+	std::unordered_map<std::string, ObjectData*>::iterator& it = mGameObjectDatas.begin();
+	std::unordered_map<std::string, ObjectData*>::iterator& itEnd = mGameObjectDatas.end();
+	for (; it != itEnd; it++)
 	{
 		ObjectData* obj = it->second;
 		for (int animName = 0; animName < obj->animNameLists.Size(); animName++)
@@ -129,11 +131,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				continue;
 			}
 
-			if (_RenderData->mFormat == "FBX")
-			{
-
-			}
-			else if (_RenderData->mFormat == "PMX")
+			if (_RenderData->mFormat == "PMX")
 			{
 				vOffset = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].BaseVertexLocation;
 				iOffset = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].StartIndexLocation;
@@ -264,70 +262,87 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				iSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].IndexSize;
 
 				// 현재 Material의 Vertex의 정보를 얻어온다.
-				vertices.resize(vSize);
-				primitives.resize(iSize);
+				vertices.clear();
+				primitives.clear();
+				vertices.resize(0);
+				primitives.resize(0);
 
 				bool hasZero(false), hasOne(false);
 
-				int mOffset = 0;
-				int mIDXMin;
+				/*if (!(hasZero && hasOne))
+					throw std::runtime_error("cloth invWeight Exception. (InvWeight must has 0 and 1 least 1.)");*/
+
+				int primCount = 0;
+				for (UINT idx = iOffset; idx < iOffset + iSize; idx+=3)
+				{
+					if (_RenderData->mClothWeights[_RenderData->mModel.indices[idx]] == 0.0f || 
+						_RenderData->mClothWeights[_RenderData->mModel.indices[idx + 1]] == 0.0f || 
+						_RenderData->mClothWeights[_RenderData->mModel.indices[idx + 2]] == 0.0f)
+					{
+						continue;
+					}
+
+					primitives.push_back(_RenderData->mModel.indices[idx]);
+					primitives.push_back(_RenderData->mModel.indices[idx + 1]);
+					primitives.push_back(_RenderData->mModel.indices[idx + 2]);
+
+					primCount++;
+				}
 
 				DirectX::XMVECTOR posVector, resVector;
 				DirectX::XMMATRIX originMatrix;
 
+				std::unordered_map<UINT, UINT> testest;
+
+				// 서브메쉬에서 사용되는 버텍스 인덱스리스트를 담고있는 vertBySubmesh에서 weight가 0.0인 경우에 
+				// vertBySubmesh에서 제외 할 것임.
+				int mOffset = 0;
+				int mRemover = -1;
 				for (std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin(); vIDX != _RenderData->vertBySubmesh[submesh].end(); vIDX++)
 				{
+					if (mRemover != -1)
+					{
+						_RenderData->vertBySubmesh[submesh].erase(mRemover);
+						mRemover = -1;
+					}
+
 					posVector = DirectX::XMLoadFloat3(&_RenderData->vertices[*vIDX].Pos);
 					originMatrix = DirectX::XMLoadFloat4x4(&_RenderData->mOriginRevMatrix[2]);
 
 					resVector = DirectX::XMVector3Transform(posVector, originMatrix);
 
-					vertices[mOffset].pos[0] = resVector.m128_f32[0];
-					vertices[mOffset].pos[1] = resVector.m128_f32[1];
-					vertices[mOffset].pos[2] = resVector.m128_f32[2];
-					vertices[mOffset].invWeight = _RenderData->mClothWeights[*vIDX];
-
-					if (vertices[mOffset].invWeight == 0.0f)
+					if (_RenderData->mClothWeights[*vIDX] == 0.0f) {
 						hasZero = true;
-					else if (vertices[mOffset].invWeight == 1.0f)
+						mRemover = *vIDX;
+
+						continue;
+					}
+					else {
 						hasOne = true;
+					}
+
+					physx::PxClothParticle part;
+					part.pos[0] = resVector.m128_f32[0];
+					part.pos[1] = resVector.m128_f32[1];
+					part.pos[2] = resVector.m128_f32[2];
+					part.invWeight = _RenderData->mClothWeights[*vIDX];
+
+					vertices.push_back(part);
+
+					testest[*vIDX] = mOffset;
 
 					mOffset++;
 				}
 
-				/*if (!(hasZero && hasOne))
-					throw std::runtime_error("cloth invWeight Exception. (InvWeight must has 0 and 1 least 1.)");*/
+				for (int iIDX = 0; iIDX < primitives.size(); iIDX++)
+				{
+					primitives[iIDX] = testest[primitives[iIDX]];
+				}
 
-				if (!hasZero)
+				//if (!hasZero)
 					vertices[0].invWeight = 0.0f;
 				if (!hasOne)
 					vertices[0].invWeight = 1.0f;
-
-				mOffset = 0;
-				mIDXMin = _RenderData->mModel.indices[iOffset];
-				// 최소 인덱스를 찾는다.
-				for (UINT i = iOffset; i < iOffset + 10; i++)
-				{
-					if (mIDXMin > _RenderData->mModel.indices[i])
-						mIDXMin = _RenderData->mModel.indices[i];
-				}
-
-				// 현재 Material의 Index 정보를 얻어온다.
-				bool isSuccessedScaled = false;
-				for (UINT i = iOffset; i < iOffset + iSize; i++)
-				{
-					if (_RenderData->mModel.indices[i] - mIDXMin < 0)
-						throw std::runtime_error("Invaild Indices..");
-					else if (_RenderData->mModel.indices[i] - mIDXMin == 0)
-						isSuccessedScaled = true;
-
-					primitives[mOffset++] = _RenderData->mModel.indices[i] - mIDXMin;
-				}
-
-				if (!isSuccessedScaled)
-					throw std::runtime_error("Invaild Indices..");
-
-				//primitives.pop_back();
 
 				PxClothMeshDesc meshDesc;
 				meshDesc.points.data = (void*)&vertices.data()->pos;
@@ -339,7 +354,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				meshDesc.invMasses.stride = sizeof(PxClothParticle);
 
 				meshDesc.triangles.data = (void*)primitives.data();
-				meshDesc.triangles.count = static_cast<PxU32>(primitives.size() / 3);
+				meshDesc.triangles.count = static_cast<PxU32>(primCount);
 				meshDesc.triangles.stride = sizeof(PxU32) * 3;
 
 				_RenderData->mClothes[submesh] = mPhys.LoadCloth(vertices.data(), meshDesc);
@@ -359,6 +374,9 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 	ResetEvent(mClothReadEvent);
 	SetEvent(mClothWriteEvent);
 
+	int loop = 0;
+	bool loopUpdate = false;
+
 	while (!StopThread)
 	{
 		// Cloth Vertices가 Write Layer가 될 때 까지 대기
@@ -369,6 +387,8 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 		// Update Cloth Vertices
 		for (std::unordered_map<std::string, ObjectData*>::iterator obj = mGameObjectDatas.begin(); obj != mGameObjectDatas.end(); obj++)
 		{
+			if (!loopUpdate)	break;
+
 			ObjectData* _RenderData = obj->second;
 
 			// new float[4 * vSize] 대신 submesh VBV에 바로 업로드 할 수 있을까?
@@ -405,6 +425,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				if (_RenderData->isCloth[submeshIDX]) 
 				{
 					// Adapted Cloth Physx
+								// Adapted Cloth Physx
 					mRootF44 = _RenderData->mBoneMatrix[_RenderData->currentFrame][2];
 					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
 
@@ -424,43 +445,50 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 						_RenderData->mDesc[submeshIDX].VertexSize;
 
 					PxU32 nbParticles = _RenderData->mClothes[submeshIDX]->getNbParticles();
-					if (nbParticles != vertexSize)
-						throw std::runtime_error("Wrong Vertices NUMBER");
 
-					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eWRITABLE);
+					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eREADABLE);
 
-					for (UINT vertexIDX = 0; vertexIDX < vertexSize; vertexIDX++)
+					std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submeshIDX].begin();
+					std::set<int>::iterator& vEnd = _RenderData->vertBySubmesh[submeshIDX].end();
+					PxClothParticle* ppdPart = &ppd->particles[0];
+
+					for (; vIDX != vEnd; vIDX++)
 					{
-						if (ppd->particles[vertexIDX].invWeight != 0.0f)
-						{
-							mClothOffset[vertexIDX].Pos.x = ppd->particles[vertexIDX].pos[0];
-							mClothOffset[vertexIDX].Pos.y = ppd->particles[vertexIDX].pos[1];
-							mClothOffset[vertexIDX].Pos.z = ppd->particles[vertexIDX].pos[2];
-						}
-						else
-						{
-							ppd->particles[vertexIDX].pos[0] = mClothOffset[vertexIDX].Pos.x;
-							ppd->particles[vertexIDX].pos[1] = mClothOffset[vertexIDX].Pos.y;
-							ppd->particles[vertexIDX].pos[2] = mClothOffset[vertexIDX].Pos.z;
-						}
+						mClothOffset[*vIDX].Pos.x = ppdPart->pos[0];
+						mClothOffset[*vIDX].Pos.y = ppdPart->pos[1];
+						mClothOffset[*vIDX].Pos.z = ppdPart->pos[2];
+
+						ppdPart++;
 					}
 
 					ppd->unlock();
 				} // if (_RenderData->isCloth[submeshIDX])
-			}
-		}
+			} // for Submesh
+		} // for GameObject
 
 		// Cloth Vertices를 Read Layer로 변경
 		ResetEvent(mClothWriteEvent);
 		SetEvent(mClothReadEvent);
 
 		// 현 판을 갈아 엎고 다시 대기 
-		//mPhys.Update();
+		if (loop++ == 5)
+		{
+			loop = 0;
+			mPhys.Update();
+			loopUpdate = true;
+		}
+		else
+		{
+			loopUpdate = false;
+		}
+
 	}
 
 
 	// Destroier
-	for (std::unordered_map<std::string, ObjectData*>::iterator obj = mGameObjectDatas.begin(); obj != mGameObjectDatas.end(); obj++)
+	std::unordered_map<std::string, ObjectData*>::iterator obj = mGameObjectDatas.begin();
+	std::unordered_map<std::string, ObjectData*>::iterator objEnd = mGameObjectDatas.end();
+	for (; obj != objEnd; obj++)
 	{
 		ObjectData* _RenderData = obj->second;
 
@@ -491,7 +519,9 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 		if (StopThread) break;
 
 		// Update Cloth Vertices
-		for (std::unordered_map<std::string, ObjectData*>::iterator obj = mGameObjectDatas.begin(); obj != mGameObjectDatas.end(); obj++)
+		std::unordered_map<std::string, ObjectData*>::iterator obj = mGameObjectDatas.begin();
+		std::unordered_map<std::string, ObjectData*>::iterator objEnd = mGameObjectDatas.end();
+		for (; obj != objEnd; obj++)
 		{
 			ObjectData* _RenderData = obj->second;
 
@@ -640,6 +670,8 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 // Client
 bool BoxApp::Initialize()
 {
+	d3dUtil::loadImage(std::string(""), std::string(""), std::string(""));
+
     if(!D3DApp::Initialize())
 		return false;
 		
@@ -836,8 +868,9 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 	// UpdateMaterialBuffer
 	// Material Count == Submesh Count
 	// 인스턴스들을 정의하기 전에 인스턴스에 사용 될 Material을 정의한다.
-
-	for (std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin(); matIDX != mMaterials.end(); matIDX++)
+	std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin();
+	std::vector<std::pair<std::string, Material>>::iterator& matEnd = mMaterials.end();
+	for (; matIDX != matEnd; matIDX++)
 	{
 		XMMATRIX matTransform = XMLoadFloat4x4(&matIDX->second.MatTransform);
 
@@ -863,7 +896,9 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 	mRenderInstTasks.resize(mGameObjectDatas.size());
 
 	RenderItem* obj = NULL;
-	for (std::list<RenderItem*>::iterator objIDX = mGameObjects.begin(); objIDX != mGameObjects.end(); objIDX++) 
+	std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
+	std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
+	for (; objIDX != objEnd; objIDX++) 
 	{
 		obj = *objIDX;
 
@@ -981,83 +1016,15 @@ void BoxApp::UpdateAnimation(const GameTimer& gt)
 	ObjectData* objData = NULL;
 
 	float delta = gt.DeltaTime();
-
-	for (std::list<RenderItem*>::iterator objIDX = mGameObjects.begin(); objIDX != mGameObjects.end(); objIDX++)
+	std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
+	std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
+	for (; objIDX != objEnd; objIDX++)
 	{
 		obj = *objIDX;
 		objData = mGameObjectDatas[obj->mName];
 
 		// 현재 애니메이션 실행 시간을 업데이트 한다.
 		objData->currentDelayPerSec += delta;
-
-		//if (obj->mFormat == "FBX") {
-		//	Vertex* VertexPos = objData->vertices.data();
-		//	Vertex* mVertexOffset = NULL;
-		//	UINT vertexSize = 0;
-
-		//	for (int submeshIDX = 0; submeshIDX < (int)objData->SubmeshCount; submeshIDX++)
-		//	{
-		//		// 만일 애니메이션 Vertex에 고정되어 플레이 되는 Submesh라면
-		//		if (!objData->isCloth[submeshIDX])
-		//		{
-		//			// 만일 현재 프레임의 애니메이션 정보가 NULL이면 0으로 공백을 채운다.
-		//			if (objData->mAnimVertexSize[objData->currentFrame][submeshIDX] == 0)
-		//				continue;
-
-		//			// 현 게임 오브젝트의 VertexList 내 해당 Submesh가 적힌 오프셋을 불러옴
-		//			mVertexOffset =
-		//				VertexPos +
-		//				obj->mGeometry.DrawArgs[obj->mGeometry.meshNames[submeshIDX]].BaseVertexLocation;
-		//			// Submesh에 해당하는 Vertex 개수
-		//			vertexSize =
-		//				obj->mGeometry.DrawArgs[obj->mGeometry.meshNames[submeshIDX]].VertexSize;
-
-		//			// 애니메이션이 최신화 된 버텍스 시작 주소
-		//			float* animPos = objData->mAnimVertex[objData->currentFrame][submeshIDX];
-		//			// 애니메이션 버텍스 사이즈
-		//			int animVertSize = objData->mAnimVertexSize[objData->currentFrame][submeshIDX];
-
-		//			int vcount = 0;
-		//			for (UINT vertexIDX = 0; vertexIDX < vertexSize; vertexIDX++)
-		//			{
-		//				mVertexOffset[vertexIDX].Pos.x = animPos[vcount++];
-		//				mVertexOffset[vertexIDX].Pos.y = animPos[vcount++];
-		//				mVertexOffset[vertexIDX].Pos.z = animPos[vcount++];
-		//				vcount++;	// skip w
-		//			}
-
-		//		} // !mGameObjects[gameIdx]->cloth[submeshIDX
-		//	} // Loop of GameObject Submesh
-
-		//	objData->updateCurrentFrame = false;
-		//}
-
-		//if (obj->mFormat == "PMX") {
-		//	if (objData->updateCurrentFrame) {
-		//		DirectX::XMFLOAT4X4* BoneOriginOffset;
-		//		DirectX::XMFLOAT4X4* BoneOffsetOfFrame;
-
-		//		BoneOriginOffset = objData->mOriginRevMatrix.data();
-		//		BoneOffsetOfFrame = objData->mBoneMatrix[objData->currentFrame].data();
-		//		//BoneOffsetOfFrame = objData->mBoneMatrix[0].data();
-
-		//		for (int i = 0; i < objData->mModel.bone_count; i++)
-		//		{
-		//			PmxAnimationData pmxAnimData;
-
-		//			pmxAnimData.mOriginMatrix = BoneOriginOffset[i];
-		//			pmxAnimData.mMatrix = BoneOffsetOfFrame[i];
-
-		//			PmxAnimationBuffer->CopyData(i, pmxAnimData);
-		//		}
-
-		//		objData->updateCurrentFrame = false;
-		//	}
-
-		//	// 잔분 시간 업데이트
-		//	mRateOfAnimTimeCB.rateOfAnimTime = objData->mAnimResidueTime;
-		//	RateOfAnimTimeCB->CopyData(0, mRateOfAnimTimeCB);
-		//}
 	}
 }
 
@@ -1105,7 +1072,9 @@ void BoxApp::InitSwapChain(int numThread)
 
 	{
 		RenderItem* obj = NULL;
-		for (std::list<RenderItem*>::iterator objIDX = mGameObjects.begin(); objIDX != mGameObjects.end(); objIDX++)
+		std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
+		std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
+		for (; objIDX != objEnd; objIDX++)
 		{
 			obj = *objIDX;
 
@@ -1909,7 +1878,9 @@ void BoxApp::BuildFrameResource()
 	int BoneNum = 0;
 
 	RenderItem* obj = NULL;
-	for (std::list<RenderItem*>::iterator objIDX = mGameObjects.begin(); objIDX != mGameObjects.end(); objIDX++) {
+	std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
+	std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
+	for (; objIDX != objEnd; objIDX++) {
 		obj = *objIDX;
 
 		InstanceNum += (2 * (obj->InstanceCount));
@@ -3643,8 +3614,7 @@ void BoxApp::CreatePMXObject(
 	//		{
 	//			if (mWeightBones[j] == name1)
 	//			{
-	//				//dWeight = 1.0f;
-	//				dWeight = 0.3f;
+	//				dWeight = 1.0f;
 	//				break;
 	//			}
 	//		}
@@ -3658,19 +3628,8 @@ void BoxApp::CreatePMXObject(
 
 	//		for (int j = 0; j < mWeightBonesRoot.size(); j++)
 	//		{
-	//			//if (mWeightBonesRoot[j] == name1)
-	//			//{
-	//			//	dWeight = bdef2->bone_weight;
-	//			//	break;
-	//			//}
-	//			//else if (mWeightBonesRoot[j] == name2)
-	//			//{
-	//			//	dWeight = 1.0f - bdef2->bone_weight;
-	//			//	break;
-	//			//}
-
-	//			if (mWeightBones[j] == name1 ||
-	//				mWeightBones[j] == name2)
+	//			if (mWeightBonesRoot[j] == name1 ||
+	//				mWeightBonesRoot[j] == name2)
 	//			{
 	//				dWeight = 0.0f;
 	//				break;
@@ -3679,11 +3638,14 @@ void BoxApp::CreatePMXObject(
 
 	//		for (int j = 0; j < mWeightBones.size(); j++)
 	//		{
-	//			if (mWeightBones[j] == name1 ||
-	//				mWeightBones[j] == name2)
+	//			if (mWeightBones[j] == name1)
 	//			{
-	//				//dWeight = 1.0f;
-	//				dWeight = 0.3f;
+	//				dWeight = bdef2->bone_weight;
+	//				break;
+	//			}
+	//			else if (mWeightBones[j] == name2)
+	//			{
+	//				dWeight = 1.0f - bdef2->bone_weight;
 	//				break;
 	//			}
 	//		}
@@ -3699,31 +3661,10 @@ void BoxApp::CreatePMXObject(
 
 	//		for (int j = 0; j < mWeightBonesRoot.size(); j++)
 	//		{
-	//			//if (mWeightBonesRoot[j] == name1)
-	//			//{
-	//			//	dWeight = bdef4->bone_weight1;
-	//			//	break;
-	//			//}
-	//			//else if (mWeightBonesRoot[j] == name2)
-	//			//{
-	//			//	dWeight = bdef4->bone_weight2;
-	//			//	break;
-	//			//}
-	//			//else if (mWeightBonesRoot[j] == name3)
-	//			//{
-	//			//	dWeight = bdef4->bone_weight3;
-	//			//	break;
-	//			//}
-	//			//else if (mWeightBonesRoot[j] == name4)
-	//			//{
-	//			//	dWeight = bdef4->bone_weight4;
-	//			//	break;
-	//			//}
-
-	//			if (mWeightBones[j] == name1 ||
-	//				mWeightBones[j] == name2 ||
-	//				mWeightBones[j] == name3 ||
-	//				mWeightBones[j] == name4)
+	//			if (mWeightBonesRoot[j] == name1 ||
+	//				mWeightBonesRoot[j] == name2 ||
+	//				mWeightBonesRoot[j] == name3 ||
+	//				mWeightBonesRoot[j] == name4)
 	//			{
 	//				dWeight = 0.0f;
 	//				break;
@@ -3732,12 +3673,24 @@ void BoxApp::CreatePMXObject(
 
 	//		for (int j = 0; j < mWeightBones.size(); j++)
 	//		{
-	//			if (mWeightBones[j] == name1 ||
-	//				mWeightBones[j] == name2 ||
-	//				mWeightBones[j] == name3 ||
-	//				mWeightBones[j] == name4)
+	//			if (mWeightBones[j] == name1)
 	//			{
-	//				dWeight = 0.3f;
+	//				dWeight = bdef4->bone_weight1;
+	//				break;
+	//			}
+	//			else if (mWeightBones[j] == name2)
+	//			{
+	//				dWeight = bdef4->bone_weight2;
+	//				break;
+	//			}
+	//			else if (mWeightBones[j] == name3)
+	//			{
+	//				dWeight = bdef4->bone_weight3;
+	//				break;
+	//			}
+	//			else if (mWeightBones[j] == name4)
+	//			{
+	//				dWeight = bdef4->bone_weight4;
 	//				break;
 	//			}
 	//		}
@@ -4029,7 +3982,9 @@ void BoxApp::uploadTexture(_In_ Texture& tex) {
 }
 
 void BoxApp::uploadMaterial(_In_ std::string name) {
-	for (std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin(); matIDX != mMaterials.end(); matIDX++)
+	std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin();
+	std::vector<std::pair<std::string, Material>>::iterator& matEnd = mMaterials.end();
+	for (; matIDX != matEnd; matIDX++)
 	{
 		if (matIDX->second.Name == name)
 			return;
@@ -4054,8 +4009,9 @@ void BoxApp::uploadMaterial(_In_ std::string name) {
 void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName) 
 {
 	mMaterials;
-
-	for (std::vector<std::pair<std::string, Material>>::iterator it = mMaterials.begin(); it != mMaterials.end(); it++)
+	std::vector<std::pair<std::string, Material>>::iterator it = mMaterials.begin();
+	std::vector<std::pair<std::string, Material>>::iterator itEnd = mMaterials.end();
+	for (; it != itEnd; it++)
 	{
 		if (it->second.Name == matName)
 			return;

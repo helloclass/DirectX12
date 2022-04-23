@@ -29,6 +29,10 @@
 #include "DDSTextureLoader.h"
 #include "MathHelper.h"
 
+#include "FreeImage.h"
+#pragma comment(lib, "FreeImage.lib")
+#pragma comment(lib, "FreeImaged.lib")
+
 // extern const int gNumFrameResources;
 
 inline void d3dSetDebugName(IDXGIObject* obj, const char* name)
@@ -94,8 +98,6 @@ public:
 
     static bool IsKeyDown(int vkeyCode);
 
-    static std::string ToString(HRESULT hr);
-
     static UINT CalcConstantBufferByteSize(UINT byteSize)
     {
         // Constant buffers must be a multiple of the minimum hardware
@@ -152,6 +154,8 @@ public:
 
 	static DirectX::XMMATRIX toMatrix(DirectX::XMFLOAT4X4 mat);
 	static DirectX::XMFLOAT4X4 toFloat4X4(DirectX::XMMATRIX mat);
+
+	static void loadImage(std::string path, std::string name, std::string format = "png");
 
 };
 
