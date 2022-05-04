@@ -111,6 +111,10 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 	// Update Vertex
 	float* mClothBuffer = NULL;
 
+	// 64MB
+	FIBITMAP* mWeightImage = NULL;
+	int width, height;
+
 	// 각 SubMesh에 Cloth Physx Obj 추가
 	for (std::list<RenderItem*>::iterator& obj = mGameObjects.begin(); obj != mGameObjects.end(); obj++)
 	{
@@ -224,13 +228,13 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				vertices.resize(vSize);
 				primitives.resize(iSize);
 
-				// 현재 Material의 Vertex의 정보를 얻어온다.
 				for (UINT v = 0; v < vSize; v++) {
 					vertices[v].pos[0] = _RenderData->vertices[vOffset + v].Pos.x;
 					vertices[v].pos[1] = _RenderData->vertices[vOffset + v].Pos.y;
 					vertices[v].pos[2] = _RenderData->vertices[vOffset + v].Pos.z;
 					vertices[v].invWeight = _RenderData->mClothWeights[vOffset + v];
 				}
+
 				// 현재 Material의 Index 정보를 얻어온다.
 				for (UINT i = 0; i < iSize; i++) {
 					primitives[i] = _RenderData->indices[iOffset + i];
@@ -296,8 +300,33 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 				// 서브메쉬에서 사용되는 버텍스 인덱스리스트를 담고있는 vertBySubmesh에서 weight가 0.0인 경우에 
 				// vertBySubmesh에서 제외 할 것임.
+				// 현재 Material의 Vertex의 정보를 얻어온다.
+				RGBQUAD color;
+				int uvX, uvY;
+
 				int mOffset = 0;
 				int mRemover = -1;
+
+				int texIDX = _RenderData->mModel.materials[submesh].diffuse_texture_index;
+				std::wstring wname = _RenderData->mModel.textures[texIDX];
+
+				int extIDX = wname.find(L".png");
+				wname = wname.substr(0, extIDX);
+				wname.append(L"_Weight.png");
+
+				std::string name;
+				name.assign(wname.begin(), wname.end());
+
+				mWeightImage = d3dUtil::loadImage(
+					std::string(""),
+					name,
+					std::string(""),
+					width,
+					height
+				);
+
+				int testRedNum = 0;
+
 				for (std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin(); vIDX != _RenderData->vertBySubmesh[submesh].end(); vIDX++)
 				{
 					if (mRemover != -1)
@@ -310,6 +339,23 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					originMatrix = DirectX::XMLoadFloat4x4(&_RenderData->mOriginRevMatrix[2]);
 
 					resVector = DirectX::XMVector3Transform(posVector, originMatrix);
+
+					uvX = width * _RenderData->vertices[*vIDX].TexC.x;
+					uvY = height * _RenderData->vertices[*vIDX].TexC.y;
+
+					FreeImage_GetPixelColor(mWeightImage, uvX, uvY, &color);
+
+					if (
+						color.rgbRed == 255 &&
+						color.rgbGreen == 0 &&
+						color.rgbBlue == 0
+						)
+					{
+						_RenderData->mClothWeights[*vIDX] = 0.0f;
+						testRedNum++;
+					}
+
+					///////////////////////////
 
 					if (_RenderData->mClothWeights[*vIDX] == 0.0f) {
 						hasZero = true;
@@ -334,12 +380,14 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					mOffset++;
 				}
 
+				FreeImage_Unload(mWeightImage);
+				FreeImage_DeInitialise();
+
 				for (int iIDX = 0; iIDX < primitives.size(); iIDX++)
 				{
 					primitives[iIDX] = testest[primitives[iIDX]];
 				}
 
-				//if (!hasZero)
 					vertices[0].invWeight = 0.0f;
 				if (!hasOne)
 					vertices[0].invWeight = 1.0f;
@@ -425,7 +473,6 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				if (_RenderData->isCloth[submeshIDX]) 
 				{
 					// Adapted Cloth Physx
-								// Adapted Cloth Physx
 					mRootF44 = _RenderData->mBoneMatrix[_RenderData->currentFrame][2];
 					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
 
@@ -471,7 +518,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 		SetEvent(mClothReadEvent);
 
 		// 현 판을 갈아 엎고 다시 대기 
-		if (loop++ == 5)
+		if (loop++ == 3)
 		{
 			loop = 0;
 			mPhys.Update();
@@ -670,8 +717,6 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 // Client
 bool BoxApp::Initialize()
 {
-	d3dUtil::loadImage(std::string(""), std::string(""), std::string(""));
-
     if(!D3DApp::Initialize())
 		return false;
 		

@@ -244,36 +244,40 @@ std::wstring DxException::ToString()const
     return FunctionName + L" failed in " + Filename + L"; line " + std::to_wstring(LineNumber) + L"; error: " + msg;
 }
 
-void d3dUtil::loadImage(std::string path, std::string name, std::string format)
+FIBITMAP* d3dUtil::loadImage (
+	std::string path, 
+	std::string name, 
+	std::string format,
+	int& width,
+	int& height
+)
 {
-	FIBITMAP *image;
+	FIBITMAP* image = NULL;
+	std::string Path;
+
+	if (path != std::string(""))
+	{
+		Path = path + "\\" + name;
+	}
+	else
+	{
+		Path = name;
+	}
 
 	// 읽어들일 이미지 파일의 이름 
 	char filename_input[300]; 
-	strcpy(filename_input, "C:\\Users\\user\\Desktop\\weight\\tex_Hair_Ganyu\\_Hair_Weight_Texture.png"); 
-	
-	// 가로방향 (이미지 폭)의 픽셀 갯수 
-	int npix_width = 0; 
-	// 세로방향 (이미지 높이)의 픽셀 갯수 
-	int npix_height = 0; 
-	int npix_bpp = 0;
+	strcpy(filename_input, Path.c_str()); 
 	
 	// 이미지 파일을 읽어들입니다. 
 	image = FreeImage_Load(FIF_PNG, filename_input, PNG_DEFAULT);
 	if (!image)
-		throw std::runtime_error("Can't Found Image");
+		return NULL;
 
-	npix_width	= FreeImage_GetWidth(image);
-	npix_height = FreeImage_GetHeight(image);
-	npix_bpp	= FreeImage_GetBPP(image);
+	width = FreeImage_GetWidth(image);
+	height = FreeImage_GetHeight(image);
 
-	RGBQUAD color; 
-	FreeImage_GetPixelColor(image, npix_width / 2, npix_height / 2, &color);
-	printf("");
+	// RGBQUAD color; 
+	// FreeImage_GetPixelColor(image, x, y, &color);
 
-	FreeImage_GetPixelColor(image, npix_width / 2 + 10, npix_height / 2 + 10, &color);
-	printf("");
-
-	FreeImage_GetPixelColor(image, npix_width / 2 - 20, npix_height / 2 - 20, &color);
-	printf("");
+	return image;
 }

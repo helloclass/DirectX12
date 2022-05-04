@@ -155,7 +155,13 @@ public:
 	static DirectX::XMMATRIX toMatrix(DirectX::XMFLOAT4X4 mat);
 	static DirectX::XMFLOAT4X4 toFloat4X4(DirectX::XMMATRIX mat);
 
-	static void loadImage(std::string path, std::string name, std::string format = "png");
+	static FIBITMAP* loadImage(
+		std::string path, 
+		std::string name, 
+		std::string format,
+		int& width,
+		int& height
+	);
 
 };
 

@@ -145,6 +145,7 @@ public:
 	std::vector<PxCloth*>						mClothes;
 	std::vector< PxRigidDynamic*>				mRigidbody;
 	std::vector<float>							mClothWeights;
+	std::vector<int>							mClothBinedBoneIDX;
 
 	std::vector<int>								mMorphDirty;
 	std::vector<struct _VERTEX_MORPH_DESCRIPTOR>	mMorph;

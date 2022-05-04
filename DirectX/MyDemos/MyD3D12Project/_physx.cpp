@@ -24,9 +24,9 @@ void Physics::Init() {
 	if (!PxInitExtensions(*gPhysics, gPvd))
 		throw std::runtime_error("PxInitExtensions Failed!!");
 
-	PxCudaContextManagerDesc cudaContextManagerDesc;
+	//PxCudaContextManagerDesc cudaContextManagerDesc;
 
-	PxCudaContextManager* gCudaContextManager = PxCreateCudaContextManager(*gFoundation, cudaContextManagerDesc);
+	//PxCudaContextManager* gCudaContextManager = PxCreateCudaContextManager(*gFoundation, cudaContextManagerDesc);
 
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
 	sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
@@ -52,7 +52,6 @@ void Physics::Init() {
 
 	PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 0), *gMaterial);
 	gScene->addActor(*groundPlane);
-
 }
 
 void Physics::CleanUp() {
@@ -322,9 +321,9 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 	cloth->setClothFlag(PxClothFlag::eSWEPT_CONTACT, useSweptContact);
 
 	// use GPU or not
-#if PX_SUPPORT_GPU_PHYSX || PX_XBOXONE
-	cloth->setClothFlag(gGpuFlag, true);
-#endif
+//#if PX_SUPPORT_GPU_PHYSX || PX_XBOXONE
+//	cloth->setClothFlag(gGpuFlag, true);
+//#endif
 
 	// custom fiber configuration
 	if (useCustomConfig)
