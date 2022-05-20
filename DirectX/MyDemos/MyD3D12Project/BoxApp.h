@@ -115,6 +115,12 @@ public:
 
 	// 모든 서브메쉬의 인덱스가 저장
 	std::vector<std::set<int>> vertBySubmesh;
+	// weight == 0.0
+	std::vector<std::vector<int>> srcFixVertexSubmesh;
+	std::vector<std::vector<DirectX::XMFLOAT3*>> dstFixVertexSubmesh;
+	// weight != 0.0
+	std::vector<std::vector<int>> srcDynamicVertexSubmesh;
+	std::vector<std::vector<DirectX::XMFLOAT3*>> dstDynamicVertexSubmesh;
 
 	UINT SubmeshCount = 0;
 
@@ -277,11 +283,11 @@ public:
 	void setTestPosition(_In_ RenderItem* r, _In_ XMFLOAT3 pos, _In_ UINT idx = 0);
 
 	void setAnimIndex(_In_ int animIndex);
-	int getAnimIndex();
+	float getAnimIndex();
 	void setAnimBeginIndex(_In_ int animBeginIndex);
-	int getAnimBeginIndex();
+	float getAnimBeginIndex();
 	void setAnimEndIndex(_In_ int animEndIndex);
-	int getAnimEndIndex();
+	float getAnimEndIndex();
 	void setAnimIsLoop(_In_ bool animLoop);
 	int getAnimIsLoop();
 };

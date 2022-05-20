@@ -29,7 +29,7 @@ void Physics::Init() {
 	//PxCudaContextManager* gCudaContextManager = PxCreateCudaContextManager(*gFoundation, cudaContextManagerDesc);
 
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
-	sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
+	sceneDesc.gravity = PxVec3(0.0f, -0.98f, 0.0f);
 	gDispatcher = PxDefaultCpuDispatcherCreate(4);
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;
@@ -50,8 +50,8 @@ void Physics::Init() {
 
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.5f);
 
-	PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 0), *gMaterial);
-	gScene->addActor(*groundPlane);
+	//PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 0), *gMaterial);
+	//gScene->addActor(*groundPlane);
 }
 
 void Physics::CleanUp() {
@@ -267,8 +267,9 @@ void Physics::setTorque(int idx, float x, float y, float z) {
 
 // Cloth 실험
 PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc) {
-	PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(0, -1, 0));
-	//PX_ASSERT(fabric);
+	//PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(0, 0, 0));
+	PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(-0.98f, 0, 0));
+	PX_ASSERT(fabric);
 
 	PxTransform pose = PxTransform(PxIdentity);
 	PxCloth* cloth = gPhysics->createCloth(pose, *fabric, vertices, PxClothFlags());
@@ -277,41 +278,44 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 	fabric->release();
 
 	// Cloth Update FPS
-	cloth->setSolverFrequency(60.0f);
+	cloth->setSolverFrequency(45.0f);
 
 	gScene->addActor(*cloth);
 
-	cloth->setStiffnessFrequency(10.0f);
+	//cloth->setStiffnessFrequency(10.0f);
+
+	////////////////////////////////////////////////////////////////////////////////////
+	// 각 버텍스에 속도, 가속도를 부여하여 모델이 깨져보일 수 있다.
+	////////////////////////////////////////////////////////////////////////////////////
 
 	// damp global particle velocity to 90% every 0.1 seconds
-	cloth->setDampingCoefficient(PxVec3(0.2f)); // damp local particle velocity
-	cloth->setLinearDragCoefficient(PxVec3(0.2f)); // transfer frame velocity
-	cloth->setAngularDragCoefficient(PxVec3(0.2f)); // transfer frame rotation
+	//cloth->setDampingCoefficient(PxVec3(0.2f)); // damp local particle velocity
+	//cloth->setLinearDragCoefficient(PxVec3(0.2f)); // transfer frame velocity
+	//cloth->setAngularDragCoefficient(PxVec3(0.2f)); // transfer frame rotation
 
 	// reduce impact of frame acceleration
 	// x, z: cloth swings out less when walking in a circle
 	// y: cloth responds less to jump acceleration
-	cloth->setLinearInertiaScale(PxVec3(0.8f, 0.6f, 0.8f));
+	//cloth->setLinearInertiaScale(PxVec3(0.8f, 0.6f, 0.8f));
 
-	// leave impact of frame torque at default
-	cloth->setAngularInertiaScale(PxVec3(1.0f));
+	////////////////////////////////////////////////////////////////////////////////////
 
-	// reduce centrifugal force of rotating frame
-	cloth->setCentrifugalInertiaScale(PxVec3(0.3f));
+	//// leave impact of frame torque at default
+	//cloth->setAngularInertiaScale(PxVec3(1.0f));
 
-	cloth->setInertiaScale(0.5f);
+	//// reduce centrifugal force of rotating frame
+	//cloth->setCentrifugalInertiaScale(PxVec3(0.3f));
 
-	// Continuouse Detecting Collision
-	cloth->setClothFlag(PxClothFlag::eSWEPT_CONTACT, true);
+	//cloth->setInertiaScale(0.5f);
 
 	// 쿨롱 마찰 활성화
-	cloth->setFrictionCoefficient(0.5f);
-	// 충돌 입자의 질량을 임의로 늘린다.
-	cloth->setCollisionMassScale(1.0f);
+	//cloth->setFrictionCoefficient(0.5f);
+	//// 충돌 입자의 질량을 임의로 늘린다.
+	//cloth->setCollisionMassScale(1.0f);
 
-	// 자체 충돌 동작 활성화
-	cloth->setSelfCollisionDistance(0.1f);
-	cloth->setSelfCollisionStiffness(1.0f);
+	//// 자체 충돌 동작 활성화
+	//cloth->setSelfCollisionDistance(0.1f);
+	//cloth->setSelfCollisionStiffness(1.0f);
 
 	const bool useSweptContact = true;
 	const bool useCustomConfig = true;
@@ -328,24 +332,23 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 	// custom fiber configuration
 	if (useCustomConfig)
 	{
-		PxClothStretchConfig stretchConfig;
-
-		stretchConfig.stiffness = 1.0f;
-		stretchConfig.stiffnessMultiplier = 1.0f;
-		stretchConfig.compressionLimit = 1.0f;
-		stretchConfig.stretchLimit = 1.0f;
-
-		//cloth->setStretchConfig(PxClothFabricPhaseType::eVERTICAL, stretchConfig);
-		//cloth->setStretchConfig(PxClothFabricPhaseType::eHORIZONTAL, stretchConfig);
-		//cloth->setStretchConfig(PxClothFabricPhaseType::eSHEARING, stretchConfig);
-		//cloth->setStretchConfig(PxClothFabricPhaseType::eBENDING, stretchConfig);
-
 		cloth->setStretchConfig(PxClothFabricPhaseType::eVERTICAL, 1.0f);
 		cloth->setStretchConfig(PxClothFabricPhaseType::eHORIZONTAL, 1.0f);
 		cloth->setStretchConfig(PxClothFabricPhaseType::eSHEARING, 0.75f);
 		cloth->setStretchConfig(PxClothFabricPhaseType::eBENDING, 0.5f);
 
-		cloth->setTetherConfig(PxClothTetherConfig(1.0f));
+		//// Limit of Stretch each Vertices
+		//cloth->setStretchConfig(PxClothFabricPhaseType::eVERTICAL, 1.0f);
+		//cloth->setStretchConfig(PxClothFabricPhaseType::eHORIZONTAL, 1.0f);
+		//cloth->setStretchConfig(PxClothFabricPhaseType::eSHEARING, 1.0f);
+		//cloth->setStretchConfig(PxClothFabricPhaseType::eBENDING, 1.0f);
+
+		//
+		PxClothTetherConfig mTetherConf;
+		mTetherConf.stiffness = 1.0f;
+		mTetherConf.stretchLimit = 1.0f;
+
+		cloth->setTetherConfig(mTetherConf);
 	}
 
 	return cloth;

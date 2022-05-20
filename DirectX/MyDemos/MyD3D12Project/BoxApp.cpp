@@ -56,8 +56,6 @@ static HANDLE mClothWriteEvent;
 static HANDLE mAnimationReadEvent;
 static HANDLE mAnimationWriteEvent;
 
-
-
 BoxApp::~BoxApp()
 {
 	StopThread = true;
@@ -115,16 +113,24 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 	FIBITMAP* mWeightImage = NULL;
 	int width, height;
 
+	std::list<RenderItem*>::iterator& obj = mGameObjects.begin();
+	std::list<RenderItem*>::iterator& objEnd = mGameObjects.end();
+
 	// 각 SubMesh에 Cloth Physx Obj 추가
-	for (std::list<RenderItem*>::iterator& obj = mGameObjects.begin(); obj != mGameObjects.end(); obj++)
+	for (;obj != objEnd; obj++)
 	{
 		// 현 게임 오브젝트 포인터를 얻음.
 		RenderItem* _RenderItem = *obj;
 		ObjectData* _RenderData = mGameObjectDatas[_RenderItem->mName];
 
 		_RenderData->mClothes.resize(_RenderData->SubmeshCount);
+		_RenderData->mClothBinedBoneIDX.resize(_RenderData->SubmeshCount);
+
 		for (UINT i = 0; i < _RenderData->SubmeshCount; i++)
+		{
 			_RenderData->mClothes[i] = NULL;
+			_RenderData->mClothBinedBoneIDX[i] = -1;
+		}
 
 		// Rigid Body Mesh를 추가
 		_RenderData->mRigidbody.resize(_RenderItem->SubmeshCount);
@@ -144,15 +150,20 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				iSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].IndexSize;
 
 				// 현재 Material의 Vertex의 정보를 얻어온다.
+				vertices.clear();
 				vertices.resize(vSize);
+				primitives.clear();
 				primitives.resize(iSize);
 
 				int mOffset = 0;
 				int mIDXMin;
 
-				DirectX::XMVECTOR posVector, resVector;
-				DirectX::XMMATRIX originMatrix;
-				for (std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin(); vIDX != _RenderData->vertBySubmesh[submesh].end(); vIDX++)
+				DirectX::XMVECTOR posVector;
+
+				std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin();
+				std::set<int>::iterator& vEndIDX = _RenderData->vertBySubmesh[submesh].end();
+
+				while (vIDX != vEndIDX)
 				{
 					// Physx에 리지드바디를 업로드
 					vertices[mOffset].pos[0] = _RenderData->vertices[*vIDX].Pos.x;
@@ -165,6 +176,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					_RenderData->vertices[*vIDX].Pos.y = 0.0f;
 					_RenderData->vertices[*vIDX].Pos.z = 0.0f;
 
+					vIDX++;
 					mOffset++;
 				}
 
@@ -208,14 +220,15 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 			}
 		}
 
-		// Cloth Physx Mesh를 추가
+		_RenderData->srcFixVertexSubmesh.resize(_RenderItem->SubmeshCount);
+		_RenderData->dstFixVertexSubmesh.resize(_RenderItem->SubmeshCount);
+		_RenderData->srcDynamicVertexSubmesh.resize(_RenderItem->SubmeshCount);
+		_RenderData->dstDynamicVertexSubmesh.resize(_RenderItem->SubmeshCount);
+
 		for (UINT submesh = 0; submesh < _RenderItem->SubmeshCount; submesh++)
 		{
 			// Cloth Physix를 사용하지 않는 서브메쉬면 스킵
-			if (!_RenderData->isCloth[submesh])
-			{
-				continue;
-			}
+			if (!_RenderData->isCloth[submesh])	continue;
 
 			if (_RenderData->mFormat == "FBX")
 			{
@@ -272,12 +285,12 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				primitives.resize(0);
 
 				bool hasZero(false), hasOne(false);
-
-				/*if (!(hasZero && hasOne))
-					throw std::runtime_error("cloth invWeight Exception. (InvWeight must has 0 and 1 least 1.)");*/
-
 				int primCount = 0;
-				for (UINT idx = iOffset; idx < iOffset + iSize; idx+=3)
+
+				/////////////////////////////////////////////////////////////////////////
+				// 우선 Cloth가 적용되지 않는 부분은 전부 indices에서 제거한다
+				/////////////////////////////////////////////////////////////////////////
+				for (UINT idx = iOffset; idx < iOffset + iSize; idx += 3)
 				{
 					if (_RenderData->mClothWeights[_RenderData->mModel.indices[idx]] == 0.0f || 
 						_RenderData->mClothWeights[_RenderData->mModel.indices[idx + 1]] == 0.0f || 
@@ -293,8 +306,9 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					primCount++;
 				}
 
-				DirectX::XMVECTOR posVector, resVector;
-				DirectX::XMMATRIX originMatrix;
+				/////////////////////////////////////////////////////////////////////////
+
+				DirectX::XMVECTOR posVector;
 
 				std::unordered_map<UINT, UINT> testest;
 
@@ -304,13 +318,13 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				RGBQUAD color;
 				int uvX, uvY;
 
-				int mOffset = 0;
-				int mRemover = -1;
-
+				/////////////////////////////////////////////////////////////////////////
+				// Cloth를 Attatch할 버텍스 이미지를 얻어온다
+				/////////////////////////////////////////////////////////////////////////
 				int texIDX = _RenderData->mModel.materials[submesh].diffuse_texture_index;
 				std::wstring wname = _RenderData->mModel.textures[texIDX];
 
-				int extIDX = wname.find(L".png");
+				int extIDX = (int)wname.find(L".png");
 				wname = wname.substr(0, extIDX);
 				wname.append(L"_Weight.png");
 
@@ -325,26 +339,40 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					height
 				);
 
-				int testRedNum = 0;
+				if (!mWeightImage)
+					throw std::runtime_error("Weight Image를 로드하는데 실패");
 
-				for (std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin(); vIDX != _RenderData->vertBySubmesh[submesh].end(); vIDX++)
+				///////////////////////////////////////////////////////////////////////
+
+				int mOffset = 0;
+				int mRemover = -1;
+
+				for (
+					std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin(); 
+					vIDX != _RenderData->vertBySubmesh[submesh].end(); 
+					vIDX++
+					)
 				{
 					if (mRemover != -1)
 					{
+						// 해당 서브메쉬의 버텍스 리스트
 						_RenderData->vertBySubmesh[submesh].erase(mRemover);
 						mRemover = -1;
 					}
 
 					posVector = DirectX::XMLoadFloat3(&_RenderData->vertices[*vIDX].Pos);
-					originMatrix = DirectX::XMLoadFloat4x4(&_RenderData->mOriginRevMatrix[2]);
 
-					resVector = DirectX::XMVector3Transform(posVector, originMatrix);
+					if (_RenderData->mClothWeights[*vIDX] == 0.0f) {
+						mRemover = *vIDX;
 
-					uvX = width * _RenderData->vertices[*vIDX].TexC.x;
-					uvY = height * _RenderData->vertices[*vIDX].TexC.y;
+						continue;
+					}
+
+					uvX = (int)((float)width  * _RenderData->vertices[*vIDX].TexC.x);
+					uvY = (int)((float)height * (1.0f - _RenderData->vertices[*vIDX].TexC.y));
 
 					FreeImage_GetPixelColor(mWeightImage, uvX, uvY, &color);
-
+					
 					if (
 						color.rgbRed == 255 &&
 						color.rgbGreen == 0 &&
@@ -352,62 +380,74 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 						)
 					{
 						_RenderData->mClothWeights[*vIDX] = 0.0f;
-						testRedNum++;
 					}
 
 					///////////////////////////
 
-					if (_RenderData->mClothWeights[*vIDX] == 0.0f) {
-						hasZero = true;
-						mRemover = *vIDX;
-
-						continue;
-					}
-					else {
-						hasOne = true;
-					}
-
 					physx::PxClothParticle part;
-					part.pos[0] = resVector.m128_f32[0];
-					part.pos[1] = resVector.m128_f32[1];
-					part.pos[2] = resVector.m128_f32[2];
+					part.pos[0] = posVector.m128_f32[0];
+					part.pos[1] = posVector.m128_f32[1];
+					part.pos[2] = posVector.m128_f32[2];
 					part.invWeight = _RenderData->mClothWeights[*vIDX];
 
 					vertices.push_back(part);
 
+					///////
+					// 여기에 PPD2Vertices MAP을 만들자
+					///////
+					if (_RenderData->mClothWeights[*vIDX] != 0.0f)
+					{
+						_RenderData->srcDynamicVertexSubmesh[submesh].push_back(mOffset);
+						_RenderData->dstDynamicVertexSubmesh[submesh].push_back(&_RenderData->vertices[*vIDX].Pos);
+					}
+					else
+					{
+						_RenderData->srcFixVertexSubmesh[submesh].push_back(mOffset);
+						_RenderData->dstFixVertexSubmesh[submesh].push_back(&_RenderData->vertices[*vIDX].Pos);
+					}
+					///////
 					testest[*vIDX] = mOffset;
 
 					mOffset++;
 				}
 
 				FreeImage_Unload(mWeightImage);
-				FreeImage_DeInitialise();
+				//FreeImage_DeInitialise();
 
 				for (int iIDX = 0; iIDX < primitives.size(); iIDX++)
 				{
 					primitives[iIDX] = testest[primitives[iIDX]];
 				}
+				 
+				// 모든 버텍스가 고정인 경우가 아니면
+				UINT vertSize = vertices.size();
+				if (vertices.size() > 0)
+				{
+					// 최소 부착 버텍스
+					// vertices[0].invWeight = 0.0f;
 
-					vertices[0].invWeight = 0.0f;
-				if (!hasOne)
-					vertices[0].invWeight = 1.0f;
+					PxClothMeshDesc meshDesc;
+					meshDesc.points.data = (void*)&vertices.data()->pos;
+					meshDesc.points.count = static_cast<PxU32>(vertices.size());
+					meshDesc.points.stride = sizeof(PxClothParticle);
 
-				PxClothMeshDesc meshDesc;
-				meshDesc.points.data = (void*)&vertices.data()->pos;
-				meshDesc.points.count = static_cast<PxU32>(vertices.size());
-				meshDesc.points.stride = sizeof(PxClothParticle);
+					meshDesc.invMasses.data = (void*)&vertices.data()->invWeight;
+					meshDesc.invMasses.count = static_cast<PxU32>(vertices.size());
+					meshDesc.invMasses.stride = sizeof(PxClothParticle);
 
-				meshDesc.invMasses.data = (void*)&vertices.data()->invWeight;
-				meshDesc.invMasses.count = static_cast<PxU32>(vertices.size());
-				meshDesc.invMasses.stride = sizeof(PxClothParticle);
+					meshDesc.triangles.data = (void*)primitives.data();
+					meshDesc.triangles.count = static_cast<PxU32>(primCount);
+					meshDesc.triangles.stride = sizeof(PxU32) * 3;
 
-				meshDesc.triangles.data = (void*)primitives.data();
-				meshDesc.triangles.count = static_cast<PxU32>(primCount);
-				meshDesc.triangles.stride = sizeof(PxU32) * 3;
-
-				_RenderData->mClothes[submesh] = mPhys.LoadCloth(vertices.data(), meshDesc);
+					_RenderData->mClothes[submesh] = mPhys.LoadCloth(vertices.data(), meshDesc);
+				}
+				// 모든 버텍스가 고정인 경우 (Cloth를 적용 시킬 필요가 없다)
+				else
+				{
+					_RenderData->isCloth[submesh] = false;
+					_RenderData->mClothes[submesh] = NULL;
+				}
 			}
-
 		} // Loop Submesh
 	} // Loop GameObjects
 
@@ -425,6 +465,30 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 	int loop = 0;
 	bool loopUpdate = false;
 
+	ObjectData* _RenderData = NULL;
+	Vertex* clothPos = NULL;
+
+	std::unordered_map<std::string, ObjectData*>::iterator mObj;
+	std::unordered_map<std::string, ObjectData*>::iterator mEndObj = mGameObjectDatas.end();
+
+	DirectX::XMFLOAT4X4 mRootF44;
+	DirectX::XMMATRIX mRootMat;
+	DirectX::XMVECTOR s, p, q;
+	DirectX::XMVECTOR op, oq;
+	DirectX::XMVECTOR delta, resP, resQ;
+
+	UINT submeshIDX = 0;
+
+	std::vector<int>::iterator mSrcFixIter;
+	std::vector<DirectX::XMFLOAT3*>::iterator mDstFixIter;
+	std::vector<DirectX::XMFLOAT3*>::iterator mDstEndFixIter;
+
+	std::vector<int>::iterator mSrcDynamicIter;
+	std::vector<DirectX::XMFLOAT3*>::iterator mDstDynamicIter;
+	std::vector<DirectX::XMFLOAT3*>::iterator mDstEndDynamicIter;
+
+	physx::PxVec3*		mSrcIterPos = NULL;
+
 	while (!StopThread)
 	{
 		// Cloth Vertices가 Write Layer가 될 때 까지 대기
@@ -432,85 +496,173 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 		if (StopThread) break;
 
+		mObj = mGameObjectDatas.begin();
+
 		// Update Cloth Vertices
-		for (std::unordered_map<std::string, ObjectData*>::iterator obj = mGameObjectDatas.begin(); obj != mGameObjectDatas.end(); obj++)
+		while (mObj != mEndObj)
 		{
 			if (!loopUpdate)	break;
 
-			ObjectData* _RenderData = obj->second;
+			_RenderData = mObj->second;
 
 			// new float[4 * vSize] 대신 submesh VBV에 바로 업로드 할 수 있을까?
-			Vertex* clothPos = _RenderData->vertices.data();
+			clothPos = _RenderData->vertices.data();
 
 			// 만일 애니메이션이 없는 오브젝트라면 스킵
 			if (_RenderData->mAnimVertex.size() < 1 &&
 				_RenderData->mBoneMatrix.size() < 1)
 				return (DWORD)(-1);
 
-			DirectX::XMFLOAT4X4 mRootF44;
-			DirectX::XMMATRIX mRootMat;
-			DirectX::XMVECTOR s, p, q;
-
 			// 서브메쉬 단위로 애니메이션을 업데이트 하는 경우 (cloth)
-			for (UINT submeshIDX = 0; submeshIDX < _RenderData->SubmeshCount; submeshIDX++)
+			for (submeshIDX = 0; submeshIDX < _RenderData->SubmeshCount; submeshIDX++)
 			{
 				if (_RenderData->isRigidBody[submeshIDX]) 
 				{
-					// Adapted Cloth Physx
-					mRootF44 = _RenderData->mBoneMatrix[_RenderData->currentFrame][2];
+					// Calc O
+					mRootF44 = _RenderData->mBoneMatrix[0][8];
+					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
+
+					DirectX::XMMatrixDecompose(&s, &oq, &op, mRootMat);
+
+					// Calc Q
+					mRootF44 = _RenderData->mBoneMatrix[_RenderData->currentFrame][8];
 					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
 
 					DirectX::XMMatrixDecompose(&s, &q, &p, mRootMat);
 
+					// Calc new T
+					resP = p - op;
+
+					// Calc new Q
+					delta = q - oq;
+					
+					resQ.m128_f32[0] = 0.0f;
+					resQ.m128_f32[1] = -1.0f;
+					resQ.m128_f32[2] = 0.0f;
+					resQ.m128_f32[3] = 1.0f;
+
+					delta = DirectX::XMQuaternionNormalize(delta);
+					resQ = DirectX::XMQuaternionNormalize(resQ);
+
+					resQ = resQ + delta;
+
+					resQ = DirectX::XMQuaternionNormalize(resQ);
+
+					/////////////////////////////////////
+
 					physx::PxTransform mPose(
-						physx::PxVec3(p.m128_f32[0], p.m128_f32[1], p.m128_f32[2]),
-						physx::PxQuat(q.m128_f32[0], q.m128_f32[1], q.m128_f32[2], q.m128_f32[3])
+						physx::PxVec3(
+							resP.m128_f32[0],
+							resP.m128_f32[1],
+							resP.m128_f32[2]
+						),
+						physx::PxQuat(
+							resQ.m128_f32[0],
+							resQ.m128_f32[1],
+							resQ.m128_f32[2],
+							resQ.m128_f32[3]
+						)
 					);
 
 					_RenderData->mRigidbody[submeshIDX]->setKinematicTarget(mPose);
 				}
 
-				if (_RenderData->isCloth[submeshIDX]) 
+				if (_RenderData->isCloth[submeshIDX])
 				{
 					// Adapted Cloth Physx
-					mRootF44 = _RenderData->mBoneMatrix[_RenderData->currentFrame][2];
+					// Calc O
+					mRootF44 = _RenderData->mBoneMatrix[0][8];
+					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
+
+					DirectX::XMMatrixDecompose(&s, &oq, &op, mRootMat);
+
+					// Calc Q
+					mRootF44 = _RenderData->mBoneMatrix[_RenderData->currentFrame][8];
 					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
 
 					DirectX::XMMatrixDecompose(&s, &q, &p, mRootMat);
 
+					// Calc new T
+					resP = p - op;
+
+					// Calc new Q
+					delta = q - oq;
+
+					resQ.m128_f32[0] = 0.0f;
+					resQ.m128_f32[1] = -1.0f;
+					resQ.m128_f32[2] = 0.0f;
+					resQ.m128_f32[3] = 1.0f;
+
+					delta = DirectX::XMQuaternionNormalize(delta);
+					resQ = DirectX::XMQuaternionNormalize(resQ);
+
+					resQ = resQ + delta;
+
+					resQ = DirectX::XMQuaternionNormalize(resQ);
+
 					physx::PxTransform mPose(
-						physx::PxVec3(p.m128_f32[0], p.m128_f32[1], p.m128_f32[2]),
-						physx::PxQuat(q.m128_f32[0], q.m128_f32[1], q.m128_f32[2], q.m128_f32[3])
+						physx::PxVec3(
+							resP.m128_f32[0],
+							resP.m128_f32[1],
+							resP.m128_f32[2]
+						),
+						physx::PxQuat(
+							resQ.m128_f32[0], 
+							resQ.m128_f32[1], 
+							resQ.m128_f32[2], 
+							resQ.m128_f32[3]
+						)
 					);
 
 					_RenderData->mClothes[submeshIDX]->setTargetPose(mPose);
 
 					mClothOffset =
-						clothPos +
-						_RenderData->mDesc[submeshIDX].BaseVertexLocation;
+						clothPos;
+					//clothPos +
+					//_RenderData->mDesc[submeshIDX].BaseVertexLocation;
 					vertexSize =
 						_RenderData->mDesc[submeshIDX].VertexSize;
 
-					PxU32 nbParticles = _RenderData->mClothes[submeshIDX]->getNbParticles();
+					mSrcFixIter = _RenderData->srcFixVertexSubmesh[submeshIDX].begin();
+					mDstFixIter = _RenderData->dstFixVertexSubmesh[submeshIDX].begin();
+					mDstEndFixIter = _RenderData->dstFixVertexSubmesh[submeshIDX].end();
 
-					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eREADABLE);
+					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eWRITABLE);
 
-					std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submeshIDX].begin();
-					std::set<int>::iterator& vEnd = _RenderData->vertBySubmesh[submeshIDX].end();
-					PxClothParticle* ppdPart = &ppd->particles[0];
-
-					for (; vIDX != vEnd; vIDX++)
+					while (mDstFixIter != mDstEndFixIter)
 					{
-						mClothOffset[*vIDX].Pos.x = ppdPart->pos[0];
-						mClothOffset[*vIDX].Pos.y = ppdPart->pos[1];
-						mClothOffset[*vIDX].Pos.z = ppdPart->pos[2];
+						mSrcIterPos = &ppd->particles[*mSrcFixIter].pos;
 
-						ppdPart++;
+						memcpy(mSrcIterPos, (*mDstFixIter), sizeof(float) * 3);
+
+						mSrcFixIter++;
+						mDstFixIter++;
 					}
 
 					ppd->unlock();
+
+					mSrcDynamicIter = _RenderData->srcDynamicVertexSubmesh[submeshIDX].begin();
+					mDstDynamicIter = _RenderData->dstDynamicVertexSubmesh[submeshIDX].begin();
+					mDstEndDynamicIter = _RenderData->dstDynamicVertexSubmesh[submeshIDX].end();
+
+					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eREADABLE);
+
+					while (mDstDynamicIter != mDstEndDynamicIter)
+					{
+						mSrcIterPos = &ppd->particles[*mSrcDynamicIter].pos;
+
+						memcpy((*mDstDynamicIter), mSrcIterPos, sizeof(float) * 3);
+
+						mSrcDynamicIter++;
+						mDstDynamicIter++;
+					}
+
+					ppd->unlock();
+
 				} // if (_RenderData->isCloth[submeshIDX])
 			} // for Submesh
+
+			mObj++;
 		} // for GameObject
 
 		// Cloth Vertices를 Read Layer로 변경
@@ -531,21 +683,32 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 	}
 
-
 	// Destroier
-	std::unordered_map<std::string, ObjectData*>::iterator obj = mGameObjectDatas.begin();
-	std::unordered_map<std::string, ObjectData*>::iterator objEnd = mGameObjectDatas.end();
-	for (; obj != objEnd; obj++)
+	std::unordered_map<std::string, ObjectData*>::iterator objDest = mGameObjectDatas.begin();
+	std::unordered_map<std::string, ObjectData*>::iterator objDestEnd = mGameObjectDatas.end();
+	for (; objDest != objDestEnd; objDest++)
 	{
-		ObjectData* _RenderData = obj->second;
+		ObjectData* _RenderData = objDest->second;
 
-		for (int submeshIDX = 0; submeshIDX < _RenderData->SubmeshCount; submeshIDX++)
+		for (UINT submeshIDX = 0; submeshIDX < _RenderData->SubmeshCount; submeshIDX++)
 		{
+			objDest->second->vertBySubmesh[submeshIDX].clear();
+			objDest->second->srcFixVertexSubmesh[submeshIDX].clear();
+			objDest->second->dstFixVertexSubmesh[submeshIDX].clear();
+			objDest->second->srcDynamicVertexSubmesh[submeshIDX].clear();
+			objDest->second->dstDynamicVertexSubmesh[submeshIDX].clear();
+
 			if (_RenderData->isCloth[submeshIDX])
 			{
 				_RenderData->mClothes[submeshIDX]->release();
 			}
 		}
+
+		objDest->second->vertBySubmesh.clear();
+		objDest->second->srcFixVertexSubmesh.clear();
+		objDest->second->dstFixVertexSubmesh.clear();
+		objDest->second->srcDynamicVertexSubmesh.clear();
+		objDest->second->dstDynamicVertexSubmesh.clear();
 	}
 
 	return (DWORD)(0);
@@ -559,6 +722,40 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 	ResetEvent(mAnimationReadEvent);
 	SetEvent(mAnimationWriteEvent);
 
+	std::unordered_map<std::string, ObjectData*>::iterator obj;
+	std::unordered_map<std::string, ObjectData*>::iterator objEnd;
+
+	ObjectData* _RenderData = NULL;
+
+	int currentFrame;
+	float residueTime;
+
+	Vertex* VertexPos = NULL;
+	Vertex* mVertexOffset = NULL;
+	UINT vertexSize = 0;
+
+	float* animPos = NULL;
+	int animVertSize = 0;
+	int vcount = 0;
+
+	int submeshIDX = 0;
+	UINT vertexIDX = 0;
+	int i = 0;
+
+	DirectX::XMFLOAT4X4* BoneOriginOffset = NULL;
+	DirectX::XMFLOAT4X4* BoneOffsetOfFrame = NULL;
+
+	PmxAnimationData pmxAnimData;
+	RateOfAnimTimeConstants	mRateOfAnimTimeCB;
+
+	struct ObjectData::_VERTEX_MORPH_DESCRIPTOR mMorph;
+	float weight = 0.0f;
+	Vertex* DestPos = NULL;
+	DirectX::XMFLOAT3* DesctinationPos = NULL;
+	float* DefaultPos = NULL;
+
+	int mIDX = 0;
+
 	while (!StopThread) 
 	{
 		// Cloth Vertices가 Write Layer가 될 때 까지 대기
@@ -566,11 +763,11 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 		if (StopThread) break;
 
 		// Update Cloth Vertices
-		std::unordered_map<std::string, ObjectData*>::iterator obj = mGameObjectDatas.begin();
-		std::unordered_map<std::string, ObjectData*>::iterator objEnd = mGameObjectDatas.end();
-		for (; obj != objEnd; obj++)
+		obj = mGameObjectDatas.begin();
+		objEnd = mGameObjectDatas.end();
+		while (obj != objEnd)
 		{
-			ObjectData* _RenderData = obj->second;
+			_RenderData = obj->second;
 
 			// 만일 애니메이션이 없는 오브젝트라면 스킵
 			if (_RenderData->mAnimVertex.size() < 1 &&
@@ -582,13 +779,15 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			_RenderData->isLoop = true;
 
 			// 현재 프레임을 계산하며, 프레임이 갱신 될 시 트리거를 작동한다.
-			int currentFrame =
-				(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
+			//currentFrame =
+			//	(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
+			currentFrame =
+				1;
 
 			// 만일 현재 프레임이 애니메이션의 끝이라면?
 			if ((_RenderData->endAnimIndex) <= currentFrame) {
 				// 다시 시작 번지 프레임으로
-				currentFrame = _RenderData->beginAnimIndex;
+				currentFrame = (int)_RenderData->beginAnimIndex;
 				_RenderData->currentDelayPerSec = (_RenderData->beginAnimIndex * _RenderData->durationOfFrame[0]);
 			}
 			// 만일 프레임이 갱신 되었다면?
@@ -598,18 +797,18 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			}
 
 			// 다음 프레임 까지의 잔분 시간을 업데이트 한다.
-			float residueTime = _RenderData->currentDelayPerSec - (_RenderData->currentFrame * _RenderData->durationOfFrame[0]);
+			residueTime = _RenderData->currentDelayPerSec - (_RenderData->currentFrame * _RenderData->durationOfFrame[0]);
 
 			// 잔분 시간 업데이트
 			_RenderData->mAnimResidueTime = residueTime;
 
 			////
 			if (obj->second->mFormat == "FBX") {
-				Vertex* VertexPos = obj->second->vertices.data();
-				Vertex* mVertexOffset = NULL;
-				UINT vertexSize = 0;
+				VertexPos = obj->second->vertices.data();
+				mVertexOffset = NULL;
+				vertexSize = 0;
 
-				for (int submeshIDX = 0; submeshIDX < (int)obj->second->SubmeshCount; submeshIDX++)
+				for (submeshIDX = 0; submeshIDX < (int)obj->second->SubmeshCount; submeshIDX++)
 				{
 					// 만일 애니메이션 Vertex에 고정되어 플레이 되는 Submesh라면
 					if (!obj->second->isCloth[submeshIDX])
@@ -627,12 +826,12 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 							obj->second->mDesc[submeshIDX].VertexSize;
 
 						// 애니메이션이 최신화 된 버텍스 시작 주소
-						float* animPos = obj->second->mAnimVertex[obj->second->currentFrame][submeshIDX];
+						animPos = obj->second->mAnimVertex[obj->second->currentFrame][submeshIDX];
 						// 애니메이션 버텍스 사이즈
-						int animVertSize = obj->second->mAnimVertexSize[obj->second->currentFrame][submeshIDX];
+						animVertSize = obj->second->mAnimVertexSize[obj->second->currentFrame][submeshIDX];
 
-						int vcount = 0;
-						for (UINT vertexIDX = 0; vertexIDX < vertexSize; vertexIDX++)
+						vcount = 0;
+						for (vertexIDX = 0; vertexIDX < vertexSize; vertexIDX++)
 						{
 							mVertexOffset[vertexIDX].Pos.x = animPos[vcount++];
 							mVertexOffset[vertexIDX].Pos.y = animPos[vcount++];
@@ -648,17 +847,11 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 
 			if (obj->second->mFormat == "PMX") {
 				if (obj->second->updateCurrentFrame) {
-					DirectX::XMFLOAT4X4* BoneOriginOffset;
-					DirectX::XMFLOAT4X4* BoneOffsetOfFrame;
-
 					BoneOriginOffset = obj->second->mOriginRevMatrix.data();
 					BoneOffsetOfFrame = obj->second->mBoneMatrix[obj->second->currentFrame].data();
-					//BoneOffsetOfFrame = objData->mBoneMatrix[0].data();
 
-					for (int i = 0; i < obj->second->mModel.bone_count; i++)
+					for (i = 0; i < obj->second->mModel.bone_count; i++)
 					{
-						PmxAnimationData pmxAnimData;
-
 						pmxAnimData.mOriginMatrix = BoneOriginOffset[i];
 						pmxAnimData.mMatrix = BoneOffsetOfFrame[i];
 
@@ -669,7 +862,6 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 				}
 
 				// 잔분 시간 업데이트
-				RateOfAnimTimeConstants	mRateOfAnimTimeCB;
 				mRateOfAnimTimeCB.rateOfAnimTime = obj->second->mAnimResidueTime;
 				RateOfAnimTimeCB->CopyData(0, mRateOfAnimTimeCB);
 			}
@@ -681,18 +873,12 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 
 			if (_RenderData->mMorphDirty.size() > 0) 
 			{
-				struct ObjectData::_VERTEX_MORPH_DESCRIPTOR mMorph;
-				float weight = 0.0f;
-				Vertex* DestPos = NULL;
-				DirectX::XMFLOAT3* DesctinationPos = NULL;
-				float* DefaultPos;
-
-				for (int mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++) 
+				for (mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++) 
 				{
 					mMorph = _RenderData->mMorph[mIDX];
 					weight = mMorph.mVertWeight;
 
-					for (int i = 0; i < mMorph.mVertIndices.size(); i++)
+					for (i = 0; i < mMorph.mVertIndices.size(); i++)
 					{
 						DesctinationPos = &_RenderData->vertices[mMorph.mVertIndices[i]].Pos;
 						DefaultPos = _RenderData->mModel.vertices[mMorph.mVertIndices[i]].position;
@@ -704,6 +890,8 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 				}
 				_RenderData->mMorphDirty.resize(0);
 			}
+
+			obj++;
 		}
 
 		// Cloth Vertices를 Read Layer로 변경
@@ -1188,6 +1376,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	uint32_t _gInstOffset = 0;
 
 	// loop Resource
+	UINT i;
 	UINT j;
 
 	// RenderInstTasks Offset
@@ -1199,10 +1388,16 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	RenderItem* obj = nullptr;
 	int amountOfTask = 0;
 	int continueIDX = -1;
-	int taskIDX = 0;
+	UINT taskIDX = 0;
 
 	// GameObjectIndices
 	std::vector<UINT> mGameObjectIndices;
+
+	UINT loop = 0;
+	UINT end = 0;
+
+	int MatIDX = 0;
+	int gameIDX = 0;
 
 	// 게임이 종료 될 때 까지 멀티 스레드 렌더링 대기
 	while (ThreadIDX < numThread)
@@ -1227,12 +1422,12 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 		mGameObjectIndices.resize(_taskEnd - _taskOffset);
 
-		for (int loop = 0; loop < _taskEnd - _taskOffset; loop++)
+		for (loop = 0; loop < _taskEnd - _taskOffset; loop++)
 		{
 			mGameObjectIndices[loop] = -1;
-			for (int i = 0; i < mRenderInstTasks.size(); i++)
+			for (i = 0; i < mRenderInstTasks.size(); i++)
 			{
-				int end = mRenderInstTasks[i].size() - 1;
+				end = mRenderInstTasks[i].size() - 1;
 
 				if ((_taskOffset + loop) <= mRenderInstTasks[i][end])
 				{
@@ -1288,7 +1483,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 		// 스레드의 인덱스 단위로 Render Item을 분할하여 CommandList에 바인딩. 
 		{
 			continueIDX = -1;
-			int MatIDX = 0;
+			MatIDX = 0;
 
 			// 인스턴스 버퍼는 모든 게임 오브젝트에 대한 인스턴스 정보를 모두 가지고 있기에, 전역으로 할당.
 			// 위에 Instance Update 할 때, Instance Buffer에다가 일렬로 Instance 정보를 바인딩 (CopyData) 하였기에
@@ -1299,7 +1494,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 			for (taskIDX = 0; taskIDX < (_taskEnd - _taskOffset); taskIDX++)
 			{
 				// 렌더할 게임 오브젝트의 인덱스
-				int gameIDX = mGameObjectIndices[taskIDX];
+				gameIDX = mGameObjectIndices[taskIDX];
 				_gInstOffset = taskIDX + _taskOffset;
 
 				obj = *std::next(mGameObjects.begin(), gameIDX);
@@ -1316,7 +1511,8 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 				// Move to Current Stack Pointer
 				objCBAddress = objectCB + _gInstOffset * sizeof(InstanceData);
-				pmxBoneCBAddress = pmxBoneCB + 0 * sizeof(PmxAnimationData);
+				/*pmxBoneCBAddress = pmxBoneCB + 0 * sizeof(PmxAnimationData);*/
+				pmxBoneCBAddress = pmxBoneCB;
 				rateOfAnimTimeCBAddress = rateOfAnimTimeCB + d3dUtil::CalcConstantBufferByteSize(gameIDX * sizeof(RateOfAnimTimeConstants));
 
 				// Select Descriptor Buffer Index
@@ -2958,7 +3154,7 @@ void BoxApp::CreateFBXObject(
 		uvMode
 	);
 
-	mGameObjectDatas[r->mName]->SubmeshCount = meshData.size();
+	mGameObjectDatas[r->mName]->SubmeshCount = (UINT)meshData.size();
 	mGameObjectDatas[r->mName]->mDesc.resize(meshData.size());
 
 	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
@@ -3145,7 +3341,7 @@ void BoxApp::CreateFBXSkinnedObject (
 	std::vector<PxClothParticle> vertices;
 	std::vector<PxU32> primitives;
 
-	mGameObjectDatas[r->mName]->SubmeshCount = meshData.size();
+	mGameObjectDatas[r->mName]->SubmeshCount = (UINT)meshData.size();
 	mGameObjectDatas[r->mName]->mDesc.resize(meshData.size());
 
 	// 각 Submesh의 Offset을 저장하는 용도
@@ -3340,6 +3536,7 @@ void BoxApp::CreatePMXObject(
 	animBuffer.read((char*)&mAnimFrameCount, sizeof(int));
 
 	std::vector<std::vector<float*>> AssistCalcVar(mAnimFrameCount + 1);
+
 	mGameObjectDatas[r->mName]->mBoneMatrix.resize(mAnimFrameCount + 1);
 
 	for (int i = 0; i < mAnimFrameCount; i++)
@@ -3357,7 +3554,7 @@ void BoxApp::CreatePMXObject(
 	mGameObjectDatas[r->mName]->currentFrame = 0;
 	mGameObjectDatas[r->mName]->currentDelayPerSec = 0;
 
-	mGameObjectDatas[r->mName]->endAnimIndex = mAnimFrameCount;
+	mGameObjectDatas[r->mName]->endAnimIndex = (float)mAnimFrameCount;
 
 	// Base Origin Bone SRT Matrix
 	mGameObjectDatas[r->mName]->mOriginRevMatrix.resize(model->bone_count);
@@ -3794,7 +3991,6 @@ void BoxApp::CreatePMXObject(
 	int vertIDX;
 	float vertWeight;
 	bool mIsCloth;
-	bool mIsRigid;
 
 	mGameObjectDatas[r->mName]->mClothWeights.resize(model->vertex_count);
 	mGameObjectDatas[r->mName]->isCloth.resize(model->material_count);
@@ -3804,7 +4000,11 @@ void BoxApp::CreatePMXObject(
 		if (vertIDX == -1)	break;
 		inFile.read((char*)&vertWeight, sizeof(float));
 
-		mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = vertWeight;
+		/*mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = vertWeight;*/
+		if (vertWeight > 0.6f)
+			mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = 0.1f;
+		else
+			mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = vertWeight;
 	}
 
 	int count = 0;
@@ -3821,7 +4021,7 @@ void BoxApp::CreatePMXObject(
 	// Load Texture Path
 	for (int i = 0; i < model->texture_count; i++)
 	{
-		int textureSize = model->textures[i].size() * 2;
+		int textureSize = (int)model->textures[i].size() * 2;
 
 		Texture charTex;
 		std::string rawTextureName = std::string((char*)model->textures[i].c_str(), textureSize);
@@ -3867,7 +4067,7 @@ void BoxApp::CreatePMXObject(
 	for (int i = 0; i < model->material_count; i++)
 	{
 		mCeil = mIDXAcculation + model->materials[i].index_count;
-		for (int j = mIDXAcculation; j < mCeil; j++)
+		for (UINT j = mIDXAcculation; j < mCeil; j++)
 		{
 			mGameObjectDatas[r->mName]->vertBySubmesh[i].insert(model->indices[j]);
 		}
@@ -4229,28 +4429,28 @@ void RenderItem::setTestPosition(RenderItem* r, XMFLOAT3 pos, UINT idx) {
 }
 
 void RenderItem::setAnimIndex(_In_ int animIndex) {
-	mGameObjectDatas[mName]->currentAnimIdx = animIndex;
+	mGameObjectDatas[mName]->currentAnimIdx = (float)animIndex;
 }
 
-int RenderItem::getAnimIndex() {
+float RenderItem::getAnimIndex() {
 	return mGameObjectDatas[mName]->currentAnimIdx;
 }
 
 void RenderItem::setAnimBeginIndex(_In_ int animBeginIndex) {
-	mGameObjectDatas[mName]->beginAnimIndex = animBeginIndex;
+	mGameObjectDatas[mName]->beginAnimIndex = (float)animBeginIndex;
 	mGameObjectDatas[mName]->currentFrame = animBeginIndex;
 	mGameObjectDatas[mName]->currentDelayPerSec = (mGameObjectDatas[mName]->beginAnimIndex * mGameObjectDatas[mName]->durationOfFrame[0]);
 }
 
-int RenderItem::getAnimBeginIndex() {
+float RenderItem::getAnimBeginIndex() {
 	return mGameObjectDatas[mName]->beginAnimIndex;
 }
 
 void RenderItem::setAnimEndIndex(_In_ int animEndIndex) {
-	mGameObjectDatas[mName]->endAnimIndex = animEndIndex;
+	mGameObjectDatas[mName]->endAnimIndex = (float)animEndIndex;
 }
 
-int RenderItem::getAnimEndIndex() {
+float RenderItem::getAnimEndIndex() {
 	return mGameObjectDatas[mName]->endAnimIndex;
 }
 
