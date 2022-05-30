@@ -695,7 +695,7 @@ int GeometryGenerator::ExtractedAnimationBone (
 				for (int i = 0; i < target.bone_count; i++)
 				{
 					std::string findBoneName;
-					int boneIDX;
+
 					findBoneName.assign(
 						target.bones[i].bone_english_name.begin(),
 						target.bones[i].bone_english_name.end()
@@ -1589,7 +1589,7 @@ void DrawSkeleton(
 			if (transSkeletonPairSize == 0)
 				return;
 		}
-		catch (std::exception& e) {
+		catch (std::exception&) {
 			return;
 		}
 
@@ -1625,7 +1625,6 @@ void DrawSkeleton(
 		}
 
 		int frameCount = mStops[0].GetFrameCount(FbxTime::eFrames30);
-		DirectX::XMFLOAT3 conv;
 
 		float convBuf;
 		for (int animFrame = 0; animFrame < frameCount; animFrame++)
@@ -2997,7 +2996,7 @@ void DrawBone (
 		if (transSkeletonPairSize == 0)
 			return;
 	}
-	catch (std::exception& e) {
+	catch (std::exception&) {
 		return;
 	}
 

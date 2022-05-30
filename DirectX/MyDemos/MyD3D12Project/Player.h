@@ -8,6 +8,8 @@ private:
 	BoxApp* app = nullptr;
 	RenderItem* p = nullptr;
 
+	RenderItem* SkyBox = nullptr;
+
 	// 이렇게 하나의 번들임.
 	RenderItem* Charactor = nullptr;
 	std::vector<std::string> CharactorTextures;
@@ -28,10 +30,21 @@ public:
 		std::vector<std::string> texturePaths;
 		std::vector<std::string> PinixTexturePaths;
 
+		// Upload SkyBox Texture
+		{
+			Texture SkyboxTex;
+			SkyboxTex.Name = "skyTex";
+			SkyboxTex.isCube = true;
+			SkyboxTex.Filename = L"../../Textures/snowcube1024.dds";
+
+			app->uploadTexture(SkyboxTex, true);
+		}
+
 		// Create Init Objects
 		{
-			Charactor = app->CreateDynamicGameObject("CharactorGeo", 1);
-			Pinix = app->CreateDynamicGameObject("PinixGeo", 2);
+			SkyBox		= app->CreateStaticGameObject("SkyBoxGeo", 1);
+			Charactor	= app->CreateDynamicGameObject("CharactorGeo", 1);
+			Pinix		= app->CreateDynamicGameObject("PinixGeo", 1);
 
 			//app->ExtractAnimBones (
 			//	std::string("D:\\Animation\\ImportAnimation\\Assets\\m\\Wisard"),
@@ -40,6 +53,23 @@ public:
 			//	std::string("test.pmx"),
 			//	Charactor
 			//);
+
+			RenderItem::RenderType renderType = RenderItem::RenderType::_SKY_FORMAT_RENDER_TYPE;
+
+			app->BindMaterial(SkyBox, "SkyMat", true);
+
+			app->CreateSphereObject(
+				"SkyBox",
+				"",
+				SkyBox,
+				1.0f,
+				30,
+				20,
+				XMFLOAT3(0.0f, 0.0f, 0.0f),
+				XMFLOAT3(0.0f, 0.0f, 0.0f),
+				XMFLOAT3(1, 1, 1),
+				renderType
+			);
 
 			app->CreatePMXObject
 			(
@@ -64,6 +94,34 @@ public:
 				XMFLOAT3(0.0f, 0.0f, 0.0f),
 				XMFLOAT3(0.01f, 0.01f, 0.01f)
 			);
+		}
+
+		// Light
+		{
+			// AmbientLight = { 1.00f, 0.85f, 0.85f, 1.0f };
+			// Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+			// Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
+			// Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+			// Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+			// Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+			// Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+
+			LightData lightData;
+			lightData.Direction = { 0.57735f, -0.57735f, 0.57735f };
+			lightData.Strength = { 0.8f, 0.8f, 0.8f };
+
+			app->uploadLight(lightData);
+
+			lightData.Direction = { -0.57735f, -0.57735f, 0.57735f };
+			lightData.Strength = { 0.4f, 0.4f, 0.4f };
+
+			app->uploadLight(lightData);
+
+			lightData.Direction = { 0.0f, -0.707f, -0.707f };
+			lightData.Strength = { 0.2f, 0.2f, 0.2f };
+
+			app->uploadLight(lightData);
+
 		}
 	}
 

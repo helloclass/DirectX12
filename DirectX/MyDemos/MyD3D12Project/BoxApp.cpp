@@ -1,4 +1,4 @@
-#include "BoxApp.h"
+ï»¿#include "BoxApp.h"
 
 
 bool StopThread = false;
@@ -11,12 +11,12 @@ DWORD hClothPhysxThreadID;
 HANDLE hClothPhysxThread;
 
 BoxApp::BoxApp(HINSTANCE hInstance)
-: D3DApp(hInstance) 
+	: D3DApp(hInstance)
 {
-	mRenderTypeCount[RenderItem::RenderType::_OPAQUE_RENDER_TYPE]			= 0;
-	mRenderTypeCount[RenderItem::RenderType::_OPAQUE_SKINNED_RENDER_TYPE]	= 0;
-	mRenderTypeCount[RenderItem::RenderType::_PMX_FORMAT_RENDER_TYPE]		= 0;
-	mRenderTypeCount[RenderItem::RenderType::_ALPHA_RENDER_TYPE]			= 0;
+	mRenderTypeCount[RenderItem::RenderType::_OPAQUE_RENDER_TYPE] = 0;
+	mRenderTypeCount[RenderItem::RenderType::_OPAQUE_SKINNED_RENDER_TYPE] = 0;
+	mRenderTypeCount[RenderItem::RenderType::_PMX_FORMAT_RENDER_TYPE] = 0;
+	mRenderTypeCount[RenderItem::RenderType::_ALPHA_RENDER_TYPE] = 0;
 }
 
 std::unordered_map<RenderItem::RenderType, ComPtr<ID3D12PipelineState>> BoxApp::mPSOs;
@@ -48,6 +48,7 @@ static std::unique_ptr<UploadBuffer<PassConstants>>				PassCB;
 static std::unique_ptr<UploadBuffer<RateOfAnimTimeConstants>>	RateOfAnimTimeCB;
 static std::unique_ptr<UploadBuffer<InstanceData>>				InstanceBuffer;
 static std::unique_ptr<UploadBuffer<MaterialData>>				MaterialBuffer;
+static std::unique_ptr<UploadBuffer<LightData>>					LightBuffer;
 static std::unique_ptr<UploadBuffer<PmxAnimationData>>			PmxAnimationBuffer;
 
 // Cloth Update SynchronizationEvent;
@@ -116,10 +117,10 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 	std::list<RenderItem*>::iterator& obj = mGameObjects.begin();
 	std::list<RenderItem*>::iterator& objEnd = mGameObjects.end();
 
-	// °¢ SubMesh¿¡ Cloth Physx Obj Ãß°¡
-	for (;obj != objEnd; obj++)
+	// ï¿½ï¿½ SubMeshï¿½ï¿½ Cloth Physx Obj ï¿½ß°ï¿½
+	for (; obj != objEnd; obj++)
 	{
-		// Çö °ÔÀÓ ¿ÀºêÁ§Æ® Æ÷ÀÎÅÍ¸¦ ¾òÀ½.
+		// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½.
 		RenderItem* _RenderItem = *obj;
 		ObjectData* _RenderData = mGameObjectDatas[_RenderItem->mName];
 
@@ -132,7 +133,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 			_RenderData->mClothBinedBoneIDX[i] = -1;
 		}
 
-		// Rigid Body Mesh¸¦ Ãß°¡
+		// Rigid Body Meshï¿½ï¿½ ï¿½ß°ï¿½
 		_RenderData->mRigidbody.resize(_RenderItem->SubmeshCount);
 		for (UINT submesh = 0; submesh < _RenderItem->SubmeshCount; submesh++)
 		{
@@ -149,7 +150,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				vSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].VertexSize;
 				iSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].IndexSize;
 
-				// ÇöÀç MaterialÀÇ VertexÀÇ Á¤º¸¸¦ ¾ò¾î¿Â´Ù.
+				// ï¿½ï¿½ï¿½ï¿½ Materialï¿½ï¿½ Vertexï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â´ï¿½.
 				vertices.clear();
 				vertices.resize(vSize);
 				primitives.clear();
@@ -165,13 +166,13 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 				while (vIDX != vEndIDX)
 				{
-					// Physx¿¡ ¸®Áöµå¹Ùµğ¸¦ ¾÷·Îµå
+					// Physxï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ùµï¿½ ï¿½ï¿½ï¿½Îµï¿½
 					vertices[mOffset].pos[0] = _RenderData->vertices[*vIDX].Pos.x;
 					vertices[mOffset].pos[1] = _RenderData->vertices[*vIDX].Pos.y;
 					vertices[mOffset].pos[2] = _RenderData->vertices[*vIDX].Pos.z;
 					vertices[mOffset].invWeight = 1.0f;
 
-					// ½Ç °ÔÀÓ¿¡¼± ¸®Áöµå¹Ùµğ¸¦ º¸ÀÌ¸é ¾ÈµÇ¹Ç·Î »ó¼â
+					// ï¿½ï¿½ ï¿½ï¿½ï¿½Ó¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ùµï¿½ ï¿½ï¿½ï¿½Ì¸ï¿½ ï¿½ÈµÇ¹Ç·ï¿½ ï¿½ï¿½ï¿½
 					_RenderData->vertices[*vIDX].Pos.x = 0.0f;
 					_RenderData->vertices[*vIDX].Pos.y = 0.0f;
 					_RenderData->vertices[*vIDX].Pos.z = 0.0f;
@@ -182,14 +183,14 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 				mOffset = 0;
 				mIDXMin = _RenderData->mModel.indices[iOffset];
-				// ÃÖ¼Ò ÀÎµ¦½º¸¦ Ã£´Â´Ù.
+				// ï¿½Ö¼ï¿½ ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ Ã£ï¿½Â´ï¿½.
 				for (UINT i = iOffset; i < iOffset + iSize; i++)
 				{
 					if (mIDXMin > _RenderData->mModel.indices[i])
 						mIDXMin = _RenderData->mModel.indices[i];
 				}
 
-				// ÇöÀç MaterialÀÇ Index Á¤º¸¸¦ ¾ò¾î¿Â´Ù.
+				// ï¿½ï¿½ï¿½ï¿½ Materialï¿½ï¿½ Index ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â´ï¿½.
 				bool isSuccessedScaled = false;
 				for (UINT i = iOffset; i < iOffset + iSize; i++)
 				{
@@ -227,7 +228,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 		for (UINT submesh = 0; submesh < _RenderItem->SubmeshCount; submesh++)
 		{
-			// Cloth Physix¸¦ »ç¿ëÇÏÁö ¾Ê´Â ¼­ºê¸Ş½¬¸é ½ºÅµ
+			// Cloth Physixï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ï¿½ï¿½ ï¿½ï¿½Åµ
 			if (!_RenderData->isCloth[submesh])	continue;
 
 			if (_RenderData->mFormat == "FBX")
@@ -248,7 +249,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					vertices[v].invWeight = _RenderData->mClothWeights[vOffset + v];
 				}
 
-				// ÇöÀç MaterialÀÇ Index Á¤º¸¸¦ ¾ò¾î¿Â´Ù.
+				// ï¿½ï¿½ï¿½ï¿½ Materialï¿½ï¿½ Index ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â´ï¿½.
 				for (UINT i = 0; i < iSize; i++) {
 					primitives[i] = _RenderData->indices[iOffset + i];
 				}
@@ -278,7 +279,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				vSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].VertexSize;
 				iSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].IndexSize;
 
-				// ÇöÀç MaterialÀÇ VertexÀÇ Á¤º¸¸¦ ¾ò¾î¿Â´Ù.
+				// ï¿½ï¿½ï¿½ï¿½ Materialï¿½ï¿½ Vertexï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â´ï¿½.
 				vertices.clear();
 				primitives.clear();
 				vertices.resize(0);
@@ -288,12 +289,12 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				int primCount = 0;
 
 				/////////////////////////////////////////////////////////////////////////
-				// ¿ì¼± Cloth°¡ Àû¿ëµÇÁö ¾Ê´Â ºÎºĞÀº ÀüºÎ indices¿¡¼­ Á¦°ÅÇÑ´Ù
+				// ï¿½ì¼± Clothï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´ï¿½ ï¿½Îºï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ indicesï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½
 				/////////////////////////////////////////////////////////////////////////
 				for (UINT idx = iOffset; idx < iOffset + iSize; idx += 3)
 				{
-					if (_RenderData->mClothWeights[_RenderData->mModel.indices[idx]] == 0.0f || 
-						_RenderData->mClothWeights[_RenderData->mModel.indices[idx + 1]] == 0.0f || 
+					if (_RenderData->mClothWeights[_RenderData->mModel.indices[idx]] == 0.0f ||
+						_RenderData->mClothWeights[_RenderData->mModel.indices[idx + 1]] == 0.0f ||
 						_RenderData->mClothWeights[_RenderData->mModel.indices[idx + 2]] == 0.0f)
 					{
 						continue;
@@ -312,14 +313,14 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 				std::unordered_map<UINT, UINT> testest;
 
-				// ¼­ºê¸Ş½¬¿¡¼­ »ç¿ëµÇ´Â ¹öÅØ½º ÀÎµ¦½º¸®½ºÆ®¸¦ ´ã°íÀÖ´Â vertBySubmesh¿¡¼­ weight°¡ 0.0ÀÎ °æ¿ì¿¡ 
-				// vertBySubmesh¿¡¼­ Á¦¿Ü ÇÒ °ÍÀÓ.
-				// ÇöÀç MaterialÀÇ VertexÀÇ Á¤º¸¸¦ ¾ò¾î¿Â´Ù.
+				// ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ç´ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ö´ï¿½ vertBySubmeshï¿½ï¿½ï¿½ï¿½ weightï¿½ï¿½ 0.0ï¿½ï¿½ ï¿½ï¿½ì¿¡ 
+				// vertBySubmeshï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½.
+				// ï¿½ï¿½ï¿½ï¿½ Materialï¿½ï¿½ Vertexï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â´ï¿½.
 				RGBQUAD color;
 				int uvX, uvY;
 
 				/////////////////////////////////////////////////////////////////////////
-				// Cloth¸¦ AttatchÇÒ ¹öÅØ½º ÀÌ¹ÌÁö¸¦ ¾ò¾î¿Â´Ù
+				// Clothï¿½ï¿½ Attatchï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½Ì¹ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â´ï¿½
 				/////////////////////////////////////////////////////////////////////////
 				int texIDX = _RenderData->mModel.materials[submesh].diffuse_texture_index;
 				std::wstring wname = _RenderData->mModel.textures[texIDX];
@@ -340,7 +341,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				);
 
 				if (!mWeightImage)
-					throw std::runtime_error("Weight Image¸¦ ·ÎµåÇÏ´Âµ¥ ½ÇÆĞ");
+					throw std::runtime_error("Weight Imageï¿½ï¿½ ï¿½Îµï¿½ï¿½Ï´Âµï¿½ ï¿½ï¿½ï¿½ï¿½");
 
 				///////////////////////////////////////////////////////////////////////
 
@@ -348,14 +349,14 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				int mRemover = -1;
 
 				for (
-					std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin(); 
-					vIDX != _RenderData->vertBySubmesh[submesh].end(); 
+					std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin();
+					vIDX != _RenderData->vertBySubmesh[submesh].end();
 					vIDX++
 					)
 				{
 					if (mRemover != -1)
 					{
-						// ÇØ´ç ¼­ºê¸Ş½¬ÀÇ ¹öÅØ½º ¸®½ºÆ®
+						// ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®
 						_RenderData->vertBySubmesh[submesh].erase(mRemover);
 						mRemover = -1;
 					}
@@ -372,7 +373,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					uvY = (int)((float)height * (1.0f - _RenderData->vertices[*vIDX].TexC.y));
 
 					FreeImage_GetPixelColor(mWeightImage, uvX, uvY, &color);
-					
+
 					if (
 						color.rgbRed == 255 &&
 						color.rgbGreen == 0 &&
@@ -393,7 +394,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					vertices.push_back(part);
 
 					///////
-					// ¿©±â¿¡ PPD2Vertices MAPÀ» ¸¸µéÀÚ
+					// ï¿½ï¿½ï¿½â¿¡ PPD2Vertices MAPï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 					///////
 					if (_RenderData->mClothWeights[*vIDX] != 0.0f)
 					{
@@ -418,12 +419,12 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				{
 					primitives[iIDX] = testest[primitives[iIDX]];
 				}
-				 
-				// ¸ğµç ¹öÅØ½º°¡ °íÁ¤ÀÎ °æ¿ì°¡ ¾Æ´Ï¸é
+
+				// ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ì°¡ ï¿½Æ´Ï¸ï¿½
 				UINT vertSize = vertices.size();
 				if (vertices.size() > 0)
 				{
-					// ÃÖ¼Ò ºÎÂø ¹öÅØ½º
+					// ï¿½Ö¼ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½
 					// vertices[0].invWeight = 0.0f;
 
 					PxClothMeshDesc meshDesc;
@@ -441,7 +442,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					_RenderData->mClothes[submesh] = mPhys.LoadCloth(vertices.data(), meshDesc);
 				}
-				// ¸ğµç ¹öÅØ½º°¡ °íÁ¤ÀÎ °æ¿ì (Cloth¸¦ Àû¿ë ½ÃÅ³ ÇÊ¿ä°¡ ¾ø´Ù)
+				// ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ (Clothï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å³ ï¿½Ê¿ä°¡ ï¿½ï¿½ï¿½ï¿½)
 				else
 				{
 					_RenderData->isCloth[submesh] = false;
@@ -451,14 +452,14 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 		} // Loop Submesh
 	} // Loop GameObjects
 
-	// ClothParticleInfo°¡ ¾÷·Îµå µÇ¾îÁú °ø°£
+	// ClothParticleInfoï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½ ï¿½Ç¾ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	PxClothParticleData* ppd = NULL;
-	// Cloth Position ºü¸¥ Á¢±ÙÀ» À§ÇÑ °ø°£
+	// Cloth Position ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	Vertex* mClothOffset = NULL;
 	UINT vertexSize;
 
-	// °ÔÀÓ ÃÊ±â¿¡ Cloth Vertices Update°¡ ¸ÕÀú ½ÃÇà µÇ¾î¾ß ÇÏ±â ¶§¹®¿¡
-	// ClothWriteEvent¸¦ On
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±â¿¡ Cloth Vertices Updateï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ç¾ï¿½ï¿½ ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	// ClothWriteEventï¿½ï¿½ On
 	ResetEvent(mClothReadEvent);
 	SetEvent(mClothWriteEvent);
 
@@ -491,7 +492,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 	while (!StopThread)
 	{
-		// Cloth Vertices°¡ Write Layer°¡ µÉ ¶§ ±îÁö ´ë±â
+		// Cloth Verticesï¿½ï¿½ Write Layerï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 		WaitForSingleObject(mClothWriteEvent, INFINITE);
 
 		if (StopThread) break;
@@ -505,18 +506,24 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 			_RenderData = mObj->second;
 
-			// new float[4 * vSize] ´ë½Å submesh VBV¿¡ ¹Ù·Î ¾÷·Îµå ÇÒ ¼ö ÀÖÀ»±î?
+			// new float[4 * vSize] ï¿½ï¿½ï¿½ submesh VBVï¿½ï¿½ ï¿½Ù·ï¿½ ï¿½ï¿½ï¿½Îµï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½?
 			clothPos = _RenderData->vertices.data();
 
-			// ¸¸ÀÏ ¾Ö´Ï¸ŞÀÌ¼ÇÀÌ ¾ø´Â ¿ÀºêÁ§Æ®¶ó¸é ½ºÅµ
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ ï¿½ï¿½Åµ
 			if (_RenderData->mAnimVertex.size() < 1 &&
 				_RenderData->mBoneMatrix.size() < 1)
-				return (DWORD)(-1);
+			{
+				_RenderData->isDirty = false;
+				mObj++;
+				continue;
+			}
 
-			// ¼­ºê¸Ş½¬ ´ÜÀ§·Î ¾Ö´Ï¸ŞÀÌ¼ÇÀ» ¾÷µ¥ÀÌÆ® ÇÏ´Â °æ¿ì (cloth)
+			_RenderData->isDirty = true;
+
+			// ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ (cloth)
 			for (submeshIDX = 0; submeshIDX < _RenderData->SubmeshCount; submeshIDX++)
 			{
-				if (_RenderData->isRigidBody[submeshIDX]) 
+				if (_RenderData->isRigidBody[submeshIDX])
 				{
 					// Calc O
 					mRootF44 = _RenderData->mBoneMatrix[0][8];
@@ -535,7 +542,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					// Calc new Q
 					delta = q - oq;
-					
+
 					resQ.m128_f32[0] = 0.0f;
 					resQ.m128_f32[1] = -1.0f;
 					resQ.m128_f32[2] = 0.0f;
@@ -588,15 +595,13 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					// Calc new Q
 					delta = q - oq;
 
-					resQ.m128_f32[0] = 0.0f;
-					resQ.m128_f32[1] = -1.0f;
-					resQ.m128_f32[2] = 0.0f;
-					resQ.m128_f32[3] = 1.0f;
+					//delta = DirectX::XMQuaternionNormalize(delta);
 
-					delta = DirectX::XMQuaternionNormalize(delta);
-					resQ = DirectX::XMQuaternionNormalize(resQ);
+					delta.m128_f32[0] *= 0.01f;
+					delta.m128_f32[1] *= 0.01f;
+					delta.m128_f32[2] *= 0.01f;
 
-					resQ = resQ + delta;
+					resQ = delta;
 
 					resQ = DirectX::XMQuaternionNormalize(resQ);
 
@@ -607,9 +612,9 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 							resP.m128_f32[2]
 						),
 						physx::PxQuat(
-							resQ.m128_f32[0], 
-							resQ.m128_f32[1], 
-							resQ.m128_f32[2], 
+							resQ.m128_f32[0],
+							resQ.m128_f32[1],
+							resQ.m128_f32[2],
 							resQ.m128_f32[3]
 						)
 					);
@@ -665,11 +670,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 			mObj++;
 		} // for GameObject
 
-		// Cloth Vertices¸¦ Read Layer·Î º¯°æ
+		// Cloth Verticesï¿½ï¿½ Read Layerï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		ResetEvent(mClothWriteEvent);
 		SetEvent(mClothReadEvent);
 
-		// Çö ÆÇÀ» °¥¾Æ ¾ş°í ´Ù½Ã ´ë±â 
+		// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ù½ï¿½ ï¿½ï¿½ï¿½ 
 		if (loop++ == 3)
 		{
 			loop = 0;
@@ -717,8 +722,8 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 // Physx Thread Section
 DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 {
-	// °ÔÀÓ ÃÊ±â¿¡ Cloth Vertices Update°¡ ¸ÕÀú ½ÃÇà µÇ¾î¾ß ÇÏ±â ¶§¹®¿¡
-	// ClothWriteEvent¸¦ On
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±â¿¡ Cloth Vertices Updateï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ç¾ï¿½ï¿½ ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	// ClothWriteEventï¿½ï¿½ On
 	ResetEvent(mAnimationReadEvent);
 	SetEvent(mAnimationWriteEvent);
 
@@ -756,9 +761,9 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 
 	int mIDX = 0;
 
-	while (!StopThread) 
+	while (!StopThread)
 	{
-		// Cloth Vertices°¡ Write Layer°¡ µÉ ¶§ ±îÁö ´ë±â
+		// Cloth Verticesï¿½ï¿½ Write Layerï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 		WaitForSingleObject(mAnimationWriteEvent, INFINITE);
 		if (StopThread) break;
 
@@ -769,37 +774,41 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 		{
 			_RenderData = obj->second;
 
-			// ¸¸ÀÏ ¾Ö´Ï¸ŞÀÌ¼ÇÀÌ ¾ø´Â ¿ÀºêÁ§Æ®¶ó¸é ½ºÅµ
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ ï¿½ï¿½Åµ
 			if (_RenderData->mAnimVertex.size() < 1 &&
 				_RenderData->mBoneMatrix.size() < 1)
+			{
+				_RenderData->isDirty = false;
+				obj++;
 				continue;
+			}
 
-			// ¾Ö´Ï¸ŞÀÌ¼Ç ¾÷µ¥ÀÌÆ®
+			_RenderData->isDirty = true;
+
+			// ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®
 			_RenderData->isAnim = true;
 			_RenderData->isLoop = true;
 
-			// ÇöÀç ÇÁ·¹ÀÓÀ» °è»êÇÏ¸ç, ÇÁ·¹ÀÓÀÌ °»½Å µÉ ½Ã Æ®¸®°Å¸¦ ÀÛµ¿ÇÑ´Ù.
-			//currentFrame =
-			//	(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ï¸ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ Æ®ï¿½ï¿½ï¿½Å¸ï¿½ ï¿½Ûµï¿½ï¿½Ñ´ï¿½.
 			currentFrame =
-				1;
+				(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
 
-			// ¸¸ÀÏ ÇöÀç ÇÁ·¹ÀÓÀÌ ¾Ö´Ï¸ŞÀÌ¼ÇÀÇ ³¡ÀÌ¶ó¸é?
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ì¶ï¿½ï¿½?
 			if ((_RenderData->endAnimIndex) <= currentFrame) {
-				// ´Ù½Ã ½ÃÀÛ ¹øÁö ÇÁ·¹ÀÓÀ¸·Î
+				// ï¿½Ù½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 				currentFrame = (int)_RenderData->beginAnimIndex;
 				_RenderData->currentDelayPerSec = (_RenderData->beginAnimIndex * _RenderData->durationOfFrame[0]);
 			}
-			// ¸¸ÀÏ ÇÁ·¹ÀÓÀÌ °»½Å µÇ¾ú´Ù¸é?
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ç¾ï¿½ï¿½Ù¸ï¿½?
 			if (_RenderData->currentFrame != currentFrame) {
 				_RenderData->currentFrame = currentFrame;
 				_RenderData->updateCurrentFrame = true;
 			}
 
-			// ´ÙÀ½ ÇÁ·¹ÀÓ ±îÁöÀÇ ÀÜºĞ ½Ã°£À» ¾÷µ¥ÀÌÆ® ÇÑ´Ù.
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Üºï¿½ ï¿½Ã°ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½Ñ´ï¿½.
 			residueTime = _RenderData->currentDelayPerSec - (_RenderData->currentFrame * _RenderData->durationOfFrame[0]);
 
-			// ÀÜºĞ ½Ã°£ ¾÷µ¥ÀÌÆ®
+			// ï¿½Üºï¿½ ï¿½Ã°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®
 			_RenderData->mAnimResidueTime = residueTime;
 
 			////
@@ -810,24 +819,24 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 
 				for (submeshIDX = 0; submeshIDX < (int)obj->second->SubmeshCount; submeshIDX++)
 				{
-					// ¸¸ÀÏ ¾Ö´Ï¸ŞÀÌ¼Ç Vertex¿¡ °íÁ¤µÇ¾î ÇÃ·¹ÀÌ µÇ´Â Submesh¶ó¸é
+					// ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ Vertexï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½Ã·ï¿½ï¿½ï¿½ ï¿½Ç´ï¿½ Submeshï¿½ï¿½ï¿½
 					if (!obj->second->isCloth[submeshIDX])
 					{
-						// ¸¸ÀÏ ÇöÀç ÇÁ·¹ÀÓÀÇ ¾Ö´Ï¸ŞÀÌ¼Ç Á¤º¸°¡ NULLÀÌ¸é 0À¸·Î °ø¹éÀ» Ã¤¿î´Ù.
+						// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ NULLï¿½Ì¸ï¿½ 0ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ã¤ï¿½ï¿½ï¿½.
 						if (obj->second->mAnimVertexSize[obj->second->currentFrame][submeshIDX] == 0)
 							continue;
 
-						// Çö °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ VertexList ³» ÇØ´ç Submesh°¡ ÀûÈù ¿ÀÇÁ¼ÂÀ» ºÒ·¯¿È
+						// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ VertexList ï¿½ï¿½ ï¿½Ø´ï¿½ Submeshï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ò·ï¿½ï¿½ï¿½
 						mVertexOffset =
 							VertexPos +
 							obj->second->mDesc[submeshIDX].BaseVertexLocation;
-						// Submesh¿¡ ÇØ´çÇÏ´Â Vertex °³¼ö
+						// Submeshï¿½ï¿½ ï¿½Ø´ï¿½ï¿½Ï´ï¿½ Vertex ï¿½ï¿½ï¿½ï¿½
 						vertexSize =
 							obj->second->mDesc[submeshIDX].VertexSize;
 
-						// ¾Ö´Ï¸ŞÀÌ¼ÇÀÌ ÃÖ½ÅÈ­ µÈ ¹öÅØ½º ½ÃÀÛ ÁÖ¼Ò
+						// ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ ï¿½Ö½ï¿½È­ ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ö¼ï¿½
 						animPos = obj->second->mAnimVertex[obj->second->currentFrame][submeshIDX];
-						// ¾Ö´Ï¸ŞÀÌ¼Ç ¹öÅØ½º »çÀÌÁî
+						// ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 						animVertSize = obj->second->mAnimVertexSize[obj->second->currentFrame][submeshIDX];
 
 						vcount = 0;
@@ -861,7 +870,7 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 					obj->second->updateCurrentFrame = false;
 				}
 
-				// ÀÜºĞ ½Ã°£ ¾÷µ¥ÀÌÆ®
+				// ï¿½Üºï¿½ ï¿½Ã°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®
 				mRateOfAnimTimeCB.rateOfAnimTime = obj->second->mAnimResidueTime;
 				RateOfAnimTimeCB->CopyData(0, mRateOfAnimTimeCB);
 			}
@@ -871,9 +880,9 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			// Update Morph
 			//////////////////////////////////////////////////////////////////////////////
 
-			if (_RenderData->mMorphDirty.size() > 0) 
+			if (_RenderData->mMorphDirty.size() > 0)
 			{
-				for (mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++) 
+				for (mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++)
 				{
 					mMorph = _RenderData->mMorph[mIDX];
 					weight = mMorph.mVertWeight;
@@ -894,7 +903,7 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			obj++;
 		}
 
-		// Cloth Vertices¸¦ Read Layer·Î º¯°æ
+		// Cloth Verticesï¿½ï¿½ Read Layerï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		ResetEvent(mAnimationWriteEvent);
 		SetEvent(mAnimationReadEvent);
 	}
@@ -905,13 +914,13 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 // Client
 bool BoxApp::Initialize()
 {
-    if(!D3DApp::Initialize())
+	if (!D3DApp::Initialize())
 		return false;
-		
-    // Reset the command list to prep for initialization commands.
-    ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
- 
-	// _Awake (¿ÀºêÁ§Æ® ·Îµå, ÅØ½ºÃÄ, ¸ÓÅ×¸®¾ó »ı¼º)
+
+	// Reset the command list to prep for initialization commands.
+	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+
+	// _Awake (ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½Îµï¿½, ï¿½Ø½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½×¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
 	_Awake(this);
 
 	mCamera.SetPosition(0.0f, 0.0f, -15.0f);
@@ -920,15 +929,15 @@ bool BoxApp::Initialize()
 	mSobelFilter = std::make_unique<SobelFilter>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	mOffscreenRT = std::make_unique<RenderTarget>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 
-    BuildRootSignature();
+	BuildRootSignature();
 	BuildBlurRootSignature();
 	BuildSobelRootSignature();
 	BuildDescriptorHeaps();
-    BuildShadersAndInputLayout();
+	BuildShadersAndInputLayout();
 
-    BuildPSO();
+	BuildPSO();
 
-	// ¿©±â Àü±îÁö ÅØ½ºÃÄ, ¸ÓÅ×¸®¾ó ¾÷·Îµå µÇ¾î ÀÖ¾î¾ßÇÔ.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ø½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½×¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½ ï¿½Ç¾ï¿½ ï¿½Ö¾ï¿½ï¿½ï¿½ï¿½.
 
 	BuildRenderItem();
 	BuildFrameResource();
@@ -999,9 +1008,9 @@ void BoxApp::OnResize()
 	mCamera.SetLens(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 	BoundingFrustum::CreateFromMatrix(mCamFrustum, mCamera.GetProj());
 
-    // The window resized, so update the aspect ratio and recompute the projection matrix.
-    XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-    XMStoreFloat4x4(&mProj, P);
+	// The window resized, so update the aspect ratio and recompute the projection matrix.
+	XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+	XMStoreFloat4x4(&mProj, P);
 
 	if (mBlurFilter != nullptr)
 	{
@@ -1019,7 +1028,7 @@ void BoxApp::OnResize()
 
 void BoxApp::Update(const GameTimer& gt)
 {
-	// Cloth°¡ ¾÷µ¥ÀÌÆ® µÉ ¶§ ±îÁö ´ë±â
+	// Clothï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 	WaitForSingleObject(mClothReadEvent, INFINITE);
 	WaitForSingleObject(mAnimationReadEvent, INFINITE);
 
@@ -1058,7 +1067,7 @@ void BoxApp::OnKeyboardInput(const GameTimer& gt)
 	else if (GetAsyncKeyState('X') & 0x8000)
 		mFilterCount += 1;
 
-	//// ÀÌÈÄ Ä³¸¯ÅÍ¸¦ µû¶ó´Ù´Ï´Â Ä«¸Ş¶ó°¡ ³ª¿À¸é »ç¿ë
+	//// ï¿½ï¿½ï¿½ï¿½ Ä³ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½Ù´Ï´ï¿½ Ä«ï¿½Ş¶ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 
 	// Convert Spherical to Cartesian coordinates.
 	float x = sinf(mPhi)*cosf(mTheta);
@@ -1091,24 +1100,27 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 
 	//const PhyxResource* pr = nullptr;
 	UINT visibleInstanceCount = 0;
-	
+
 	UINT i;
 	int gIdx = 0;
 
-	// (°ÔÀÓ ¿ÀºêÁ§Æ® °³¼ö * °ÔÀÓ ¼­ºê¸Ş½¬) °³¼ö ¸¸Å­ÀÇ ¸¶Å×¸®¾ó Á¤º¸¸¦ ÀÏ·Ä·Î ³ª¿­ ½ÃÅ°±â À§ÇÑ ÀÎµ¦½º 
+	// (ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ * ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½) ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å­ï¿½ï¿½ ï¿½ï¿½ï¿½×¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ï·Ä·ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å°ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ 
 	int MatIDX = 0;
+	int LightIDX = 0;
 
 	// UpdateMaterialBuffer
 	// Material Count == Submesh Count
-	// ÀÎ½ºÅÏ½ºµéÀ» Á¤ÀÇÇÏ±â Àü¿¡ ÀÎ½ºÅÏ½º¿¡ »ç¿ë µÉ MaterialÀ» Á¤ÀÇÇÑ´Ù.
+	// ï¿½Î½ï¿½ï¿½Ï½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ Materialï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
+	MaterialData matData;
+	XMMATRIX matTransform;
+
 	std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin();
 	std::vector<std::pair<std::string, Material>>::iterator& matEnd = mMaterials.end();
 	for (; matIDX != matEnd; matIDX++)
 	{
-		XMMATRIX matTransform = XMLoadFloat4x4(&matIDX->second.MatTransform);
+		matTransform = XMLoadFloat4x4(&matIDX->second.MatTransform);
 
 		// Initialize new MaterialDatas
-		MaterialData matData;
 		matData.DiffuseAlbedo = matIDX->second.DiffuseAlbedo;
 		matData.FresnelR0 = matIDX->second.FresnelR0;
 		matData.Roughness = matIDX->second.Roughness;
@@ -1126,23 +1138,50 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 		// matIDX->second.NumFramesDirty--;
 	}
 
+	RenderItem* obj = NULL;
+	std::list<RenderItem*>::iterator objIDX;
+	std::list<RenderItem*>::iterator objEnd;
+	std::vector<LightData>::iterator lightDataIDX = mLightDatas.begin();
+	std::vector<Light>::iterator lightIDX;
+	std::vector<Light>::iterator lightEnd = mLights.end();
+
+	//for (; objIDX != objEnd; objIDX++)
+	//{
+	//	obj = *objIDX;
+
+	//	std::vector<Light>::iterator& lightIDX = mLights.begin();
+	//	for (; lightIDX != lightEnd; lightIDX++)
+	//	{
+	//		obj->
+
+	//		// ì˜¤ë¸Œì íŠ¸ì˜ í¬ì§€ì…˜ì„ ì–»ì–´ì˜¨ë‹¤.
+	//		// ë§Œì¼ ë¼ì´íŠ¸ê°€ Dirì´ë©´
+	//			// ë¬´ì¡°ê±´ í¬í•¨
+	//		// ë§Œì¼ ë¼ì´íŠ¸ê°€ Pointì´ë©´
+	//			// ||(lightPos - Pos)|| < light.FalloffEnd ë¥¼ ì¶©ì¡±í•˜ë©´ í¬í•¨
+	//		// ë§Œì¼ ë¼ì´íŠ¸ê°€ Spotì´ë©´
+	//			// ||(lightPos - Pos)|| < light.FalloffEnd ë¥¼ ì¶©ì¡±í•˜ë©´ í¬í•¨
+	//	}
+
+	//	LightBuffer->CopyData(LightIDX++, *lightDataIDX++);
+	//}
+
 	mRenderInstTasks.resize(mGameObjectDatas.size());
 
-	RenderItem* obj = NULL;
-	std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
-	std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
-	for (; objIDX != objEnd; objIDX++) 
+	objIDX = mGameObjects.begin();
+	objEnd = mGameObjects.end();
+	for (; objIDX != objEnd; objIDX++)
 	{
 		obj = *objIDX;
 
-		// ÇÁ·¯½ºÅÒ ³»¿¡ Á¸ÀçÇÏ´Â ¿ÀºêÁ§Æ®, ¿ÀºêÁ§Æ® ÀÎ½ºÅÏ½º °³¼ö ÃÊ±âÈ­
+		// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½Î½ï¿½ï¿½Ï½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½È­
 		mRenderInstTasks[gIdx].resize(obj->InstanceCount);
 
 		for (i = 0; i < obj->InstanceCount; ++i)
 		{
 			// getSyncDesc
-			// Á¦¹ß Áö¿ìÁö Á» ¸¶¶ó 
-			//pr = phys.getTranspose(g->physxIdx[i]);
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ 
+			pr = phys.getTranspose(g->physxIdx[i]);
 
 			world = XMLoadFloat4x4(&obj->_Instance[i].World);
 
@@ -1152,12 +1191,12 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 			viewToLocal = XMMatrixMultiply(invView, invWorld);
 			mCamFrustum.Transform(localSpaceFrustum, viewToLocal);
 
-			// ¸¸ÀÏ Ä³¸¯ÅÍ°¡ Ä«¸Ş¶ó ¿µ¿ª¿¡¼­ º¸ÀÌÁö ¾Ê´Â´Ù¸é,
-			// Ä³¸¯ÅÍ°¡ º¸¿©Áú Áö¸¦ °áÁ¤ÇÏ´Â BoundÀÇ À§Ä¡°ª¸¸ ¾÷µ¥ÀÌÆ®¸¦ ÇÏ°í
-			// ½Ç Ä³¸¯ÅÍ´Â ¿òÁ÷ÀÌÁö ¾Ê´Â´Ù.
-			//g->Bounds.Center.x = pr->Position[0];
-			//g->Bounds.Center.y = pr->Position[1];
-			//g->Bounds.Center.z = pr->Position[2];
+			// ï¿½ï¿½ï¿½ï¿½ Ä³ï¿½ï¿½ï¿½Í°ï¿½ Ä«ï¿½Ş¶ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´Ù¸ï¿½,
+			// Ä³ï¿½ï¿½ï¿½Í°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ Boundï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Ï°ï¿½
+			// ï¿½ï¿½ Ä³ï¿½ï¿½ï¿½Í´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½.
+			g->Bounds.Center.x = pr->Position[0];
+			g->Bounds.Center.y = pr->Position[1];
+			g->Bounds.Center.z = pr->Position[2];
 
 			XMFLOAT4X4 boundScale = MathHelper::Identity4x4();
 			boundScale._11 = 1.5f;
@@ -1166,43 +1205,60 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 
 			obj->Bounds.Transform(obj->Bounds, XMLoadFloat4x4(&boundScale));
 
-			// ¸¸ÀÏ ÇÁ·¯½ºÅÒ ¹Ú½º³»¿¡ Á¸ÀçÇÑ´Ù¸é
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ú½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´Ù¸ï¿½
 			if ((localSpaceFrustum.Contains(obj->Bounds) != DirectX::DISJOINT))
 			{
-				// ÇÁ·¯½ºÅÒ ³»¿¡ Á¸ÀçÇÏ´Â ¿ÀºêÁ§Æ®¸¸ º¸¿©ÁÙ °ÍÀÌ´Ù
+				// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ì´ï¿½
 				XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
 				XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(texTransform));
 				data.MaterialIndex = obj->_Instance[i].MaterialIndex;
 
-				// Á¦¹ß Áö¿ìÁö Á» ¸¶¶ó 
-				// ¸¸ÀÏ Ä³¸¯ÅÍ°¡ Ä«¸Ş¶ó ¿µ¿ª¿¡ º¸ÀÎ´Ù¸é ,
-				// Ä³¸¯ÅÍÀÇ SRT¸¦ ¾÷µ¥ÀÌÆ® ÇÑ´Ù.
-				//data.World._14 = pr->Position[0];
-				//data.World._24 = pr->Position[1];
-				//data.World._34 = pr->Position[2];
+				// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ 
+				// ï¿½ï¿½ï¿½ï¿½ Ä³ï¿½ï¿½ï¿½Í°ï¿½ Ä«ï¿½Ş¶ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Î´Ù¸ï¿½ ,
+				// Ä³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ SRTï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½Ñ´ï¿½.
+				data.World._14 = pr->Position[0];
+				data.World._24 = pr->Position[1];
+				data.World._34 = pr->Position[2];
 
-				//data.World._11 = pr->Scale[0];
-				//data.World._22 = pr->Scale[1];
-				//data.World._33 = pr->Scale[2];
+				data.World._11 = pr->Scale[0];
+				data.World._22 = pr->Scale[1];
+				data.World._33 = pr->Scale[2];
 
-				// renderInstCounts = {5, 4, 2, 6, 7, 11 .....} ÀÏ °æ¿ìÀÇ ÀÎ½ºÅÏ½º Index´Â 
+				// renderInstCounts = {5, 4, 2, 6, 7, 11 .....} ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ Indexï¿½ï¿½ 
 				// renderInstIndex = {{0, 1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10}, {11, 12, ..., 16}, ...}
-				// À¸·Î ¼øÂ÷ÀûÀ¸·Î ´Ã¾î³­´Ù.
+				// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ã¾î³­ï¿½ï¿½.
 				InstanceBuffer->CopyData(visibleInstanceCount, data);
 
-				// ÇØ´ç ¿ÀºêÁ§Æ®ÀÇ ·»´õ¸µ µÉ ÀÎ½ºÅÏ½º °³¼ö Áõ°¡ (»óÁÖ¼º ¶§¹®¿¡)
-				// ÀÌÈÄ Draw¿¡¼­´Â "ÇÁ·¯½ºÅÒ ³»¿¡ Á¸ÀçÇÏ´Â" InstanceCounts ¹è¿­À» °¡Áö°í ´ÙÀ½°ú °°Àº ÀÛ¾÷À» ¼öÇàÇÑ´Ù.
-				// renderInstCounts = {5, 4, 1, 2, 3, 6, 7, 9, 11 .....} ÀÏ °æ¿ì
+				// Light Update
+				lightIDX = mLights.begin();
+				for (; lightIDX != lightEnd; lightIDX++)
+				{
+					obj->
+
+					// ì˜¤ë¸Œì íŠ¸ì˜ í¬ì§€ì…˜ì„ ì–»ì–´ì˜¨ë‹¤.
+					// ë§Œì¼ ë¼ì´íŠ¸ê°€ Dirì´ë©´
+						// ë¬´ì¡°ê±´ í¬í•¨
+					// ë§Œì¼ ë¼ì´íŠ¸ê°€ Pointì´ë©´
+						// ||(lightPos - Pos)|| < light.FalloffEnd ë¥¼ ì¶©ì¡±í•˜ë©´ í¬í•¨
+					// ë§Œì¼ ë¼ì´íŠ¸ê°€ Spotì´ë©´
+						// ||(lightPos - Pos)|| < light.FalloffEnd ë¥¼ ì¶©ì¡±í•˜ë©´ í¬í•¨
+				}
+
+				LightBuffer->CopyData(visibleInstanceCount, *lightDataIDX++);
+
+				// ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½Ö¼ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)
+				// ï¿½ï¿½ï¿½ï¿½ Drawï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½" InstanceCounts ï¿½è¿­ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Û¾ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
+				// renderInstCounts = {5, 4, 1, 2, 3, 6, 7, 9, 11 .....} ï¿½ï¿½ ï¿½ï¿½ï¿½
 				// Thread 0 = {5, 2, 7, ...} Thread 1 = {4, 3, 9, ...} Thread 2 = {1, 6, 11, ...}
-				// °ú °°ÀÌ ºĞÇÒÇÏ¿©, "ÇÁ·¯½ºÅÒ ³»¿¡ Á¸ÀçÇÏ´Â ¿ÀºêÁ§Æ®"¸¸À» ·»´õ¸µ.
+				// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¿ï¿½, "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®"ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½.
 				mRenderInstTasks[gIdx][i] = visibleInstanceCount++;
 			}
 		}
 
-		// ´ÙÀ½ ¿ÀºêÁ§Æ®ÀÇ ÀÎ½ºÅÏ½º °³¼ö¸¦ °Ë»çÇÏ±â À§ÇÑ ÀÎµ¦½º ½ºÀ§Äª
+		// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ë»ï¿½ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Äª
 		gIdx++;
 	}
-	
+
 	mInstanceCount = visibleInstanceCount;
 }
 
@@ -1231,13 +1287,8 @@ void BoxApp::UpdateMainPassCB(const GameTimer& gt)
 		mMainPassCB.FarZ = 1000.0f;
 		mMainPassCB.TotalTime = gt.TotalTime();
 		mMainPassCB.DeltaTime = gt.DeltaTime();
-		mMainPassCB.AmbientLight = { 1.00f, 0.85f, 0.85f, 1.0f };
-		mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-		mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
-		mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-		mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
-		mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
-		mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+
+		mMainPassCB.AmbientLight = XMFLOAT4(0.1f, 0.1f, 0.15f, 1.0f);
 
 		PassCB->CopyData(0, mMainPassCB);
 	}
@@ -1256,26 +1307,26 @@ void BoxApp::UpdateAnimation(const GameTimer& gt)
 		obj = *objIDX;
 		objData = mGameObjectDatas[obj->mName];
 
-		// ÇöÀç ¾Ö´Ï¸ŞÀÌ¼Ç ½ÇÇà ½Ã°£À» ¾÷µ¥ÀÌÆ® ÇÑ´Ù.
+		// ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ã°ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½Ñ´ï¿½.
 		objData->currentDelayPerSec += delta;
 	}
 }
 
-void BoxApp::InitSwapChain(int numThread) 
+void BoxApp::InitSwapChain(int numThread)
 {
 	{
 		RenderItem* beginItem = *(mGameObjects.begin());
 
-		// commandAlloc, commandList¸¦ Àç»ç¿ë ÇÏ±â À§ÇÑ ¸®ÇÁ·¹½¬
+		// commandAlloc, commandListï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 		ThrowIfFailed(mDirectCmdListAlloc->Reset());
 		for (int i = 0; i < 3; i++)
 			ThrowIfFailed(mMultiCmdListAlloc[i]->Reset());
 
 		ThrowIfFailed(
-			mCommandList->Reset(mDirectCmdListAlloc.Get(), 
-			mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get())
+			mCommandList->Reset(mDirectCmdListAlloc.Get(),
+				mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get())
 		);
-		for (int i = 0; i < 3; i++) 
+		for (int i = 0; i < 3; i++)
 			ThrowIfFailed(mMultiCommandList[i]->Reset(mMultiCmdListAlloc[i].Get(), mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get()));
 
 		// Indicate a state transition on the resource usage.
@@ -1289,7 +1340,7 @@ void BoxApp::InitSwapChain(int numThread)
 		);
 
 		mCommandList->ResourceBarrier(
-			1, 
+			1,
 			&CD3DX12_RESOURCE_BARRIER::Transition(
 				CurrentBackBuffer(),
 				D3D12_RESOURCE_STATE_PRESENT,
@@ -1311,6 +1362,13 @@ void BoxApp::InitSwapChain(int numThread)
 		{
 			obj = *objIDX;
 
+			if (!mGameObjectDatas[obj->mName]->isDirty)
+			{
+				continue;
+			}
+
+			mGameObjectDatas[obj->mName]->isDirty = false;
+
 			d3dUtil::UpdateDefaultBuffer(
 				mCommandList.Get(),
 				mGameObjectDatas[obj->mName]->vertices.data(),
@@ -1320,7 +1378,7 @@ void BoxApp::InitSwapChain(int numThread)
 			);
 		}
 
-		// Cloth¸¦ Write¸ğµå·Î º¯°æ
+		// Clothï¿½ï¿½ Writeï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		ResetEvent(mClothReadEvent);
 		SetEvent(mClothWriteEvent);
 		ResetEvent(mAnimationReadEvent);
@@ -1352,6 +1410,7 @@ void BoxApp::InitSwapChain(int numThread)
 		}
 	}
 }
+
 DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 {
 	UINT ThreadIDX = reinterpret_cast<UINT>(temp);
@@ -1361,14 +1420,16 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 	// PreMake offset of Descriptor Resource Buffer.
 	// Base Pointer
-	D3D12_GPU_VIRTUAL_ADDRESS objectCB =			InstanceBuffer->Resource()->GetGPUVirtualAddress();
-	D3D12_GPU_VIRTUAL_ADDRESS matCB =				MaterialBuffer->Resource()->GetGPUVirtualAddress();
-	D3D12_GPU_VIRTUAL_ADDRESS rateOfAnimTimeCB =	RateOfAnimTimeCB->Resource()->GetGPUVirtualAddress();
-	D3D12_GPU_VIRTUAL_ADDRESS pmxBoneCB =			PmxAnimationBuffer->Resource()->GetGPUVirtualAddress();
+	D3D12_GPU_VIRTUAL_ADDRESS objectCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
+	D3D12_GPU_VIRTUAL_ADDRESS matCB = MaterialBuffer->Resource()->GetGPUVirtualAddress();
+	D3D12_GPU_VIRTUAL_ADDRESS lightCB = LightBuffer->Resource()->GetGPUVirtualAddress();
+	D3D12_GPU_VIRTUAL_ADDRESS rateOfAnimTimeCB = RateOfAnimTimeCB->Resource()->GetGPUVirtualAddress();
+	D3D12_GPU_VIRTUAL_ADDRESS pmxBoneCB = PmxAnimationBuffer->Resource()->GetGPUVirtualAddress();
 
 	// Stack Pointer
 	D3D12_GPU_VIRTUAL_ADDRESS objCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS matCBAddress;
+	D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS rateOfAnimTimeCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS pmxBoneCBAddress;
 
@@ -1399,10 +1460,10 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	int MatIDX = 0;
 	int gameIDX = 0;
 
-	// °ÔÀÓÀÌ Á¾·á µÉ ¶§ ±îÁö ¸ÖÆ¼ ½º·¹µå ·»´õ¸µ ´ë±â
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ¼ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 	while (ThreadIDX < numThread)
 	{
-		// CommandList°¡ ÇÁ·¹Á¨Å×ÀÌ¼ÇÀ» ¸¶Ä¡°í, ·»´õ Å¸°Ù ÀÌº¥Æ®¸¦ È£Ãâ ÇÒ ¶§ ±îÁö ´ë±â.
+		// CommandListï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½Ìºï¿½Æ®ï¿½ï¿½ È£ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½.
 		WaitForSingleObject(renderTargetEvent[ThreadIDX], INFINITE);
 
 		// Initialization
@@ -1437,7 +1498,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 			}
 
 			if (mGameObjectIndices[loop] == -1)
-				throw std::runtime_error("Àß¸øµÈ ÀÎµ¦½Ì..");
+				throw std::runtime_error("ï¿½ß¸ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½..");
 		}
 
 #ifdef _USE_UBER_SHADER
@@ -1458,42 +1519,42 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 			// Specify the buffers we are going to render to.
 			mMultiCommandList[ThreadIDX]->OMSetRenderTargets(
-				1, 
-				&mOffscreenRT->Rtv(), 
-				true, 
+				1,
+				&mOffscreenRT->Rtv(),
+				true,
 				&mDsvHeap->GetCPUDescriptorHandleForHeapStart()
 			);
 
-			// µğ½ºÅ©¸³ÅÍ ¹ÙÀÎµù
+			// ï¿½ï¿½Å©ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½
 			ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 			mMultiCommandList[ThreadIDX]->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-			// ½Ã±×´ÏÃÄ (µğ½ºÅ©¸³ÅÍ ¼Â) ¹ÙÀÎµù
+			// ï¿½Ã±×´ï¿½ï¿½ï¿½ (ï¿½ï¿½Å©ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½) ï¿½ï¿½ï¿½Îµï¿½
 			mMultiCommandList[ThreadIDX]->SetGraphicsRootSignature(mRootSignature.Get());
 
 			// Select Descriptor Buffer Index
-			mMultiCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView (
-				4, 
+			mMultiCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
+				0,
 				PassCB->Resource()->GetGPUVirtualAddress()
 			);
 
 			mMultiCommandList[ThreadIDX]->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		}
 
-		// ½º·¹µåÀÇ ÀÎµ¦½º ´ÜÀ§·Î Render ItemÀ» ºĞÇÒÇÏ¿© CommandList¿¡ ¹ÙÀÎµù. 
+		// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Render Itemï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¿ï¿½ CommandListï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½. 
 		{
 			continueIDX = -1;
 			MatIDX = 0;
 
-			// ÀÎ½ºÅÏ½º ¹öÆÛ´Â ¸ğµç °ÔÀÓ ¿ÀºêÁ§Æ®¿¡ ´ëÇÑ ÀÎ½ºÅÏ½º Á¤º¸¸¦ ¸ğµÎ °¡Áö°í ÀÖ±â¿¡, Àü¿ªÀ¸·Î ÇÒ´ç.
-			// À§¿¡ Instance Update ÇÒ ¶§, Instance Buffer¿¡´Ù°¡ ÀÏ·Ä·Î Instance Á¤º¸¸¦ ¹ÙÀÎµù (CopyData) ÇÏ¿´±â¿¡
-			// ÇÑ ¹ø¿¡ ¸ğµç °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀÎ½ºÅÏ½º¸¦ ÀûÀç ÇØ¾ß ÇÔ. (¹°·Ğ ÇÁ·¯½ºÅÒ¿¡¼­ Á¦¿Ü µÈ, ¿ÀºêÁ§Æ® Á¦¿Ü)
+			// ï¿½Î½ï¿½ï¿½Ï½ï¿½ ï¿½ï¿½ï¿½Û´ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ö±â¿¡, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ò´ï¿½.
+			// ï¿½ï¿½ï¿½ï¿½ Instance Update ï¿½ï¿½ ï¿½ï¿½, Instance Bufferï¿½ï¿½ï¿½Ù°ï¿½ ï¿½Ï·Ä·ï¿½ Instance ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½ (CopyData) ï¿½Ï¿ï¿½ï¿½â¿¡
+			// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ø¾ï¿½ ï¿½ï¿½. (ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½)
 
 			// count of Objects
-			// ÀÎ½ºÅÏ½º Ä«¿îÆ® X °ÔÀÓ ¿ÀºêÁ§Æ® Ä«¿îÆ®¸¸ Àû¿ë
+			// ï¿½Î½ï¿½ï¿½Ï½ï¿½ Ä«ï¿½ï¿½Æ® X ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® Ä«ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 			for (taskIDX = 0; taskIDX < (_taskEnd - _taskOffset); taskIDX++)
 			{
-				// ·»´õÇÒ °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀÎµ¦½º
+				// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½
 				gameIDX = mGameObjectIndices[taskIDX];
 				_gInstOffset = taskIDX + _taskOffset;
 
@@ -1501,8 +1562,8 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 				mMultiCommandList[ThreadIDX]->SetPipelineState(mPSOs[obj->mRenderType].Get());
 
 				mMultiCommandList[ThreadIDX]->IASetVertexBuffers(
-					0, 
-					1, 
+					0,
+					1,
 					&obj->mGeometry.VertexBufferView()
 				);
 				mMultiCommandList[ThreadIDX]->IASetIndexBuffer(
@@ -1513,23 +1574,24 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 				objCBAddress = objectCB + _gInstOffset * sizeof(InstanceData);
 				/*pmxBoneCBAddress = pmxBoneCB + 0 * sizeof(PmxAnimationData);*/
 				pmxBoneCBAddress = pmxBoneCB;
-				rateOfAnimTimeCBAddress = rateOfAnimTimeCB + d3dUtil::CalcConstantBufferByteSize(gameIDX * sizeof(RateOfAnimTimeConstants));
+				/*rateOfAnimTimeCBAddress = rateOfAnimTimeCB + d3dUtil::CalcConstantBufferByteSize(gameIDX * sizeof(RateOfAnimTimeConstants));*/
+				rateOfAnimTimeCBAddress = rateOfAnimTimeCB;
 
 				// Select Descriptor Buffer Index
 				{
 					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-						1, 
+						2,
 						objCBAddress
 					);
 					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-						3,
+						5,
 						pmxBoneCBAddress
 					);
 
 					if (obj->mFormat == "PMX")
 					{
 						mMultiCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
-							5,
+							1,
 							rateOfAnimTimeCBAddress
 						);
 					}
@@ -1539,35 +1601,64 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 					// count of submesh
 					for (j = 0; j < obj->SubmeshCount; j++)
 					{
-						// °¢ ¼­ºê¸Ş½¬´ç °¢°¢ÀÇ ÅØ½ºÃÄ, ¸¶Å×¸®¾ó Á¤º¸¸¦ °¡Áö°í ÀÖ¾î¾ß ÇÕ´Ï´Ù.
-						if (obj->Mat[j] == NULL)
-							throw std::runtime_error("Submesh °³¼ö¿Í MaterialÀÇ °³¼ö°¡ ¼­·Î ´Ù¸¨´Ï´Ù.");
+						if (obj->Mat.size() == 0 && obj->SkyMat.size() == 0)
+							throw std::runtime_error("");
 
 						// Select Texture to Index
 						CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+						CD3DX12_GPU_DESCRIPTOR_HANDLE skyTex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
-						// Move to Current Stack Pointer
-						tex.Offset (
-							obj->Mat[j]->DiffuseSrvHeapIndex,
-							mCbvSrvUavDescriptorSize
-						);
-
-						matCBAddress = matCB + obj->Mat[j]->MatInstIndex * sizeof(MaterialData);
-
-						// Select Descriptor Buffer Index
+						if (obj->Mat.size() > 0)
 						{
-							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
-								0, 
-								tex
+							/*matCBAddress = matCB + obj->Mat[j]->MatInstIndex * sizeof(MaterialData);*/
+							matCBAddress = matCB;
+
+							// Move to Current Stack Pointer
+							tex.Offset(
+								obj->Mat[j]->DiffuseSrvHeapIndex,
+								mCbvSrvUavDescriptorSize
 							);
-							mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-								2, 
-								matCBAddress
+
+							skyTex.Offset(
+								obj->Mat[0]->DiffuseSrvHeapIndex,
+								mCbvSrvUavDescriptorSize
+							);
+						}
+						else
+						{
+							matCBAddress = matCB + obj->SkyMat[0]->MatInstIndex * sizeof(MaterialData);
+							matCBAddress = matCB;
+
+							// Move to Current Stack Pointer
+							tex.Offset(
+								0,
+								mCbvSrvUavDescriptorSize
+							);
+
+							skyTex.Offset(
+								0,
+								mCbvSrvUavDescriptorSize
 							);
 						}
 
-						// ¿©±â¼­ Local º¯°æ.
-						// ÇöÀç submesh Geometry¸¦ ¼±ÅÃ
+						// Select Descriptor Buffer Index
+						{
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+								3,
+								matCBAddress
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								6,
+								tex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								7,
+								skyTex
+							);
+						}
+
+						// ï¿½ï¿½ï¿½â¼­ Local ï¿½ï¿½ï¿½ï¿½.
+						// ï¿½ï¿½ï¿½ï¿½ submesh Geometryï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 						sg = &obj->mGeometry.DrawArgs[
 							obj->mGeometry.meshNames[
 								j
@@ -1575,23 +1666,23 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 						];
 
 						mMultiCommandList[ThreadIDX]->DrawIndexedInstanced(
-							sg->IndexSize,							// ÇÑ Áö¿À¸ŞÆ®¸®ÀÇ ÀÎµ¦½º °³¼ö
+							sg->IndexSize,							// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 							obj->InstanceCount,
 							sg->StartIndexLocation,
 							sg->BaseVertexLocation,
 							0
 						);
 
-						// ¼­ºê¸Å½¬ ´ç ÀÎ½ºÅÏ½º´Â Á¸ÀçÇÏÁö ¾Ê´Â´Ù.
-						// »ı¼º ´Ü°è¿¡¼­ °íÁ¤ SRT MatÀ» ¹ÙÀÎµù ½ÃÅ³ °Í.
+						// ï¿½ï¿½ï¿½ï¿½Å½ï¿½ ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½.
+						// ï¿½ï¿½ï¿½ï¿½ ï¿½Ü°è¿¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ SRT Matï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½ ï¿½ï¿½Å³ ï¿½ï¿½.
 					}
 				}
 
-				// ´ÙÀ½ Geometry¸é offset º¯°æ
+				// ï¿½ï¿½ï¿½ï¿½ Geometryï¿½ï¿½ offset ï¿½ï¿½ï¿½ï¿½
 				// _gInstOffset	+= mGameObjects[gameIDX]->InstanceCount;
 				_gInstOffset += 1;
 			}
-			_gInstOffset	= 0;
+			_gInstOffset = 0;
 		}
 
 #endif //!_USE_UBER_SHADER
@@ -1610,7 +1701,7 @@ void BoxApp::Draw(const GameTimer& gt)
 {
 	InitSwapChain(numThread);
 
-	// °¢ RenderItemµéÀ» ¸ÖÆ¼ ½º·¹µùÀ¸·Î ±×¸°´Ù.
+	// ï¿½ï¿½ RenderItemï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ¼ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½×¸ï¿½ï¿½ï¿½.
 	{
 		SetEvent(renderTargetEvent[0]);
 		SetEvent(renderTargetEvent[1]);
@@ -1622,8 +1713,8 @@ void BoxApp::Draw(const GameTimer& gt)
 		ResetEvent(recordingDoneEvents[1]);
 		ResetEvent(recordingDoneEvents[2]);
 	}
- 
-	// CommandAllocationList¿¡ ÀûÀçµÈ RenderItemµéÀ» CommnadQ·Î º¸³½´Ù.
+
+	// CommandAllocationListï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ RenderItemï¿½ï¿½ï¿½ï¿½ CommnadQï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½.
 	{
 		// Add the command list to the queue for execution.
 		ID3D12CommandList* cmdsLists[] = { mMultiCommandList[0].Get(), mMultiCommandList[1].Get(), mMultiCommandList[2].Get() };
@@ -1649,11 +1740,11 @@ void BoxApp::Draw(const GameTimer& gt)
 		// _Non_Skinned_Opaque SobelFilter
 		//
 
-		// commandAlloc, commandList¸¦ Àç»ç¿ë ÇÏ±â À§ÇÑ ¸®ÇÁ·¹½¬
+		// commandAlloc, commandListï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 		ThrowIfFailed(mDirectCmdListAlloc->Reset());
 		ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get()));
 
-		// µğ½ºÅ©¸³ÅÍ ¹ÙÀÎµù
+		// ï¿½ï¿½Å©ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½
 		ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 		mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
@@ -1665,10 +1756,13 @@ void BoxApp::Draw(const GameTimer& gt)
 		// Specify the buffers we are going to render to.
 		mCommandList->OMSetRenderTargets(1, &mOffscreenRT->Rtv(), true, &DepthStencilView());
 
-		// ½Ã±×´ÏÃÄ (µğ½ºÅ©¸³ÅÍ ¼Â) ¹ÙÀÎµù
+		// ï¿½Ã±×´ï¿½ï¿½ï¿½ (ï¿½ï¿½Å©ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½) ï¿½ï¿½ï¿½Îµï¿½
 		mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
-		mCommandList->SetGraphicsRootConstantBufferView(4, PassCB->Resource()->GetGPUVirtualAddress());
+		mCommandList->SetGraphicsRootConstantBufferView(
+			0, 
+			PassCB->Resource()->GetGPUVirtualAddress()
+		);
 
 
 		mCommandList->ResourceBarrier(
@@ -1777,39 +1871,39 @@ void BoxApp::Draw(const GameTimer& gt)
 
 void BoxApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
-    mLastMousePos.x = x;
-    mLastMousePos.y = y;
+	mLastMousePos.x = x;
+	mLastMousePos.y = y;
 
-    SetCapture(mhMainWnd);
+	SetCapture(mhMainWnd);
 }
 
 void BoxApp::OnMouseUp(WPARAM btnState, int x, int y)
 {
-    ReleaseCapture();
+	ReleaseCapture();
 }
 
 void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
-    if((btnState & MK_LBUTTON) != 0)
-    {
-        // Make each pixel correspond to a quarter of a degree.
-        float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
-        float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
+	if ((btnState & MK_LBUTTON) != 0)
+	{
+		// Make each pixel correspond to a quarter of a degree.
+		float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
+		float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
 
-        // Update angles based on input to orbit camera around box.
-        mTheta += dx;
-        mPhi += dy;
+		// Update angles based on input to orbit camera around box.
+		mTheta += dx;
+		mPhi += dy;
 
-        // Restrict the angle mPhi.
-        mPhi = MathHelper::Clamp(mPhi, 0.1f, MathHelper::Pi - 0.1f);
+		// Restrict the angle mPhi.
+		mPhi = MathHelper::Clamp(mPhi, 0.1f, MathHelper::Pi - 0.1f);
 
 
 		mCamera.Pitch(dy);
 		mCamera.RotateY(dx);
-    }
+	}
 
-    mLastMousePos.x = x;
-    mLastMousePos.y = y;
+	mLastMousePos.x = x;
+	mLastMousePos.y = y;
 }
 
 void BoxApp::BuildRootSignature()
@@ -1821,31 +1915,38 @@ void BoxApp::BuildRootSignature()
 	// thought of as defining the function signature.  
 
 	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0);
+	CD3DX12_DESCRIPTOR_RANGE skyTexTable;
+	skyTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 2, 0);
 
 	// Root parameter can be a table, root descriptor or root constants.
-	CD3DX12_ROOT_PARAMETER slotRootParameter[6];
+	std::array<CD3DX12_ROOT_PARAMETER, 8> slotRootParameter;
 
-	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	// Instance SRV
-	slotRootParameter[1].InitAsShaderResourceView(0, 1);
-	// Material SRV
-	slotRootParameter[2].InitAsShaderResourceView(1, 0);
-	// PMX BONE CB
-	slotRootParameter[3].InitAsShaderResourceView(1, 1);
 	// PassCB
-	slotRootParameter[4].InitAsConstantBufferView(0);
+	slotRootParameter[0].InitAsConstantBufferView(0);
 	// Animation Index and Time Space
-	slotRootParameter[5].InitAsConstantBufferView(1);
+	slotRootParameter[1].InitAsConstantBufferView(1);
+	// Instance SRV
+	slotRootParameter[2].InitAsShaderResourceView(0, 0);
+	// Material SRV
+	slotRootParameter[3].InitAsShaderResourceView(0, 1);
+	// Light SRV
+	slotRootParameter[4].InitAsShaderResourceView(0, 2);
+	// PMX BONE CB
+	slotRootParameter[5].InitAsShaderResourceView(0, 3);
+	// Main Textures
+	slotRootParameter[6].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	// Sky Textures
+	slotRootParameter[7].InitAsDescriptorTable(1, &skyTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 
 	auto staticSamplers = GetStaticSamplers();
 
 	// A root signature is an array of root parameters.
 	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		6, 
-		slotRootParameter, 
-		(UINT)staticSamplers.size(), 
+		slotRootParameter.size(),
+		slotRootParameter.data(),
+		(UINT)staticSamplers.size(),
 		staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1855,7 +1956,7 @@ void BoxApp::BuildRootSignature()
 	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
 		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
 
-	if(errorBlob != nullptr)
+	if (errorBlob != nullptr)
 	{
 		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
 	}
@@ -1872,7 +1973,7 @@ void BoxApp::BuildBlurRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE srvTable;
 	srvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-	
+
 	CD3DX12_DESCRIPTOR_RANGE uavTable;
 	uavTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
 
@@ -1888,9 +1989,9 @@ void BoxApp::BuildBlurRootSignature()
 	auto staticSamplers = GetStaticSamplers();
 
 	CD3DX12_ROOT_SIGNATURE_DESC rooSigDesc(
-		3, 
-		slotRootParameter, 
-		(UINT)staticSamplers.size(), 
+		3,
+		slotRootParameter,
+		(UINT)staticSamplers.size(),
 		staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
 	);
@@ -1936,9 +2037,9 @@ void BoxApp::BuildSobelRootSignature()
 
 	// A root signature is an array of root parameters.
 	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		3, 
+		3,
 		slotRootParameter,
-		(UINT)staticSamplers.size(), 
+		(UINT)staticSamplers.size(),
 		staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
 	);
@@ -1982,18 +2083,18 @@ void BoxApp::BuildDescriptorHeaps()
 	);
 
 	//
-	// ÅØ½ºÃÄ°¡ ÀúÀåµÉ ÈüÀ» »ı¼ºÇÑ´Ù.
+	// ï¿½Ø½ï¿½ï¿½Ä°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
 	//
 
 	// Build Descriptors 
 	mBlurFilter->BuildDescriptors(
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
-			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), 
+			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 			(int)texCount,
 			mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
-			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(), 
+			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 			(int)texCount,
 			mCbvSrvUavDescriptorSize
 		),
@@ -2007,7 +2108,7 @@ void BoxApp::BuildDescriptorHeaps()
 			mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
-			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(), 
+			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 			(int)(texCount + blurDescriptorCount),
 			mCbvSrvUavDescriptorSize
 		),
@@ -2016,18 +2117,18 @@ void BoxApp::BuildDescriptorHeaps()
 
 	mOffscreenRT->BuildDescriptors(
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
-			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), 
+			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 			(int)(texCount + blurDescriptorCount + sobelDescriptorCount),
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
-			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(), 
+			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 			(int)(texCount + blurDescriptorCount + sobelDescriptorCount),
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
-			mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 
-			SwapChainBufferCount, 
+			mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
+			SwapChainBufferCount,
 			(UINT)mRtvDescriptorSize
 		)
 	);
@@ -2040,15 +2141,26 @@ void BoxApp::BuildDescriptorHeaps()
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = -1;
 
 	for (int texIDX = 0; texIDX < mTextures.size(); texIDX++)
 	{
-		srvDesc.Format = mTextures[mTextureList[texIDX]].Resource->GetDesc().Format;
-		md3dDevice->CreateShaderResourceView(mTextures[mTextureList[texIDX]].Resource.Get(), &srvDesc, hDescriptor);
-
+		if (!mTextures[mTextureList[texIDX]].isCube)
+		{
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+			srvDesc.Texture2D.MostDetailedMip = 0;
+			srvDesc.Texture2D.MipLevels = -1;
+			srvDesc.Format = mTextures[mTextureList[texIDX]].Resource->GetDesc().Format;
+			md3dDevice->CreateShaderResourceView(mTextures[mTextureList[texIDX]].Resource.Get(), &srvDesc, hDescriptor);
+		}
+		else
+		{
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+			srvDesc.TextureCube.MostDetailedMip = 0;
+			srvDesc.TextureCube.MipLevels = mTextures[mTextureList[texIDX]].Resource->GetDesc().MipLevels;
+			srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+			srvDesc.Format = mTextures[mTextureList[texIDX]].Resource->GetDesc().Format;
+			md3dDevice->CreateShaderResourceView(mTextures[mTextureList[texIDX]].Resource.Get(), &srvDesc, hDescriptor);
+		}
 		// next descriptor
 		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
 	}
@@ -2056,7 +2168,7 @@ void BoxApp::BuildDescriptorHeaps()
 
 void BoxApp::BuildShadersAndInputLayout()
 {
-    HRESULT hr = S_OK;
+	HRESULT hr = S_OK;
 
 	const D3D_SHADER_MACRO pmxFormatDefines[] =
 	{
@@ -2075,13 +2187,13 @@ void BoxApp::BuildShadersAndInputLayout()
 		"SKINNED", "1",
 		NULL, NULL
 	};
-    
+
 	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", alphaTestDefines, "VS", "vs_5_1");
 	mShaders["skinnedVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", skinnedDefines, "VS", "vs_5_1");
 	mShaders["pmxFormatVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", pmxFormatDefines, "VS", "vs_5_1");
 
 	mShaders["pix"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", nullptr, "PS", "ps_5_1");
-	
+
 	mShaders["horzBlurCS"] = d3dUtil::CompileShader(L"Shaders\\Blur.hlsl", nullptr, "HorzBlurCS", "cs_5_0");
 	mShaders["vertBlurCS"] = d3dUtil::CompileShader(L"Shaders\\Blur.hlsl", nullptr, "VertBlurCS", "cs_5_0");
 
@@ -2089,6 +2201,9 @@ void BoxApp::BuildShadersAndInputLayout()
 	mShaders["compositePS"] = d3dUtil::CompileShader(L"Shaders\\Composite.hlsl", nullptr, "PS", "ps_5_0");
 
 	mShaders["sobelCS"] = d3dUtil::CompileShader(L"Shaders\\Sobel.hlsl", nullptr, "SobelCS", "cs_5_1");
+
+	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
 
 	mInputLayout =
 	{
@@ -2099,14 +2214,14 @@ void BoxApp::BuildShadersAndInputLayout()
 	};
 
 	mSkinnedInputLayout =
-    {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 36, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "WEIGHTS", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "BONEINDICES", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 60, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    };
+	};
 }
 
 void BoxApp::BuildFrameResource()
@@ -2132,10 +2247,15 @@ void BoxApp::BuildFrameResource()
 	}
 
 	PassCB = std::make_unique<UploadBuffer<PassConstants>>(md3dDevice.Get(), 1, true);
-	RateOfAnimTimeCB = std::make_unique<UploadBuffer<RateOfAnimTimeConstants>>(md3dDevice.Get(), 1, true);
-	InstanceBuffer = std::make_unique<UploadBuffer<InstanceData>>(md3dDevice.Get(), InstanceNum, false);
-	MaterialBuffer = std::make_unique<UploadBuffer<MaterialData>>(md3dDevice.Get(), mMaterials.size(), false);
-	PmxAnimationBuffer = std::make_unique<UploadBuffer<PmxAnimationData>>(md3dDevice.Get(), BoneNum, false);
+	RateOfAnimTimeCB	= 
+		std::make_unique<UploadBuffer<RateOfAnimTimeConstants>>(md3dDevice.Get(), 1, true);
+	InstanceBuffer		= 
+		std::make_unique<UploadBuffer<InstanceData>>(md3dDevice.Get(), InstanceNum, false);
+	MaterialBuffer		= 
+		std::make_unique<UploadBuffer<MaterialData>>(md3dDevice.Get(), mMaterials.size(), false);
+	LightBuffer =
+		std::make_unique<UploadBuffer<LightData>>(md3dDevice.Get(), InstanceNum, false);
+	PmxAnimationBuffer	= std::make_unique<UploadBuffer<PmxAnimationData>>(md3dDevice.Get(), BoneNum, false);
 }
 
 void BoxApp::BuildPSO()
@@ -2143,32 +2263,32 @@ void BoxApp::BuildPSO()
 	//
 	// PSO for Opaque
 	//
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
-    ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-    psoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    psoDesc.pRootSignature = mRootSignature.Get();
-    psoDesc.VS = 
-	{ 
-		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()), 
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
+	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+	psoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+	psoDesc.pRootSignature = mRootSignature.Get();
+	psoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
 		mShaders["standardVS"]->GetBufferSize()
 	};
-    psoDesc.PS = 
-	{ 
+	psoDesc.PS =
+	{
 		reinterpret_cast<BYTE*>(mShaders["pix"]->GetBufferPointer()),
 		mShaders["pix"]->GetBufferSize()
 	};
-    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 	psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    psoDesc.SampleMask = UINT_MAX;
-    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = mBackBufferFormat;
-    psoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-    psoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-    psoDesc.DSVFormat = mDepthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_OPAQUE_RENDER_TYPE])));
+	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	psoDesc.SampleMask = UINT_MAX;
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoDesc.NumRenderTargets = 1;
+	psoDesc.RTVFormats[0] = mBackBufferFormat;
+	psoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+	psoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+	psoDesc.DSVFormat = mDepthStencilFormat;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_OPAQUE_RENDER_TYPE])));
 
 
 	//
@@ -2176,6 +2296,26 @@ void BoxApp::BuildPSO()
 	//
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE])));
 
+	//
+	// PSO for Sky
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyDesc = psoDesc;
+	skyDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+	skyDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	skyDesc.pRootSignature = mRootSignature.Get();
+
+	skyDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()),
+		mShaders["skyVS"]->GetBufferSize()
+	};
+	skyDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()),
+		mShaders["skyPS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_SKY_FORMAT_RENDER_TYPE])));
 
 	//
 	// PSO for SkinnedOpaque
@@ -2343,12 +2483,12 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxApp::GetStaticSamplers()
 
 void BoxApp::BuildRenderItem()
 {
-	for (RenderItem* go : mGameObjects) 
+	for (RenderItem* go : mGameObjects)
 	{
-		if (go->mFormat == "FBX")
+		if (go->mFormat != "PMX")
 		{
 			ObjectData* v = mGameObjectDatas[go->mName];
-			// CPU Buffer¸¦ ÇÒ´çÇÏ¿© Vertices Data¸¦ ÀÔ·Â
+			// CPU Bufferï¿½ï¿½ ï¿½Ò´ï¿½ï¿½Ï¿ï¿½ Vertices Dataï¿½ï¿½ ï¿½Ô·ï¿½
 			ThrowIfFailed(D3DCreateBlob(
 				go->mGeometry.VertexBufferByteSize,
 				&go->mGeometry.VertexBufferCPU
@@ -2359,7 +2499,7 @@ void BoxApp::BuildRenderItem()
 				go->mGeometry.VertexBufferByteSize
 			);
 
-			// CPU Buffer¸¦ ÇÒ´çÇÏ¿© Indices Data¸¦ ÀÔ·Â
+			// CPU Bufferï¿½ï¿½ ï¿½Ò´ï¿½ï¿½Ï¿ï¿½ Indices Dataï¿½ï¿½ ï¿½Ô·ï¿½
 			ThrowIfFailed(D3DCreateBlob(
 				go->mGeometry.IndexBufferByteSize,
 				&go->mGeometry.IndexBufferCPU
@@ -2370,7 +2510,7 @@ void BoxApp::BuildRenderItem()
 				go->mGeometry.IndexBufferByteSize
 			);
 
-			// GPU Buffer¸¦ ÇÒ´çÇÏ¿© Vertices Data¸¦ ÀÔ·Â
+			// GPU Bufferï¿½ï¿½ ï¿½Ò´ï¿½ï¿½Ï¿ï¿½ Vertices Dataï¿½ï¿½ ï¿½Ô·ï¿½
 			go->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -2378,7 +2518,7 @@ void BoxApp::BuildRenderItem()
 				go->mGeometry.VertexBufferByteSize,
 				go->mGeometry.VertexBufferUploader);
 
-			// GPU Buffer¸¦ ÇÒ´çÇÏ¿© Indices Data¸¦ ÀÔ·Â
+			// GPU Bufferï¿½ï¿½ ï¿½Ò´ï¿½ï¿½Ï¿ï¿½ Indices Dataï¿½ï¿½ ï¿½Ô·ï¿½
 			go->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -2474,7 +2614,7 @@ void BoxApp::BuildRenderItem()
 
 			}
 
-			// CPU Buffer¸¦ ÇÒ´çÇÏ¿© Vertices Data¸¦ ÀÔ·Â
+			// CPU Bufferï¿½ï¿½ ï¿½Ò´ï¿½ï¿½Ï¿ï¿½ Vertices Dataï¿½ï¿½ ï¿½Ô·ï¿½
 			ThrowIfFailed(D3DCreateBlob(
 				go->mGeometry.VertexBufferByteSize,
 				&go->mGeometry.VertexBufferCPU
@@ -2485,7 +2625,7 @@ void BoxApp::BuildRenderItem()
 				go->mGeometry.VertexBufferByteSize
 			);
 
-			// CPU Buffer¸¦ ÇÒ´çÇÏ¿© Indices Data¸¦ ÀÔ·Â
+			// CPU Bufferï¿½ï¿½ ï¿½Ò´ï¿½ï¿½Ï¿ï¿½ Indices Dataï¿½ï¿½ ï¿½Ô·ï¿½
 			ThrowIfFailed(D3DCreateBlob(
 				go->mGeometry.IndexBufferByteSize,
 				&go->mGeometry.IndexBufferCPU
@@ -2496,7 +2636,7 @@ void BoxApp::BuildRenderItem()
 				go->mGeometry.IndexBufferByteSize
 			);
 
-			// GPU Buffer¸¦ ÇÒ´çÇÏ¿© Vertices Data¸¦ ÀÔ·Â
+			// GPU Bufferï¿½ï¿½ ï¿½Ò´ï¿½ï¿½Ï¿ï¿½ Vertices Dataï¿½ï¿½ ï¿½Ô·ï¿½
 			go->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -2504,7 +2644,7 @@ void BoxApp::BuildRenderItem()
 				go->mGeometry.VertexBufferByteSize,
 				go->mGeometry.VertexBufferUploader);
 
-			// GPU Buffer¸¦ ÇÒ´çÇÏ¿© Indices Data¸¦ ÀÔ·Â
+			// GPU Bufferï¿½ï¿½ ï¿½Ò´ï¿½ï¿½Ï¿ï¿½ Indices Dataï¿½ï¿½ ï¿½Ô·ï¿½
 			go->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -2525,7 +2665,7 @@ void BoxApp::BuildRenderItem()
 // Create or Modified Model Part
 ///////////////////////////////////////////
 
-RenderItem* BoxApp::CreateGameObject(std::string Name, int instance = 1)
+RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance = 1)
 {
 	RenderItem* newGameObjects = new RenderItem();
 
@@ -2598,16 +2738,17 @@ RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance = 1)
 }
 
 void BoxApp::CreateBoxObject(
-	std::string Name, 
-	std::string textuerName, 
-	RenderItem* r, 
-	float x, 
-	float y, 
-	float z, 
-	DirectX::XMFLOAT3 position, 
-	DirectX::XMFLOAT3 rotation, 
-	DirectX::XMFLOAT3 scale, 
-	int subDividNum
+	std::string Name,
+	std::string textuerName,
+	RenderItem* r,
+	float x,
+	float y,
+	float z,
+	DirectX::XMFLOAT3 position,
+	DirectX::XMFLOAT3 rotation,
+	DirectX::XMFLOAT3 scale,
+	int subDividNum,
+	RenderItem::RenderType renderType
 )
 {
 	GeometryGenerator Geom;
@@ -2637,11 +2778,13 @@ void BoxApp::CreateBoxObject(
 		id.MaterialIndex = 0;
 
 		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size°¡ 0ÀÔ´Ï´Ù.");
+			throw std::runtime_error("Instance Sizeï¿½ï¿½ 0ï¿½Ô´Ï´ï¿½.");
 
 		r->_Instance.at(0) = id;
 	}
 
+	r->mFormat = "";
+	r->mRenderType = renderType;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
@@ -2649,7 +2792,10 @@ void BoxApp::CreateBoxObject(
 	mGameObjectDatas[r->mName]->SubmeshCount += 1;
 	mGameObjectDatas[r->mName]->mDesc.resize(mGameObjectDatas[r->mName]->SubmeshCount);
 
-	// ÇÏ³ªÀÇ ¿ÀºêÁ§Æ® ½ºÅÃ ³», ÇØ´ç ¿ÀºêÁ§Æ®ÀÇ ±¸°£(¿ÀÇÁ¼Â, »çÀÌÁî)À» ÀúÀå
+	mGameObjectDatas[r->mName]->isCloth.push_back(false);
+	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+
+	// ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	SubmeshGeometry boxSubmesh;
 	boxSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
 	boxSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
@@ -2657,19 +2803,20 @@ void BoxApp::CreateBoxObject(
 	boxSubmesh.IndexSize = (UINT)Box.Indices32.size();
 	boxSubmesh.VertexSize = (UINT)Box.Vertices.size();
 
-	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation	= boxSubmesh.StartIndexLocation;
-	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation	= boxSubmesh.BaseVertexLocation;
+	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation = boxSubmesh.StartIndexLocation;
+	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
 
-	mGameObjectDatas[r->mName]->mDesc[0].IndexSize			= boxSubmesh.IndexSize;
-	mGameObjectDatas[r->mName]->mDesc[0].VertexSize			= boxSubmesh.VertexSize;
+	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = boxSubmesh.IndexSize;
+	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = boxSubmesh.VertexSize;
 
-	// Submesh ÀúÀå
+	// Submesh ï¿½ï¿½ï¿½ï¿½
 	r->SubmeshCount += 1;
 
 	r->mGeometry.subMeshCount += 1;
 	r->mGeometry.DrawArgs[Name.c_str()] = boxSubmesh;
 	r->mGeometry.DrawArgs[Name.c_str()].textureName = (textuerName.c_str());
 	r->mGeometry.meshNames.push_back(Name.c_str());
+
 
 	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
 	XMVECTOR posV;
@@ -2689,26 +2836,27 @@ void BoxApp::CreateBoxObject(
 
 	mGameObjectDatas[r->mName]->indices.insert(
 		mGameObjectDatas[r->mName]->indices.end(),
-		std::begin(Box.Indices32), 
+		std::begin(Box.Indices32),
 		std::end(Box.Indices32)
 	);
 
-	// °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀüÃ¼ Å©±â¸¦ ³ªÅ¸³»±â À§ÇØ ¸ğµç ¼­ºê¸Ş½¬ Å©±â¸¦ ´õÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½â¸¦ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½Ñ´ï¿½.
 	r->mGeometry.VertexBufferByteSize += (UINT)Box.Vertices.size() * sizeof(Vertex);
 	r->mGeometry.IndexBufferByteSize += (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
 }
 
 void BoxApp::CreateSphereObject(
-	std::string Name, 
-	std::string textuerName, 
-	RenderItem* r, 
-	float rad, 
-	int sliceCount, 
-	int stackCount, 
-	DirectX::XMFLOAT3 position, 
-	DirectX::XMFLOAT3 rotation, 
-	DirectX::XMFLOAT3 scale
-) 
+	std::string Name,
+	std::string textuerName,
+	RenderItem* r,
+	float rad,
+	int sliceCount,
+	int stackCount,
+	DirectX::XMFLOAT3 position,
+	DirectX::XMFLOAT3 rotation,
+	DirectX::XMFLOAT3 scale,
+	RenderItem::RenderType renderType
+)
 {
 	GeometryGenerator Geom;
 	{
@@ -2737,10 +2885,13 @@ void BoxApp::CreateSphereObject(
 		id.MaterialIndex = 0;
 
 		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size°¡ 0ÀÔ´Ï´Ù.");
+			throw std::runtime_error("Instance Sizeï¿½ï¿½ 0ï¿½Ô´Ï´ï¿½.");
 
 		r->_Instance.at(0) = id;
 	}
+
+	r->mFormat = "";
+	r->mRenderType = renderType;
 
 	// input subGeom
 	GeometryGenerator::MeshData Sphere;
@@ -2748,7 +2899,10 @@ void BoxApp::CreateSphereObject(
 	mGameObjectDatas[r->mName]->SubmeshCount = 1;
 	mGameObjectDatas[r->mName]->mDesc.resize(1);
 
-	// ÇÏ³ªÀÇ ¿ÀºêÁ§Æ® ½ºÅÃ ³», ÇØ´ç ¿ÀºêÁ§Æ®ÀÇ ±¸°£(¿ÀÇÁ¼Â, »çÀÌÁî)À» ÀúÀå
+	mGameObjectDatas[r->mName]->isCloth.push_back(false);
+	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+
+	// ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	SubmeshGeometry sphereSubmesh;
 	sphereSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
 	sphereSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
@@ -2756,13 +2910,13 @@ void BoxApp::CreateSphereObject(
 	sphereSubmesh.IndexSize = (UINT)Sphere.Indices32.size();
 	sphereSubmesh.VertexSize = (UINT)Sphere.Vertices.size();
 
-	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation	= sphereSubmesh.StartIndexLocation;
-	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation	= sphereSubmesh.BaseVertexLocation;
+	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation = sphereSubmesh.StartIndexLocation;
+	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation = sphereSubmesh.BaseVertexLocation;
 
-	mGameObjectDatas[r->mName]->mDesc[0].IndexSize			= sphereSubmesh.IndexSize;
-	mGameObjectDatas[r->mName]->mDesc[0].VertexSize			= sphereSubmesh.VertexSize;
+	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = sphereSubmesh.IndexSize;
+	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = sphereSubmesh.VertexSize;
 
-	// Submesh ÀúÀå
+	// Submesh ï¿½ï¿½ï¿½ï¿½
 	r->SubmeshCount += 1;
 
 	r->mGeometry.subMeshCount += 1;
@@ -2792,21 +2946,22 @@ void BoxApp::CreateSphereObject(
 		std::end(Sphere.Indices32)
 	);
 
-	// °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀüÃ¼ Å©±â¸¦ ³ªÅ¸³»±â À§ÇØ ¸ğµç ¼­ºê¸Ş½¬ Å©±â¸¦ ´õÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½â¸¦ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½Ñ´ï¿½.
 	r->mGeometry.VertexBufferByteSize += (UINT)Sphere.Vertices.size() * sizeof(Vertex);
 	r->mGeometry.IndexBufferByteSize += (UINT)Sphere.Indices32.size() * sizeof(std::uint32_t);
 }
 
 void BoxApp::CreateGeoSphereObject(
-	std::string Name, 
-	std::string textuerName, 
-	RenderItem* r, 
-	float rad, 
-	DirectX::XMFLOAT3 position, 
-	DirectX::XMFLOAT3 rotation, 
-	DirectX::XMFLOAT3 scale, 
-	int subdivid
-) 
+	std::string Name,
+	std::string textuerName,
+	RenderItem* r,
+	float rad,
+	DirectX::XMFLOAT3 position,
+	DirectX::XMFLOAT3 rotation,
+	DirectX::XMFLOAT3 scale,
+	int subdivid,
+	RenderItem::RenderType renderType
+)
 {
 	GeometryGenerator Geom;
 	{
@@ -2835,10 +2990,13 @@ void BoxApp::CreateGeoSphereObject(
 		id.MaterialIndex = 0;
 
 		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size°¡ 0ÀÔ´Ï´Ù.");
+			throw std::runtime_error("Instance Sizeï¿½ï¿½ 0ï¿½Ô´Ï´ï¿½.");
 
 		r->_Instance.at(0) = id;
 	}
+
+	r->mFormat = "";
+	r->mRenderType = renderType;
 
 	// input subGeom
 	GeometryGenerator::MeshData Sphere;
@@ -2846,7 +3004,10 @@ void BoxApp::CreateGeoSphereObject(
 	mGameObjectDatas[r->mName]->SubmeshCount = 1;
 	mGameObjectDatas[r->mName]->mDesc.resize(1);
 
-	// ÇÏ³ªÀÇ ¿ÀºêÁ§Æ® ½ºÅÃ ³», ÇØ´ç ¿ÀºêÁ§Æ®ÀÇ ±¸°£(¿ÀÇÁ¼Â, »çÀÌÁî)À» ÀúÀå
+	mGameObjectDatas[r->mName]->isCloth.push_back(false);
+	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+
+	// ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	SubmeshGeometry sphereSubmesh;
 	sphereSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
 	sphereSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
@@ -2860,7 +3021,7 @@ void BoxApp::CreateGeoSphereObject(
 	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = sphereSubmesh.IndexSize;
 	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = sphereSubmesh.VertexSize;
 
-	// Submesh ÀúÀå
+	// Submesh ï¿½ï¿½ï¿½ï¿½
 	r->SubmeshCount += 1;
 
 	r->mGeometry.subMeshCount += 1;
@@ -2891,24 +3052,25 @@ void BoxApp::CreateGeoSphereObject(
 		std::end(Sphere.Indices32)
 	);
 
-	// °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀüÃ¼ Å©±â¸¦ ³ªÅ¸³»±â À§ÇØ ¸ğµç ¼­ºê¸Ş½¬ Å©±â¸¦ ´õÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½â¸¦ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½Ñ´ï¿½.
 	r->mGeometry.VertexBufferByteSize += (UINT)Sphere.Vertices.size() * sizeof(Vertex);
 	r->mGeometry.IndexBufferByteSize += (UINT)Sphere.Indices32.size() * sizeof(std::uint32_t);
 }
 
 void BoxApp::CreateCylinberObject(
-	std::string Name, 
-	std::string textuerName, 
-	RenderItem* r, 
-	float bottomRad, 
-	float topRad, 
-	float height, 
-	int sliceCount, 
-	int stackCount, 
-	DirectX::XMFLOAT3 position, 
-	DirectX::XMFLOAT3 rotation, 
-	DirectX::XMFLOAT3 scale
-) 
+	std::string Name,
+	std::string textuerName,
+	RenderItem* r,
+	float bottomRad,
+	float topRad,
+	float height,
+	int sliceCount,
+	int stackCount,
+	DirectX::XMFLOAT3 position,
+	DirectX::XMFLOAT3 rotation,
+	DirectX::XMFLOAT3 scale,
+	RenderItem::RenderType renderType
+)
 {
 	GeometryGenerator Geom;
 	{
@@ -2937,10 +3099,13 @@ void BoxApp::CreateCylinberObject(
 		id.MaterialIndex = 0;
 
 		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size°¡ 0ÀÔ´Ï´Ù.");
+			throw std::runtime_error("Instance Sizeï¿½ï¿½ 0ï¿½Ô´Ï´ï¿½.");
 
 		r->_Instance.at(0) = id;
 	}
+
+	r->mFormat = "";
+	r->mRenderType = renderType;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
@@ -2948,7 +3113,10 @@ void BoxApp::CreateCylinberObject(
 	mGameObjectDatas[r->mName]->SubmeshCount = 1;
 	mGameObjectDatas[r->mName]->mDesc.resize(1);
 
-	// ÇÏ³ªÀÇ ¿ÀºêÁ§Æ® ½ºÅÃ ³», ÇØ´ç ¿ÀºêÁ§Æ®ÀÇ ±¸°£(¿ÀÇÁ¼Â, »çÀÌÁî)À» ÀúÀå
+	mGameObjectDatas[r->mName]->isCloth.push_back(false);
+	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+
+	// ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	SubmeshGeometry boxSubmesh;
 	boxSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
 	boxSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
@@ -2962,7 +3130,7 @@ void BoxApp::CreateCylinberObject(
 	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = boxSubmesh.IndexSize;
 	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = boxSubmesh.VertexSize;
 
-	// Submesh ÀúÀå
+	// Submesh ï¿½ï¿½ï¿½ï¿½
 	r->SubmeshCount += 1;
 
 	r->mGeometry.subMeshCount += 1;
@@ -2993,21 +3161,22 @@ void BoxApp::CreateCylinberObject(
 		std::end(Box.Indices32)
 	);
 
-	// °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀüÃ¼ Å©±â¸¦ ³ªÅ¸³»±â À§ÇØ ¸ğµç ¼­ºê¸Ş½¬ Å©±â¸¦ ´õÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½â¸¦ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½Ñ´ï¿½.
 	r->mGeometry.VertexBufferByteSize += (UINT)Box.Vertices.size() * sizeof(Vertex);
 	r->mGeometry.IndexBufferByteSize += (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
 }
 
 void BoxApp::CreateGridObject(
-	std::string Name, 
-	std::string textuerName, 
-	RenderItem* r, 
-	float w, float h, 
-	int wc, int hc, 
-	DirectX::XMFLOAT3 position, 
-	DirectX::XMFLOAT3 rotation, 
-	DirectX::XMFLOAT3 scale
-) 
+	std::string Name,
+	std::string textuerName,
+	RenderItem* r,
+	float w, float h,
+	int wc, int hc,
+	DirectX::XMFLOAT3 position,
+	DirectX::XMFLOAT3 rotation,
+	DirectX::XMFLOAT3 scale,
+	RenderItem::RenderType renderType
+)
 {
 	GeometryGenerator Geom;
 	{
@@ -3036,10 +3205,13 @@ void BoxApp::CreateGridObject(
 		id.MaterialIndex = 0;
 
 		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size°¡ 0ÀÔ´Ï´Ù.");
+			throw std::runtime_error("Instance Sizeï¿½ï¿½ 0ï¿½Ô´Ï´ï¿½.");
 
 		r->_Instance.at(0) = id;
 	}
+
+	r->mFormat = "";
+	r->mRenderType = renderType;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
@@ -3047,7 +3219,10 @@ void BoxApp::CreateGridObject(
 	mGameObjectDatas[r->mName]->SubmeshCount = 1;
 	mGameObjectDatas[r->mName]->mDesc.resize(1);
 
-	// ÇÏ³ªÀÇ ¿ÀºêÁ§Æ® ½ºÅÃ ³», ÇØ´ç ¿ÀºêÁ§Æ®ÀÇ ±¸°£(¿ÀÇÁ¼Â, »çÀÌÁî)À» ÀúÀå
+	mGameObjectDatas[r->mName]->isCloth.push_back(false);
+	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+
+	// ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	SubmeshGeometry boxSubmesh;
 	boxSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
 	boxSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
@@ -3061,7 +3236,7 @@ void BoxApp::CreateGridObject(
 	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = boxSubmesh.IndexSize;
 	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = boxSubmesh.VertexSize;
 
-	// Submesh ÀúÀå
+	// Submesh ï¿½ï¿½ï¿½ï¿½
 	r->SubmeshCount += 1;
 
 	r->mGeometry.subMeshCount += 1;
@@ -3087,24 +3262,24 @@ void BoxApp::CreateGridObject(
 
 	mGameObjectDatas[r->mName]->indices.insert(
 		mGameObjectDatas[r->mName]->indices.end(),
-		std::begin(Box.Indices32), 
+		std::begin(Box.Indices32),
 		std::end(Box.Indices32)
 	);
 
-	// °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀüÃ¼ Å©±â¸¦ ³ªÅ¸³»±â À§ÇØ ¸ğµç ¼­ºê¸Ş½¬ Å©±â¸¦ ´õÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½â¸¦ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½Ñ´ï¿½.
 	r->mGeometry.VertexBufferByteSize += (UINT)Box.Vertices.size() * sizeof(Vertex);
 	r->mGeometry.IndexBufferByteSize += (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
 }
 
 // Load Non-Skinned Object
 void BoxApp::CreateFBXObject(
-	std::string Name, 
+	std::string Name,
 	std::string Path,
 	std::string FileName,
 	std::vector<std::string>& texturePath,
-	RenderItem* r, 
-	DirectX::XMFLOAT3 position, 
-	DirectX::XMFLOAT3 rotation, 
+	RenderItem* r,
+	DirectX::XMFLOAT3 position,
+	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
 	bool uvMode
 )
@@ -3149,7 +3324,7 @@ void BoxApp::CreateFBXObject(
 	// input subGeom
 	std::vector<GeometryGenerator::MeshData> meshData;
 	Geom.CreateFBXModel(
-		meshData, 
+		meshData,
 		(Path + "\\" + FileName),
 		uvMode
 	);
@@ -3167,7 +3342,7 @@ void BoxApp::CreateFBXObject(
 		SubmeshGeometry boxSubmesh;
 		std::string submeshName = Name + std::to_string(subMeshCount);
 
-		// ÇÏ³ªÀÇ ¿ÀºêÁ§Æ® ½ºÅÃ ³», ÇØ´ç ¿ÀºêÁ§Æ®ÀÇ ±¸°£(¿ÀÇÁ¼Â, »çÀÌÁî)À» ÀúÀå
+		// ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		boxSubmesh.IndexSize = (UINT)meshData[subMeshCount].Indices32.size();
 		boxSubmesh.VertexSize = (UINT)meshData[subMeshCount].Vertices.size();
 
@@ -3177,38 +3352,38 @@ void BoxApp::CreateFBXObject(
 		mGameObjectDatas[r->mName]->mDesc[subMeshCount].IndexSize = boxSubmesh.IndexSize;
 		mGameObjectDatas[r->mName]->mDesc[subMeshCount].VertexSize = boxSubmesh.VertexSize;
 
-		// °¢ ¼­ºê¸Ş½¬ÀÇ Cloth physix ÀÎµ¦½º¸¦ ÃÊ±âÈ­
+		// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ï¿½ï¿½ Cloth physix ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½È­
 		mGameObjectDatas[r->mName]->isCloth.push_back(false);
 		mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
 
-		// Submesh ÀúÀå
+		// Submesh ï¿½ï¿½ï¿½ï¿½
 		r->SubmeshCount += 1;
 
 		r->mGeometry.subMeshCount += 1;
-		r->mGeometry.DrawArgs[submeshName]				= boxSubmesh;
-		r->mGeometry.DrawArgs[submeshName].name			= d3dUtil::getName(meshData[subMeshCount].texPath);
-		r->mGeometry.DrawArgs[submeshName].textureName	= meshData[subMeshCount].texPath;
+		r->mGeometry.DrawArgs[submeshName] = boxSubmesh;
+		r->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(meshData[subMeshCount].texPath);
+		r->mGeometry.DrawArgs[submeshName].textureName = meshData[subMeshCount].texPath;
 
 		r->mGeometry.DrawArgs[submeshName].BaseVertexLocation = vertexOffset;
 		r->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
 
-		// ÇØ´ç ÀÌ¸§ÀÇ ¸Å½¬°¡ ÀúÀåµÇ¾î ÀÖÀ½À» ¾Ë¸®±â À§ÇØ ÀÌ¸§À» ÀúÀå
+		// ï¿½Ø´ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½Å½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ë¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		r->mGeometry.meshNames.push_back(submeshName);
 		texturePath.push_back(r->mGeometry.DrawArgs[submeshName].textureName);
 
-		// _Geom °ø°£À» °øÀ¯ÇÏ±â¿¡ ¹öÅØ½º ½ºÅÃÀÇ ¿ÀÇÁ¼ÂÀ» ¹Ì¸® Á¤ÇØµĞ´Ù.
+		// _Geom ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï±â¿¡ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ØµĞ´ï¿½.
 		startV = mGameObjectDatas[r->mName]->vertices.size();
-		// »õ·Î¿î Submesh°¡ µé¾î°¥ °ø°£À» ¸¶·ÃÇÑ´Ù.
+		// ï¿½ï¿½ï¿½Î¿ï¿½ Submeshï¿½ï¿½ ï¿½ï¿½î°¥ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
 		mGameObjectDatas[r->mName]->vertices.resize(startV + meshData[subMeshCount].Vertices.size());
 		Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
-		// _Geometry¸¦ ÇÏ³ªÀÇ °ø°£¿¡ ¹°·Á ¾²±â ¶§¹®¿¡ Áö¿À¸ŞÆ®¸®ÀÇ ¸Ç µÚ ºÎÅÍ ¹öÅØ½º °ªÀ» ÁÖ±âÇÑ´Ù.
-		// ÀÌ´Â ÀÌÈÄ¿¡ Deprecated µÉ °Í.
+		// _Geometryï¿½ï¿½ ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ö±ï¿½ï¿½Ñ´ï¿½.
+		// ï¿½Ì´ï¿½ ï¿½ï¿½ï¿½Ä¿ï¿½ Deprecated ï¿½ï¿½ ï¿½ï¿½.
 		for (size_t i = 0; i < (meshData[subMeshCount].Vertices.size()); ++i)
 		{
-			v[i + startV].Pos		= meshData[subMeshCount].Vertices[i].Position;
-			v[i + startV].Normal	= meshData[subMeshCount].Vertices[i].Normal;
-			v[i + startV].Tangent	= meshData[subMeshCount].Vertices[i].TangentU;
-			v[i + startV].TexC		= meshData[subMeshCount].Vertices[i].TexC;
+			v[i + startV].Pos = meshData[subMeshCount].Vertices[i].Position;
+			v[i + startV].Normal = meshData[subMeshCount].Vertices[i].Normal;
+			v[i + startV].Tangent = meshData[subMeshCount].Vertices[i].TangentU;
+			v[i + startV].TexC = meshData[subMeshCount].Vertices[i].TexC;
 		}
 
 		mGameObjectDatas[r->mName]->indices.insert(
@@ -3217,9 +3392,9 @@ void BoxApp::CreateFBXObject(
 			std::end(meshData[subMeshCount].Indices32)
 		);
 
-		// Texture, Material ÀÚµ¿ ÁöÁ¤
+		// Texture, Material ï¿½Úµï¿½ ï¿½ï¿½ï¿½ï¿½
 		{
-			// ¸¸ÀÏ ÅØ½ºÃÄ°¡ Á¸ÀçÇÑ´Ù¸é
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½Ø½ï¿½ï¿½Ä°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´Ù¸ï¿½
 			if (r->mGeometry.DrawArgs[submeshName].textureName != "")
 			{
 				Texture charTex;
@@ -3234,7 +3409,7 @@ void BoxApp::CreateFBXObject(
 				this->uploadTexture(charTex);
 				this->uploadMaterial(charTex.Name, charTex.Name);
 
-				// »õ·Î¿î ¸ÓÅ×¸®¾ó, ÅØ½ºÃÄ Ãß°¡
+				// ï¿½ï¿½ï¿½Î¿ï¿½ ï¿½ï¿½ï¿½×¸ï¿½ï¿½ï¿½, ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½ß°ï¿½
 				this->BindMaterial(r, charTex.Name);
 			}
 			else
@@ -3246,17 +3421,17 @@ void BoxApp::CreateFBXObject(
 
 		startV += boxSubmesh.VertexSize;
 
-		// °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀüÃ¼ Å©±â¸¦ ³ªÅ¸³»±â À§ÇØ ¸ğµç ¼­ºê¸Ş½¬ Å©±â¸¦ ´õÇÑ´Ù.
-		vertexOffset	+= boxSubmesh.VertexSize;
-		indexOffset		+= boxSubmesh.IndexSize;
+		// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½â¸¦ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½Ñ´ï¿½.
+		vertexOffset += boxSubmesh.VertexSize;
+		indexOffset += boxSubmesh.IndexSize;
 
-		r->mGeometry.VertexBufferByteSize	+= boxSubmesh.VertexSize * sizeof(Vertex);
-		r->mGeometry.IndexBufferByteSize	+= boxSubmesh.IndexSize * sizeof(std::uint32_t);
+		r->mGeometry.VertexBufferByteSize += boxSubmesh.VertexSize * sizeof(Vertex);
+		r->mGeometry.IndexBufferByteSize += boxSubmesh.IndexSize * sizeof(std::uint32_t);
 	}
 }
 
 // Load Skinned Object
-void BoxApp::CreateFBXSkinnedObject (
+void BoxApp::CreateFBXSkinnedObject(
 	std::string Name,
 	std::string Path,
 	std::string FileName,
@@ -3321,9 +3496,9 @@ void BoxApp::CreateFBXSkinnedObject (
 		uvMode
 	);
 
-	assert(!res && "¾Ö´Ï¸ŞÀÌ¼Ç ½ºÅÃÀÌ Á¸ÀçÇÏÁö ¾Ê´Â ¿ÀºêÁ§Æ®´Â CreateFBXObject·Î");
- 
-	// °¢ ¾Ö´Ï¸ŞÀÌ¼ÇÀÇ ÇÏ³ªÀÇ ÇÁ·¹ÀÓ ´ç ½Ã°£(ÃÊ ´ÜÀ§)°ú ¾Ö´Ï¸ŞÀÌ¼ÇÀÇ ÀüÃ¼ µà·¹ÀÌ¼Ç (ÃÊ ´ÜÀ§)¸¦ ¾ò¾î¿É´Ï´Ù.
+	assert(!res && "ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ CreateFBXObjectï¿½ï¿½");
+
+	// ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½Ã°ï¿½(ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ ï¿½ï¿½Ã¼ ï¿½à·¹ï¿½Ì¼ï¿½ (ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½É´Ï´ï¿½.
 	for (int animCount = 0; animCount < mGameObjectDatas[r->mName]->countOfFrame.size(); animCount++)
 	{
 		mGameObjectDatas[r->mName]->durationPerSec.push_back((float)mGameObjectDatas[r->mName]->mStop[animCount].GetSecondDouble());
@@ -3334,8 +3509,8 @@ void BoxApp::CreateFBXSkinnedObject (
 	mGameObjectDatas[r->mName]->currentFrame = 0;
 	mGameObjectDatas[r->mName]->currentDelayPerSec = 0;
 
-	mGameObjectDatas[r->mName]->endAnimIndex = 
-		(float)mGameObjectDatas[r->mName]->durationPerSec[0] / 
+	mGameObjectDatas[r->mName]->endAnimIndex =
+		(float)mGameObjectDatas[r->mName]->durationPerSec[0] /
 		mGameObjectDatas[r->mName]->durationOfFrame[0];
 
 	std::vector<PxClothParticle> vertices;
@@ -3344,7 +3519,7 @@ void BoxApp::CreateFBXSkinnedObject (
 	mGameObjectDatas[r->mName]->SubmeshCount = (UINT)meshData.size();
 	mGameObjectDatas[r->mName]->mDesc.resize(meshData.size());
 
-	// °¢ SubmeshÀÇ OffsetÀ» ÀúÀåÇÏ´Â ¿ëµµ
+	// ï¿½ï¿½ Submeshï¿½ï¿½ Offsetï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ëµµ
 	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
 
 	UINT indexOffset = 0;
@@ -3355,7 +3530,7 @@ void BoxApp::CreateFBXSkinnedObject (
 		SubmeshGeometry boxSubmesh;
 		std::string submeshName = Name + std::to_string(subMeshCount);
 
-		// ÇÏ³ªÀÇ ¿ÀºêÁ§Æ® ½ºÅÃ ³», ÇØ´ç ¿ÀºêÁ§Æ®ÀÇ ±¸°£(¿ÀÇÁ¼Â, »çÀÌÁî)À» ÀúÀå
+		// ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		boxSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
 		boxSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
 
@@ -3368,11 +3543,11 @@ void BoxApp::CreateFBXSkinnedObject (
 		mGameObjectDatas[r->mName]->mDesc[subMeshCount].IndexSize = boxSubmesh.IndexSize;
 		mGameObjectDatas[r->mName]->mDesc[subMeshCount].VertexSize = boxSubmesh.VertexSize;
 
-		// °¢ ¼­ºê¸Ş½¬ÀÇ Cloth physix ÀÎµ¦½º¸¦ ÃÊ±âÈ­
+		// ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ï¿½ï¿½ Cloth physix ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½È­
 		mGameObjectDatas[r->mName]->isCloth.push_back(false);
 		mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
 
-		// Submesh ÀúÀå
+		// Submesh ï¿½ï¿½ï¿½ï¿½
 		r->SubmeshCount += 1;
 
 		r->mGeometry.subMeshCount += 1;
@@ -3385,18 +3560,18 @@ void BoxApp::CreateFBXSkinnedObject (
 
 		////////////////
 
-		// ÇØ´ç ÀÌ¸§ÀÇ ¸Å½¬°¡ ÀúÀåµÇ¾î ÀÖÀ½À» ¾Ë¸®±â À§ÇØ ÀÌ¸§À» ÀúÀå
+		// ï¿½Ø´ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½Å½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ë¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		r->mGeometry.meshNames.push_back(submeshName);
 		texturePath.push_back(r->mGeometry.DrawArgs[submeshName].textureName);
 
-		// _Geom °ø°£À» °øÀ¯ÇÏ±â¿¡ ¹öÅØ½º ½ºÅÃÀÇ ¿ÀÇÁ¼ÂÀ» ¹Ì¸® Á¤ÇØµĞ´Ù.
+		// _Geom ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï±â¿¡ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ØµĞ´ï¿½.
 		startV = (UINT)mGameObjectDatas[r->mName]->vertices.size();
-		// »õ·Î¿î Submesh°¡ µé¾î°¥ °ø°£À» ¸¶·ÃÇÑ´Ù.
+		// ï¿½ï¿½ï¿½Î¿ï¿½ Submeshï¿½ï¿½ ï¿½ï¿½î°¥ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
 		mGameObjectDatas[r->mName]->vertices.resize(startV + meshData[subMeshCount].Vertices.size());
 		Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
 
-		// _Geometry¸¦ ÇÏ³ªÀÇ °ø°£¿¡ ¹°·Á ¾²±â ¶§¹®¿¡ Áö¿À¸ŞÆ®¸®ÀÇ ¸Ç µÚ ºÎÅÍ ¹öÅØ½º °ªÀ» ÁÖ±âÇÑ´Ù.
-		// ÀÌ´Â ÀÌÈÄ¿¡ Deprecated µÉ °Í.
+		// _Geometryï¿½ï¿½ ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ö±ï¿½ï¿½Ñ´ï¿½.
+		// ï¿½Ì´ï¿½ ï¿½ï¿½ï¿½Ä¿ï¿½ Deprecated ï¿½ï¿½ ï¿½ï¿½.
 		for (size_t i = 0; i < (meshData[subMeshCount].Vertices.size()); ++i)
 		{
 			v[i + startV].Pos = meshData[subMeshCount].Vertices[i].Position;
@@ -3422,9 +3597,9 @@ void BoxApp::CreateFBXSkinnedObject (
 			std::end(meshData[subMeshCount].Indices32)
 		);
 
-		// Texture, Material ÀÚµ¿ ÁöÁ¤
+		// Texture, Material ï¿½Úµï¿½ ï¿½ï¿½ï¿½ï¿½
 		{
-			// ¸¸ÀÏ ÅØ½ºÃÄ°¡ Á¸ÀçÇÑ´Ù¸é
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½Ø½ï¿½ï¿½Ä°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´Ù¸ï¿½
 			if (r->mGeometry.DrawArgs[submeshName].textureName != "")
 			{
 				Texture charTex;
@@ -3439,7 +3614,7 @@ void BoxApp::CreateFBXSkinnedObject (
 				this->uploadTexture(charTex);
 				this->uploadMaterial(charTex.Name, charTex.Name);
 
-				// »õ·Î¿î ¸ÓÅ×¸®¾ó, ÅØ½ºÃÄ Ãß°¡
+				// ï¿½ï¿½ï¿½Î¿ï¿½ ï¿½ï¿½ï¿½×¸ï¿½ï¿½ï¿½, ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½ß°ï¿½
 				this->BindMaterial(r, charTex.Name);
 			}
 			else
@@ -3450,7 +3625,7 @@ void BoxApp::CreateFBXSkinnedObject (
 		}
 
 		startV += meshData[subMeshCount].Vertices.size();
-		// °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀüÃ¼ Å©±â¸¦ ³ªÅ¸³»±â À§ÇØ ¸ğµç ¼­ºê¸Ş½¬ Å©±â¸¦ ´õÇÑ´Ù.
+		// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½â¸¦ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½Ñ´ï¿½.
 		vertexOffset += boxSubmesh.VertexSize;
 		indexOffset += boxSubmesh.IndexSize;
 
@@ -3468,13 +3643,13 @@ void BoxApp::CreatePMXObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale
-) 
+)
 {
-	// meshDataÀÇ 0¹øÁö´Â Vertices ¹è¿­
-	// meshDataÀÇ 1¹øÁö ÀÌÈÄ ºÎÅÍ´Â °¢ Submesh¿¡ ´ëÇÑ Indices
+	// meshDataï¿½ï¿½ 0ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Vertices ï¿½è¿­
+	// meshDataï¿½ï¿½ 1ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Í´ï¿½ ï¿½ï¿½ Submeshï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Indices
 	std::vector<PxClothParticle> vertices;
 	std::vector<PxU32> primitives;
-	 
+
 	pmx::PmxModel* model = &mGameObjectDatas[r->mName]->mModel;
 
 	{
@@ -3509,7 +3684,7 @@ void BoxApp::CreatePMXObject(
 
 	// Read PMX
 	model->Init();
-		
+
 	std::string _FullFilePath = Path + "\\" + FileName;
 	std::ifstream stream(_FullFilePath.c_str(), std::ifstream::binary);
 	model->Read(&stream);
@@ -3523,12 +3698,12 @@ void BoxApp::CreatePMXObject(
 	// Load Submesh Count
 	int _SubMeshCount = model->material_count;
 
-	// GameObjects Data¸¦ ³ÖÀ» °ø°£ »ı¼º
+	// GameObjects Dataï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	mGameObjectDatas[r->mName]->SubmeshCount = _SubMeshCount;
 	mGameObjectDatas[r->mName]->mDesc.resize(_SubMeshCount);
 
 	//////////////////////////////////////////////////////////////
-	// ¿ÜºÎ ¾Ö´Ï¸ŞÀÌ¼Ç º»À» ÀĞ¾î Vertex¸¦ ¾÷µ¥ÀÌÆ®
+	// ï¿½Üºï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ğ¾ï¿½ Vertexï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®
 	//////////////////////////////////////////////////////////////
 	std::ifstream animBuffer(std::string("resFile"), std::ios::in | std::ios::binary);
 
@@ -3582,7 +3757,7 @@ void BoxApp::CreatePMXObject(
 	{
 		morph = &model->morphs[i];
 		type = morph->morph_type;
-		
+
 		if (type == pmx::MorphType::Vertex)
 		{
 			struct ObjectData::_VERTEX_MORPH_DESCRIPTOR mMorph;
@@ -3636,7 +3811,7 @@ void BoxApp::CreatePMXObject(
 	Q.m128_f32[2] = 0.0f;
 	Q.m128_f32[3] = 1.0f;
 
-	// ¿ªÇà·Ä º¤ÅÍ
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	DirectX::XMVECTOR det;
 	for (int i = 0; i < model->bone_count; i++)
 	{
@@ -3660,14 +3835,14 @@ void BoxApp::CreatePMXObject(
 		DirectX::XMStoreFloat4x4(&mGameObjectDatas[r->mName]->mOriginRevMatrix[i], M);
 	}
 
-	// ¾Ö´Ï¸ŞÀÌ¼Ç º¤ÅÍ
+	// ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½
 	for (int i = 0; i < mAnimFrameCount; i++)
 	{
 		for (int j = 0; j < model->bone_count; j++)
 		{
 			mBoneOriginPositionBuffer = AssistCalcVar[0][j];
 			mBonePositionBuffer = AssistCalcVar[i][j];
-			
+
 			T.m128_f32[0] = mBonePositionBuffer[0];
 			T.m128_f32[1] = mBonePositionBuffer[1];
 			T.m128_f32[2] = mBonePositionBuffer[2];
@@ -3704,7 +3879,7 @@ void BoxApp::CreatePMXObject(
 	animBuffer.close();
 
 	//////////////////////////////////////////////////////////////
-	// ModelÀÇ Cloth Weight¿Í Submesh ´ÜÀ§ÀÇ isCloth Á¤º¸¸¦ ÀúÀå
+	// Modelï¿½ï¿½ Cloth Weightï¿½ï¿½ Submesh ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ isCloth ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	//////////////////////////////////////////////////////////////
 
 	//std::vector<std::wstring> mWeightBonesRoot;
@@ -3831,10 +4006,10 @@ void BoxApp::CreatePMXObject(
 
 	//for (int i = 0; i < model->vertex_count; i++)
 	//{
-	//	// ¿ì¼± ¹öÅØ½ºÀÇ ÀÎµ¦½º¸¦ ÀúÀå
+	//	// ï¿½ì¼± ï¿½ï¿½ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	//	outFile.write((char*)&i, sizeof(int));
 
-	//	// ´ÙÀ½ ¿şÀÌÆ®¸¦ ¼³Á¤ÇÑ µÚ
+	//	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½
 	//	dWeight = 0.0f;
 
 	//	if (model->vertices[i].skinning_type == pmx::PmxVertexSkinningType::BDEF1)
@@ -3938,7 +4113,7 @@ void BoxApp::CreatePMXObject(
 	//		}
 	//	}
 
-	//	// ¿şÀÌÆ® ÀúÀå
+	//	// ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½
 	//	outFile.write((char*)&dWeight, sizeof(float));
 	//}
 
@@ -3986,7 +4161,7 @@ void BoxApp::CreatePMXObject(
 
 	std::ifstream inFile(std::string("Weights"), std::ios::in | std::ios::binary);
 	if (!inFile.is_open())
-		throw std::runtime_error("");	
+		throw std::runtime_error("");
 
 	int vertIDX;
 	float vertWeight;
@@ -4082,22 +4257,22 @@ void BoxApp::CreatePMXObject(
 		SubmeshGeometry boxSubmesh;
 		std::string submeshName = Name + std::to_string(subMeshIDX);
 
-		// Çö ¸¶Å×¸®¾óÀÇ ÅØ½ºÃÄ ÀÎµ¦½º ·Îµå
+		// ï¿½ï¿½ ï¿½ï¿½ï¿½×¸ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½Îµï¿½
 		diffuseTextureIDX = model->materials[subMeshIDX].diffuse_texture_index;
 		sphereTextureIDX = model->materials[subMeshIDX].sphere_texture_index;
 		toonTextureIDX = model->materials[subMeshIDX].toon_texture_index;
 
-		// vertex, indexÀÇ ¿ÀÇÁ¼Â ·Îµå
-		// Draw¿¡¼­ ¸ğµç Vertices¸¦ ÇÑ¹ø¿¡ DescriptorSetÀÇ VBV¿¡ ¹ÙÀÎµù ÇÒ °Í (SubMesh ´ÜÀ§·Î ¹ÙÀÎµù X)
+		// vertex, indexï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½
+		// Drawï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ Verticesï¿½ï¿½ ï¿½Ñ¹ï¿½ï¿½ï¿½ DescriptorSetï¿½ï¿½ VBVï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½ ï¿½ï¿½ ï¿½ï¿½ (SubMesh ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½ X)
 		boxSubmesh.BaseVertexLocation = (UINT)vertexOffset;
 		boxSubmesh.StartIndexLocation = (UINT)indexOffset;
 
-		// Çö submesh¿¡ ¾÷·Îµå ÇÒ ¹öÅØ½º, ÀÎµ¦½º °³¼ö
+		// ï¿½ï¿½ submeshï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½, ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		boxSubmesh.VertexSize = (UINT)mGameObjectDatas[r->mName]->vertBySubmesh[subMeshIDX].size();
 		boxSubmesh.IndexSize = (UINT)model->materials[subMeshIDX].index_count;
 
 		std::string matName;
-		matName.assign (
+		matName.assign(
 			model->materials[subMeshIDX].material_english_name.begin(),
 			model->materials[subMeshIDX].material_english_name.end()
 		);
@@ -4114,7 +4289,7 @@ void BoxApp::CreatePMXObject(
 		mGameObjectDatas[r->mName]->mDesc[subMeshIDX].VertexSize = boxSubmesh.VertexSize;
 		mGameObjectDatas[r->mName]->mDesc[subMeshIDX].IndexSize = boxSubmesh.IndexSize;
 
-		// Submesh ÀúÀå
+		// Submesh ï¿½ï¿½ï¿½ï¿½
 		r->SubmeshCount += 1;
 
 		r->mGeometry.subMeshCount += 1;
@@ -4131,21 +4306,21 @@ void BoxApp::CreatePMXObject(
 		r->mGeometry.DrawArgs[submeshName].BaseVertexLocation = 0;
 		r->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
 
-		// ÇØ´ç ÀÌ¸§ÀÇ ¸Å½¬°¡ ÀúÀåµÇ¾î ÀÖÀ½À» ¾Ë¸®±â À§ÇØ ÀÌ¸§À» ÀúÀå
-		// DrawArgs¿¡¼­ ´Ù½Ã ÇØ´ç Submesh¸¦ ·ÎµåÇÒ ¼ö ÀÖµµ·Ï ÀÌ¸§À» ÀúÀå
+		// ï¿½Ø´ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½Å½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ë¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+		// DrawArgsï¿½ï¿½ï¿½ï¿½ ï¿½Ù½ï¿½ ï¿½Ø´ï¿½ Submeshï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½Öµï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		r->mGeometry.meshNames.push_back(submeshName);
 
-		// Texture, Material ÀÚµ¿ ÁöÁ¤
+		// Texture, Material ï¿½Úµï¿½ ï¿½ï¿½ï¿½ï¿½
 		{
-			// ¸¸ÀÏ ÅØ½ºÃÄ°¡ Á¸ÀçÇÑ´Ù¸é
+			// ï¿½ï¿½ï¿½ï¿½ ï¿½Ø½ï¿½ï¿½Ä°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´Ù¸ï¿½
 			if (r->mGeometry.DrawArgs[submeshName].textureName != "")
 			{
 				std::string texName = d3dUtil::getName(texturePath[diffuseTextureIDX]);
-				this->BindMaterial(r, texName);
+				this->BindMaterial(r, texName, false);
 			}
 			else
 			{
-				this->BindMaterial(r, "Default", "bricksTex");
+				this->BindMaterial(r, "Default", "bricksTex", false);
 			}
 		}
 
@@ -4155,7 +4330,7 @@ void BoxApp::CreatePMXObject(
 		indexOffset += boxSubmesh.IndexSize;
 	}
 
-	// °ÔÀÓ ¿ÀºêÁ§Æ®ÀÇ ÀüÃ¼ Å©±â¸¦ ³ªÅ¸³»±â À§ÇØ ¸ğµç ¼­ºê¸Ş½¬ Å©±â¸¦ ´õÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½â¸¦ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ş½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½Ñ´ï¿½.
 	r->mGeometry.VertexBufferByteSize = model->vertex_count * sizeof(Vertex);
 	r->mGeometry.IndexBufferByteSize = model->index_count * sizeof(uint32_t);
 }
@@ -4191,10 +4366,10 @@ void BoxApp::ExtractAnimBones(
 		mGameObjectDatas[r->mName]->countOfFrame
 	);
 
-	assert(!res && "¾Ö´Ï¸ŞÀÌ¼Ç ½ºÅÃÀÌ Á¸ÀçÇÏÁö ¾Ê´Â ¿ÀºêÁ§Æ®´Â CreateFBXObject·Î");
+	assert(!res && "ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ CreateFBXObjectï¿½ï¿½");
 }
 
-void BoxApp::uploadTexture(_In_ Texture& tex) {
+void BoxApp::uploadTexture(_In_ Texture& tex, _In_ bool isSky) {
 	try {
 		for (int i = 0; i < mTextureList.size(); i++)
 		{
@@ -4216,17 +4391,20 @@ void BoxApp::uploadTexture(_In_ Texture& tex) {
 				)
 			);
 
-			// unordered_map¿¡ Index¸¦ ºÎ¿©ÇÏ±â À§ÇØ ÀÌ¸§ ¸®½ºÆ® º¤ÅÍ »ğÀÔ.
+			tex.isCube = isSky;
+
+			// unordered_mapï¿½ï¿½ Indexï¿½ï¿½ ï¿½Î¿ï¿½ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½.
 			mTextureList.push_back(tex.Name);
 			mTextures[tex.Name] = tex;
+			mTextures[tex.Name].isCube = isSky;
 		}
 	}
 	catch (std::exception e) {
-		MessageBoxA(nullptr, (LPCSTR)L"DDS ÅØ½ºÃÄ¸¦ Ã£Áö ¸øÇÏ¿´½À´Ï´Ù.", (LPCSTR)L"Error", MB_OK);
+		MessageBoxA(nullptr, (LPCSTR)L"DDS ï¿½Ø½ï¿½ï¿½Ä¸ï¿½ Ã£ï¿½ï¿½ ï¿½ï¿½ï¿½Ï¿ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.", (LPCSTR)L"Error", MB_OK);
 	}
 }
 
-void BoxApp::uploadMaterial(_In_ std::string name) {
+void BoxApp::uploadMaterial(_In_ std::string name, _In_ bool isSkyTexture) {
 	std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin();
 	std::vector<std::pair<std::string, Material>>::iterator& matEnd = mMaterials.end();
 	for (; matIDX != matEnd; matIDX++)
@@ -4245,15 +4423,15 @@ void BoxApp::uploadMaterial(_In_ std::string name) {
 		mat.DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 		mat.FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 		mat.Roughness = 0.1f;
+		mat.isSkyTexture = isSkyTexture;
 
 		std::pair<std::string, Material> res(name.c_str(), mat);
 		mMaterials.push_back(res);
 	}
 }
 
-void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName) 
+void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName, _In_ bool isSkyTexture)
 {
-	mMaterials;
 	std::vector<std::pair<std::string, Material>>::iterator it = mMaterials.begin();
 	std::vector<std::pair<std::string, Material>>::iterator itEnd = mMaterials.end();
 	for (; it != itEnd; it++)
@@ -4270,7 +4448,7 @@ void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName)
 	mat.DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	mat.FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	mat.Roughness = 0.1f;
-
+	mat.isSkyTexture = isSkyTexture;
 
 	// Define Texture
 
@@ -4288,7 +4466,7 @@ void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName)
 
 	assert(isFound && "Can't find Texture which same with NAME!!");
 
-	// DiffuseSrvHeapIndex¸¦ ´ÙÀ½°ú °°ÀÌ ÇÒ´çÀ» ¹Ş°Ô µÇ¸é, º¯µ¿¼ºÀÌ ÀÖ´Â mTextureÀÇ Æ¯¼ºÀ¸·Î ÀÎÇÏ¿© ¾öÇÑ ÅØ½ºÃÄ¸¦ Ä³½ºÆÃ ÇÏ°Ô µË´Ï´Ù.
+	// DiffuseSrvHeapIndexï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ò´ï¿½ï¿½ï¿½ ï¿½Ş°ï¿½ ï¿½Ç¸ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´ï¿½ mTextureï¿½ï¿½ Æ¯ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ï¿ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ø½ï¿½ï¿½Ä¸ï¿½ Ä³ï¿½ï¿½ï¿½ï¿½ ï¿½Ï°ï¿½ ï¿½Ë´Ï´ï¿½.
 	mat.DiffuseSrvHeapIndex = diffuseIDX;
 	mat.NormalSrvHeapIndex = diffuseIDX;
 
@@ -4296,46 +4474,103 @@ void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName)
 	mMaterials.push_back(res);
 }
 
-void BoxApp::BindTexture(RenderItem* r, std::string name, int idx) {
-	assert(r  && "The RenderItem is NULL!");
-	if (r->Mat.size() <= idx)
-		throw std::runtime_error("Index is equal or over than r->Mat size.");
+void BoxApp::uploadLight(Light light)
+{
+	mLights.push_back(light);
 
-	bool isFound = false;
-	int diffuseIDX = 0;
-	for (int idx = 0; idx < mTextureList.size(); idx++) {
-		if (mTextureList[idx] == name) {
-			isFound = true;
-			break;
-		}
-
-		diffuseIDX++;
-	}
-
-	assert(isFound && "Can't find Texture which same with NAME!!");
-
-	r->Mat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
-	r->Mat[idx]->NormalSrvHeapIndex = diffuseIDX;
+	printf("");
 }
 
-void BoxApp::BindMaterial(RenderItem* r, std::string name) {
+void BoxApp::BindTexture(RenderItem* r, std::string name, int idx, bool isCubeMap) {
+	assert(r  && "The RenderItem is NULL!");
+
+	if (!isCubeMap)
+	{
+		if (r->Mat.size() <= idx)
+			throw std::runtime_error("Index is equal or over than r->Mat size.");
+
+		bool isFound = false;
+		int diffuseIDX = 0;
+		for (int idx = 0; idx < mTextureList.size(); idx++) {
+			if (mTextureList[idx] == name) {
+				isFound = true;
+				break;
+			}
+
+			diffuseIDX++;
+		}
+
+		assert(isFound && "Can't find Texture which same with NAME!!");
+
+		r->Mat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
+		r->Mat[idx]->NormalSrvHeapIndex = diffuseIDX;
+	}
+	else
+	{
+		if (r->SkyMat.size() <= idx)
+			throw std::runtime_error("Index is equal or over than r->SkyMat size.");
+
+		bool isFound = false;
+		int diffuseIDX = 0;
+		for (int idx = 0; idx < mTextureList.size(); idx++) {
+			if (mTextureList[idx] == name) {
+				isFound = true;
+				break;
+			}
+
+			diffuseIDX++;
+		}
+
+		assert(isFound && "Can't find Texture which same with NAME!!");
+
+		r->SkyMat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
+		r->SkyMat[idx]->NormalSrvHeapIndex = diffuseIDX;
+	}
+}
+
+void BoxApp::BindMaterial(RenderItem* r, std::string name, bool isCubeMap) {
 	assert(r && "The RenderItem is NULL");
 
-	Material* m = NULL;
+	Material* m = new Material;
+	r->isSky = isCubeMap;
+	m->isSkyTexture = m->isSkyTexture = isCubeMap;
+
 	for (auto& i = mMaterials.begin(); i != mMaterials.end(); i++) {
 		if (i->second.Name == name) {
-			m = &i->second;
+			//m = &i->second;
+
+			m->Name = i->second.Name;
+			m->DiffuseAlbedo = i->second.DiffuseAlbedo;
+			m->DiffuseSrvHeapIndex = i->second.DiffuseSrvHeapIndex;
+			m->FresnelR0 = i->second.FresnelR0;
+			m->isSkyTexture = i->second.isSkyTexture;
+			m->MatCBIndex = i->second.MatCBIndex;
+			m->MatInstIndex = i->second.MatInstIndex;
+			m->MatTransform = i->second.MatTransform;
+			m->NormalSrvHeapIndex = i->second.NormalSrvHeapIndex;
+			m->NumFramesDirty = i->second.NumFramesDirty;
+			m->Roughness = i->second.Roughness;
+
 			break;
 		}
 	}
 
 	assert(m && "Can't find Material which same with NAME!!");
 
-	r->Mat.push_back(m);
+	if (!isCubeMap)
+	{
+		r->Mat.push_back(m);
+	}
+	else
+	{
+		r->SkyMat.push_back(m);
+	}
 }
 
-void BoxApp::BindMaterial(RenderItem* r, std::string matName, std::string texName) {
+void BoxApp::BindMaterial(RenderItem* r, std::string matName, std::string texName, bool isCubeMap) {
 	assert(r && "The RenderItem is NULL");
+
+	r->isSky = isCubeMap;
 
 	// Define of Material
 	Material* m = NULL;
@@ -4362,6 +4597,7 @@ void BoxApp::BindMaterial(RenderItem* r, std::string matName, std::string texNam
 
 	assert(isFound && "Can't find Texture which same with NAME!!");
 
+	m->isSkyTexture = isCubeMap;
 	m->DiffuseSrvHeapIndex = diffuseIDX;
 	m->NormalSrvHeapIndex = diffuseIDX;
 
@@ -4373,31 +4609,31 @@ void BoxApp::BindMaterial(RenderItem* r, std::string matName, std::string texNam
 //////////////////////////////////
 
 void RenderItem::setPosition(_In_ XMFLOAT3 pos) {
-	/*for (UINT i = 0; i < InstanceCount; i++) {
+	for (UINT i = 0; i < InstanceCount; i++) {
 		physx[i]->Position[0] = pos.x;
 		physx[i]->Position[1] = pos.y;
 		physx[i]->Position[2] = pos.z;
 
 		phys.setPosition(physxIdx[i], pos.x, pos.y, pos.z);
-	}*/
+	}
 }
 void RenderItem::setRotation(_In_ XMFLOAT3 rot) {
-	/*for (UINT i = 0; i < InstanceCount; i++) {
+	for (UINT i = 0; i < InstanceCount; i++) {
 		physx[i]->Rotation[0] = rot.x;
 		physx[i]->Rotation[1] = rot.y;
 		physx[i]->Rotation[2] = rot.z;
 
 		phys.setRotation(physxIdx[i], rot.x, rot.y, rot.z);
-	}*/
+	}
 }
 
 void RenderItem::setVelocity(_In_ XMFLOAT3 vel) {
-	/*for (UINT i = 0; i < InstanceCount; i++)
-		phys.setVelocity(physxIdx[i], vel.x, vel.y, vel.z);*/
+	for (UINT i = 0; i < InstanceCount; i++)
+		phys.setVelocity(physxIdx[i], vel.x, vel.y, vel.z);
 }
 void RenderItem::setTorque(_In_ XMFLOAT3 torq) {
-	/*for (UINT i = 0; i < InstanceCount; i++) 
-		phys.setTorque(physxIdx[i], torq.x, torq.y, torq.z);*/
+	for (UINT i = 0; i < InstanceCount; i++)
+		phys.setTorque(physxIdx[i], torq.x, torq.y, torq.z);
 }
 
 void RenderItem::setInstancePosition(_In_ XMFLOAT3 pos, _In_ UINT idx) {
@@ -4420,12 +4656,6 @@ void RenderItem::setInstanceVelocity(_In_ XMFLOAT3 vel, _In_ UINT idx) {
 }
 void RenderItem::setInstanceTorque(_In_ XMFLOAT3 torq, _In_ UINT idx) {
 	//phys.setTorque(physxIdx[idx], torq.x, torq.y, torq.z);
-}
-
-void RenderItem::setTestPosition(RenderItem* r, XMFLOAT3 pos, UINT idx) {
-	r->_Instance[idx].World._41 = pos.x;
-	r->_Instance[idx].World._42 = pos.y;
-	r->_Instance[idx].World._43 = pos.z;
 }
 
 void RenderItem::setAnimIndex(_In_ int animIndex) {

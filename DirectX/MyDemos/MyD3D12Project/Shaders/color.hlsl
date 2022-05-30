@@ -6,16 +6,6 @@
 
 #include "Common.hlsl"
 
-Texture2D gDiffuseMap : register(t0);
-
-SamplerState gsamPointWrap : register(s0);
-SamplerState gsamPointClamp : register(s1);
-SamplerState gsamLinearWrap : register(s2);
-SamplerState gsamLinearClamp : register(s3);
-SamplerState gsamAnisotropicWrap : register(s4);
-SamplerState gsamAnisotropicClamp : register(s5);
-SamplerComparisonState gsamShadow : register(s6);
-
 struct VertexIn
 {
 	float3 PosL     : POSITION;
@@ -39,12 +29,12 @@ struct VertexOut
     nointerpolation uint MatIndex : MATINDEX;
 };
 
-VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID, uint id : SV_VertexID)
+VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
-    VertexOut vout = (VertexOut) 0.0f;
-    
-    InstanceData instData = gInstanceData[instanceID];
-    float4x4 world = instData.World;
+	VertexOut vout = (VertexOut) 0.0f;
+
+	InstanceData instData = gInstanceData[instanceID];
+	float4x4 world = instData.World;
     float4x4 texTransform = instData.TexTransform;
     uint matIndex = instData.MaterialIndex;
     vout.MatIndex = matIndex;
@@ -118,6 +108,7 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID, uint id : SV_VertexI
 float4 PS(VertexOut pin) : SV_Target
 { 
     MaterialData matData = gMaterialData[pin.MatIndex];
+	LightData lightData  = gLightData[pin.MatIndex];
     
     float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * matData.DiffuseAlbedo;
     
@@ -131,13 +122,21 @@ float4 PS(VertexOut pin) : SV_Target
     
     const float shininess = 1.0f - matData.Roughness;
     float3 shadowFactor = 1.0f;
-    // float4 directLight = ComputeLighting(gLights, mat, pin.PosW, pin.NormalW, toEyeW, shadowFactor);
+    float4 directLight = ComputeLighting(
+		lightData,
+		matData, 
+		pin.PosW, 
+		pin.NormalW, 
+		toEyeW, 
+		shadowFactor
+	);
     
-    // float4 litColor = ambient + directLight;
-    float4 litColor = ambient * diffuseAlbedo;
+    //float4 litColor = ambient + directLight;
+	float4 litColor = directLight * 0.05f;
+    litColor += ambient * 0.5f;
     
     litColor.a = diffuseAlbedo.a;
-    
+
     return litColor;
 
 }

@@ -29,7 +29,7 @@ void Physics::Init() {
 	//PxCudaContextManager* gCudaContextManager = PxCreateCudaContextManager(*gFoundation, cudaContextManagerDesc);
 
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
-	sceneDesc.gravity = PxVec3(0.0f, -0.98f, 0.0f);
+	sceneDesc.gravity = PxVec3(0.0f, -9.8f, 0.0f);
 	gDispatcher = PxDefaultCpuDispatcherCreate(4);
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;
@@ -267,8 +267,7 @@ void Physics::setTorque(int idx, float x, float y, float z) {
 
 // Cloth 실험
 PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc) {
-	//PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(0, 0, 0));
-	PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(-0.98f, 0, 0));
+	PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(0, 0, 0));
 	PX_ASSERT(fabric);
 
 	PxTransform pose = PxTransform(PxIdentity);
@@ -281,8 +280,6 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 	cloth->setSolverFrequency(45.0f);
 
 	gScene->addActor(*cloth);
-
-	//cloth->setStiffnessFrequency(10.0f);
 
 	////////////////////////////////////////////////////////////////////////////////////
 	// 각 버텍스에 속도, 가속도를 부여하여 모델이 깨져보일 수 있다.
@@ -309,19 +306,18 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 	//cloth->setInertiaScale(0.5f);
 
 	// 쿨롱 마찰 활성화
-	//cloth->setFrictionCoefficient(0.5f);
-	//// 충돌 입자의 질량을 임의로 늘린다.
-	//cloth->setCollisionMassScale(1.0f);
+	cloth->setFrictionCoefficient(0.5f);
+	// 충돌 입자의 질량을 임의로 늘린다.
+	cloth->setCollisionMassScale(1.0f);
 
 	//// 자체 충돌 동작 활성화
-	//cloth->setSelfCollisionDistance(0.1f);
+	//cloth->setSelfCollisionDistance(0.2f);
 	//cloth->setSelfCollisionStiffness(1.0f);
 
 	const bool useSweptContact = true;
 	const bool useCustomConfig = true;
 
 	// ccd
-	// cloth->setClothFlag(PxClothFlag::eSCENE_COLLISION, true);
 	cloth->setClothFlag(PxClothFlag::eSWEPT_CONTACT, useSweptContact);
 
 	// use GPU or not
@@ -332,16 +328,26 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 	// custom fiber configuration
 	if (useCustomConfig)
 	{
-		cloth->setStretchConfig(PxClothFabricPhaseType::eVERTICAL, 1.0f);
-		cloth->setStretchConfig(PxClothFabricPhaseType::eHORIZONTAL, 1.0f);
-		cloth->setStretchConfig(PxClothFabricPhaseType::eSHEARING, 0.75f);
-		cloth->setStretchConfig(PxClothFabricPhaseType::eBENDING, 0.5f);
+		// Limit of Stretch each Vertices
+		physx::PxClothStretchConfig mStretchConf;
+		mStretchConf.stiffness = 1.0f;
+		mStretchConf.stiffnessMultiplier = 1.0f;
+		mStretchConf.compressionLimit = 0.5f;
+		mStretchConf.stretchLimit = 1.0f;
+
+		cloth->setStretchConfig(PxClothFabricPhaseType::eVERTICAL, mStretchConf);
+		cloth->setStretchConfig(PxClothFabricPhaseType::eHORIZONTAL, mStretchConf);
+		cloth->setStretchConfig(PxClothFabricPhaseType::eSHEARING, mStretchConf);
+		cloth->setStretchConfig(PxClothFabricPhaseType::eBENDING, mStretchConf);
 
 		//// Limit of Stretch each Vertices
 		//cloth->setStretchConfig(PxClothFabricPhaseType::eVERTICAL, 1.0f);
 		//cloth->setStretchConfig(PxClothFabricPhaseType::eHORIZONTAL, 1.0f);
 		//cloth->setStretchConfig(PxClothFabricPhaseType::eSHEARING, 1.0f);
 		//cloth->setStretchConfig(PxClothFabricPhaseType::eBENDING, 1.0f);
+
+		//physx::PxClothMotionConstraintConfig
+		//physx::PxClothStretchConfig
 
 		//
 		PxClothTetherConfig mTetherConf;

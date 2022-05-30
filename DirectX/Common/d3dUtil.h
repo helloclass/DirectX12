@@ -268,14 +268,42 @@ public:
 	
 };
 
+/*
+#ifndef NUM_DIR_LIGHTS
+	#define NUM_DIR_LIGHTS 3
+#endif
+
+#ifndef NUM_POINT_LIGHTS
+	#define NUM_POINT_LIGHTS 0
+#endif
+
+#ifndef NUM_SPOT_LIGHTS
+	#define NUM_SPOT_LIGHTS 0
+#endif
+*/
+
+typedef enum LightType
+{
+	DIR_LIGHTS  = 0,
+	POINT_LIGHT = 1,
+	SPOT_LIGHT  = 2
+}LightType;
+
 struct Light
 {
+	LightType LightType;
     DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
     float FalloffStart = 1.0f;                          // point/spot light only
     DirectX::XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };// directional/spot light only
     float FalloffEnd = 10.0f;                           // point/spot light only
     DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
     float SpotPower = 64.0f;                            // spot light only
+};
+
+struct LightData
+{
+	int LightSize = 0;
+	Light data[5];
 };
 
 #define MaxLights 16
@@ -294,6 +322,7 @@ struct MaterialConstants
 // would likely create a class hierarchy of Materials.
 struct Material
 {
+public:
 	// Unique material name for lookup.
 	std::string Name;
 
@@ -314,6 +343,8 @@ struct Material
 	// update to each FrameResource.  Thus, when we modify a material we should set 
 	// NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
 	int NumFramesDirty = 3;
+
+	bool isSkyTexture = false;
 
 	// Material constant buffer data used for shading.
 	DirectX::XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -340,6 +371,11 @@ struct Texture
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> Resource = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> UploadHeap = nullptr;
+
+	bool isCube;
+
+public:
+	Texture() : isCube(false) {}
 };
 
 #ifndef ThrowIfFailed

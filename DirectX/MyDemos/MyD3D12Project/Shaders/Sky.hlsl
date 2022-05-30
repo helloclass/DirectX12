@@ -18,15 +18,17 @@ struct VertexOut
     float3 PosL : POSITION;
 };
  
-VertexOut VS(VertexIn vin)
+VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
 	VertexOut vout;
+
+	InstanceData instData = gInstanceData[instanceID];
 
 	// Use local vertex position as cubemap lookup vector.
 	vout.PosL = vin.PosL;
 	
 	// Transform to world space.
-	float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+	float4 posW = mul(float4(vin.PosL, 1.0f), instData.World);
 
 	// Always center sky about camera.
 	posW.xyz += gEyePosW;

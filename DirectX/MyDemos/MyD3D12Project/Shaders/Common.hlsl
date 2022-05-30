@@ -25,20 +25,30 @@ struct InstanceData
     uint MaterialIndex;
 };
 
-struct MaterialData
-{
-    float4 DiffuseAlbedo;
-    float3 FresnelRO;
-    float Roughness;
-    float4x4 MatTransform;
-    uint DiffuseMapIndex;
-};
+//struct MaterialData
+//{
+//    float4 DiffuseAlbedo;
+//    float3 FresnelRO;
+//    float Roughness;
+//    float4x4 MatTransform;
+//    uint DiffuseMapIndex;
+//};
 
 struct pmxBoneData
 {
     float4x4 gOriginMatrix;
     float4x4 gMatrix;
 };
+
+//struct LightData
+//{
+//	float3 Strength;
+//	float FalloffStart; // point/spot light only
+//	float3 Direction;   // directional/spot light only
+//	float FalloffEnd;   // point/spot light only
+//	float3 Position;    // point light only
+//	float SpotPower;    // spot light only
+//};
 
 // Constant data that varies per material.
 cbuffer cbPass : register(b0)
@@ -59,7 +69,7 @@ cbuffer cbPass : register(b0)
 
     float4 gAmbientLight;
 
-    Light gLights[3];
+    //LightData gLights[3];
 };
 
 // Rate of Anim
@@ -68,15 +78,25 @@ cbuffer cbRateOfAnimTime : register(b1)
     float rateOfAnimTime;
 }
 
-StructuredBuffer<InstanceData> gInstanceData            : register(t0, space1);
-StructuredBuffer<MaterialData> gMaterialData            : register(t1, space0);
-
+StructuredBuffer<InstanceData>	gInstanceData           : register(t0, space0);
+StructuredBuffer<MaterialData>	gMaterialData           : register(t0, space1);
+StructuredBuffer<LightData>		gLightData				: register(t0, space2);
 #ifdef _PMX_FORMAT
-    StructuredBuffer<pmxBoneData> gPmxBoneData              : register(t1, space1);
+StructuredBuffer<pmxBoneData> gPmxBoneData				: register(t0, space3);
 #endif
 
+Texture2D gDiffuseMap									: register(t1, space0);
+TextureCube gCubeMap									: register(t2, space0);
 
-//TextureCube gCubeMap : register(t0);
+SamplerState gsamPointWrap								: register(s0);
+SamplerState gsamPointClamp								: register(s1);
+SamplerState gsamLinearWrap								: register(s2);
+SamplerState gsamLinearClamp							: register(s3);
+SamplerState gsamAnisotropicWrap						: register(s4);
+SamplerState gsamAnisotropicClamp						: register(s5);
+SamplerComparisonState gsamShadow						: register(s6);
+
+
 //Texture2D gShadowMap : register(t1);
 //Texture2D gSsaoMap   : register(t2);
 

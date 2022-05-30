@@ -12,7 +12,9 @@
 
 #include "BlurFilter.h"
 #include "SobelFilter.h"
+
 #include "RenderTarget.h"
+#include "CubeRenderTarget.h"
 
 #include <vector>
 #include <list>
@@ -82,8 +84,6 @@ struct PassConstants
 	float DeltaTime = 0.0f;
 
 	DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
-
-	Light Lights[3];
 };
 
 //struct DeformConstants
@@ -156,6 +156,8 @@ public:
 	std::vector<int>								mMorphDirty;
 	std::vector<struct _VERTEX_MORPH_DESCRIPTOR>	mMorph;
 
+	bool isDirty;
+
 // Animation Kit
 public:
 	// 애니메이션이 실행 중인가
@@ -221,6 +223,7 @@ public:
 		_OPAQUE_RENDER_TYPE,
 		_ALPHA_RENDER_TYPE,
 		_PMX_FORMAT_RENDER_TYPE,
+		_SKY_FORMAT_RENDER_TYPE,
 		_OPAQUE_SKINNED_RENDER_TYPE,
 		_POST_PROCESSING_PIPELINE,
 		_BLUR_HORZ_COMPUTE_TYPE,
@@ -250,6 +253,7 @@ public:
 
 	// 여러개의 서브메쉬를 갖으므로 여러 개(서브매쉬 개수 만큼)의 Texture, Material을 표현 할 수 있다. 
 	std::vector<Material*> Mat;
+	std::vector<Material*> SkyMat;
 
 	// This BoundingBox will be used to checked that is in the FRUSTUM BOX or not.
 	BoundingBox Bounds;
@@ -263,9 +267,12 @@ public:
 	UINT StartIndexLocation = 0;
 	UINT BaseVertexLocation = 0;
 
+	bool isSky = false;
+	UINT mSkyCubeIndex = -1;
+
 	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
-	std::vector<physx::PxRigidDynamic*> test;
+	//std::vector<physx::PxRigidDynamic*> test;
 
 public:
 	void setPosition(_In_ XMFLOAT3 pos);
@@ -279,8 +286,6 @@ public:
 
 	void setInstanceVelocity(_In_ XMFLOAT3 vel, _In_ UINT idx = 0);
 	void setInstanceTorque(_In_ XMFLOAT3 torq, _In_ UINT idx = 0);
-
-	void setTestPosition(_In_ RenderItem* r, _In_ XMFLOAT3 pos, _In_ UINT idx = 0);
 
 	void setAnimIndex(_In_ int animIndex);
 	float getAnimIndex();
@@ -362,7 +367,7 @@ public:
 
 	// Manipulate GameObject Function
 public:
-	RenderItem* CreateGameObject(_In_ std::string Name, _In_ int instance);
+	RenderItem* CreateStaticGameObject(_In_ std::string Name, _In_ int instance);
 	RenderItem* CreateDynamicGameObject(_In_ std::string Name, _In_ int instance);
 
 	void CreateBoxObject(
@@ -375,7 +380,8 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale, 
-		_In_ int subDividNum = 2
+		_In_ int subDividNum,
+		RenderItem::RenderType renderType
 	);
 	void CreateSphereObject(
 		_In_ std::string Name, 
@@ -386,7 +392,8 @@ public:
 		_In_ int stackCount, 
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
-		_In_ DirectX::XMFLOAT3 scale
+		_In_ DirectX::XMFLOAT3 scale,
+		RenderItem::RenderType renderType
 	);
 	void CreateGeoSphereObject(
 		_In_ std::string Name, 
@@ -396,7 +403,8 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale, 
-		_In_ int subdivid = 2
+		_In_ int subdivid,
+		RenderItem::RenderType renderType
 	);
 	void CreateCylinberObject(
 		_In_ std::string Name, 
@@ -409,7 +417,8 @@ public:
 		_In_ int stackCount, 
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
-		_In_ DirectX::XMFLOAT3 scale
+		_In_ DirectX::XMFLOAT3 scale,
+		RenderItem::RenderType renderType
 	);
 	void CreateGridObject(
 		_In_ std::string Name, 
@@ -421,7 +430,8 @@ public:
 		_In_ int hc, 
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
-		_In_ DirectX::XMFLOAT3 scale
+		_In_ DirectX::XMFLOAT3 scale,
+		RenderItem::RenderType renderType
 	);
 	void CreateFBXObject(
 		_In_ std::string Name, 
@@ -505,25 +515,29 @@ private:
 	static std::unordered_map<RenderItem::RenderType, ComPtr<ID3D12PipelineState>> mPSOs;
 
 public:
-	std::vector<std::string> mTextureList;
-	std::unordered_map<std::string, Texture> mTextures;
-	std::vector<std::pair<std::string, Material>> mMaterials;
-	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
+	std::vector<std::string>							mTextureList;
+	std::unordered_map<std::string, Texture>			mTextures;
+	std::vector<std::pair<std::string, Material>>		mMaterials;
+	std::unordered_map<std::string, ComPtr<ID3DBlob>>	mShaders;
+	std::vector<Light>									mLights;
+	std::vector<LightData>								mLightDatas;
 
 public:
 	std::vector<Texture> texList;
 	// 새로운 DDS 텍스쳐를 로드
-	void uploadTexture(_In_ Texture& t);
+	void uploadTexture(_In_ Texture& t, _In_ bool isCube=false);
 	// 새로운 머테리얼을 로드
-	void uploadMaterial(_In_ std::string name);
+	void uploadMaterial(_In_ std::string name, _In_ bool isSkyTexture=false);
 	// 새로운 머테리얼을 로드하고 텍스쳐를 바인드
-	void uploadMaterial(_In_ std::string matName, _In_ std::string texName);
+	void uploadMaterial(_In_ std::string matName, _In_ std::string texName, _In_ bool isSkyTexture=false);
+	// 새로운 라이트 바인드
+	void uploadLight(_In_ Light light);
 	// 오브젝트에 텍스쳐를 바인드
-	void BindTexture(_Out_ RenderItem* r, _In_ std::string name, int idx);
+	void BindTexture(_Out_ RenderItem* r, _In_ std::string name, int idx, _In_ bool isCubeMap = false);
 	// 오브젝트에 머테리얼을 바인드
-	void BindMaterial(_Out_ RenderItem* r, _In_ std::string name);
+	void BindMaterial(_Out_ RenderItem* r, _In_ std::string name, _In_ bool isCubeMap=false);
 	// 오브젝트에 머테리얼과 텍스쳐를 바인드
-	void BoxApp::BindMaterial(RenderItem* r, std::string matName, std::string texName);
+	void BindMaterial(_Out_ RenderItem* r, _In_ std::string matName, _In_ std::string texName, _In_ bool isCubeMap=false);
 
 private:
 	// Draw Thread Resource
