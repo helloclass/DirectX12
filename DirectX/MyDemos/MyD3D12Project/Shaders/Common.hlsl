@@ -25,30 +25,11 @@ struct InstanceData
     uint MaterialIndex;
 };
 
-//struct MaterialData
-//{
-//    float4 DiffuseAlbedo;
-//    float3 FresnelRO;
-//    float Roughness;
-//    float4x4 MatTransform;
-//    uint DiffuseMapIndex;
-//};
-
 struct pmxBoneData
 {
     float4x4 gOriginMatrix;
     float4x4 gMatrix;
 };
-
-//struct LightData
-//{
-//	float3 Strength;
-//	float FalloffStart; // point/spot light only
-//	float3 Direction;   // directional/spot light only
-//	float FalloffEnd;   // point/spot light only
-//	float3 Position;    // point light only
-//	float SpotPower;    // spot light only
-//};
 
 // Constant data that varies per material.
 cbuffer cbPass : register(b0)

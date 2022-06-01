@@ -136,7 +136,7 @@ int D3DApp::Run()
 			}
 			else
 			{
-				_sleep(100);
+				Sleep(100);
 			}
         }
     }

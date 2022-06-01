@@ -73,35 +73,40 @@ void Physics::CleanUp() {
 		for (int bindObjCnt = 0; bindObjCnt < bindObj.size(); bindObjCnt++)
 			delete(bindObj[bindObjCnt]);
 
-		for (int colliderCnt = 0; colliderCnt < Colliders.size(); colliderCnt++)
-			Colliders[colliderCnt]->release();
+		for (int colliderCnt = 0; colliderCnt < StaticColliders.size(); colliderCnt++)
+			StaticColliders[colliderCnt]->release();
+
+		for (int colliderCnt = 0; colliderCnt < DynamicColliders.size(); colliderCnt++)
+			DynamicColliders[colliderCnt]->release();
 	}
 }
 
-int Physics::BindObjColliber(PxRigidDynamic* obj, struct PhyxResource* res) {
-	if (bindObj.size() != Colliders.size())
-		throw std::runtime_error("사이즈가 다릅니다");
+void Physics::BindObjColliber(PxRigidStatic* obj, struct PhyxResource* res) {
+	uint32_t colliderSize = (
+		StaticColliders.size() + 
+		DynamicColliders.size()
+	);
+
+	if (bindObj.size() != colliderSize)
+		throw std::runtime_error("바인드 디스크립터와 실제 콜라이더의 싱크가 올바르지 않습니다.");
 
 	// Bind Physx Resource
 	bindObj.push_back(res);
-	Colliders.push_back(obj);
-
-	return (int)bindObj.size() - 1;
+	StaticColliders.push_back(obj);
 }
 
-PhyxResource* Physics::getTranspose(int idx) {
-	PxTransform tf = Colliders[idx]->getGlobalPose();
+void Physics::BindObjColliber(PxRigidDynamic* obj, struct PhyxResource* res) {
+	uint32_t colliderSize = (
+		StaticColliders.size() + 
+		DynamicColliders.size()
+	);
 
-	bindObj[idx]->Position[0] = tf.p.x;
-	bindObj[idx]->Position[1] = tf.p.y;
-	bindObj[idx]->Position[2] = tf.p.z;
+	if (bindObj.size() != colliderSize)
+		throw std::runtime_error("바인드 디스크립터와 실제 콜라이더의 싱크가 올바르지 않습니다.");
 
-	bindObj[idx]->Quaternion[0] = tf.q.x;
-	bindObj[idx]->Quaternion[1] = tf.q.y;
-	bindObj[idx]->Quaternion[2] = tf.q.z;
-	bindObj[idx]->Quaternion[3] = tf.q.w;
-
-	return bindObj[idx];
+	// Bind Physx Resource
+	bindObj.push_back(res);
+	DynamicColliders.push_back(obj);
 }
 
 void Physics::Update() {
@@ -233,16 +238,16 @@ void Physics::freeGeometry(PxShape* shape) {
 	shape->release();
 }
 
-void Physics::setPosition(int idx, float x, float y, float z) {
-	PxTransform pos = Colliders[idx]->getGlobalPose();
+void Physics::setPosition(PxRigidDynamic* collider, float x, float y, float z) {
+	PxTransform pos = collider->getGlobalPose();
 	pos.p.x = x;
 	pos.p.y = y;
 	pos.p.z = z;
 
-	Colliders[idx]->setGlobalPose(pos);
+	collider->setGlobalPose(pos);
 }
-void Physics::setRotation(int idx, float x, float y, float z) {
-	PxTransform pos = Colliders[idx]->getGlobalPose();
+void Physics::setRotation(PxRigidDynamic* collider, float x, float y, float z) {
+	PxTransform pos = collider->getGlobalPose();
 
 	float angle[3] = { x, y, z };
 	PxQuat XQ(x, PxVec3(1, 0, 0));
@@ -256,13 +261,15 @@ void Physics::setRotation(int idx, float x, float y, float z) {
 	pos.q.z = RQ.z;
 	pos.q.w = RQ.w;
 
-	Colliders[idx]->setGlobalPose(pos);
+	collider->setGlobalPose(pos);
 }
-void Physics::setVelocity(int idx, float x, float y, float z) {
-	Colliders[idx]->setLinearVelocity(PxVec3(x, y, z));
+void Physics::setVelocity(PxRigidDynamic* collider, float x, float y, float z) 
+{
+	collider->setLinearVelocity(PxVec3(x, y, z));
 }
-void Physics::setTorque(int idx, float x, float y, float z) {
-	Colliders[idx]->addTorque(PxVec3(x, y, z));
+void Physics::setTorque(PxRigidDynamic* collider, float x, float y, float z) 
+{
+	collider->addTorque(PxVec3(x, y, z));
 }
 
 // Cloth 실험

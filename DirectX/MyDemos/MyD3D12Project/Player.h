@@ -106,20 +106,20 @@ public:
 			// Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
 			// Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
 
-			LightData lightData;
+			Light lightData;
+			lightData.LightType = LightType::DIR_LIGHTS;
 			lightData.Direction = { 0.57735f, -0.57735f, 0.57735f };
 			lightData.Strength = { 0.8f, 0.8f, 0.8f };
-
 			app->uploadLight(lightData);
 
+			lightData.LightType = LightType::POINT_LIGHT;
 			lightData.Direction = { -0.57735f, -0.57735f, 0.57735f };
 			lightData.Strength = { 0.4f, 0.4f, 0.4f };
-
 			app->uploadLight(lightData);
 
+			lightData.LightType = LightType::SPOT_LIGHT;
 			lightData.Direction = { 0.0f, -0.707f, -0.707f };
 			lightData.Strength = { 0.2f, 0.2f, 0.2f };
-
 			app->uploadLight(lightData);
 
 		}

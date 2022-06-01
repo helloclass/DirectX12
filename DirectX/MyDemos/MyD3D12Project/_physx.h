@@ -1,11 +1,5 @@
 #pragma once
 
-//#define PX_PHYSX_STATIC_LIB
-//#define PX_FOUNDATION_DLL 0
-//#include "PxPhysics.h"
-//#include "PxPhysicsAPI.h"
-//#include "foundation/PxFoundation.h"
-
 #ifndef PHYSX_SAMPLE_H
 #define PHYSX_SAMPLE_H
 
@@ -13,15 +7,6 @@
 #include <PxPhysicsAPI.h>
 #include <extensions/PxExtensionsAPI.h>
 #include <extensions/PxDefaultErrorCallback.h>
-//#include <extensions/PxDefaultAllocator.h>
-//#include <extensions/PxDefaultSimulationFilterShader.h>
-//#include <extensions/PxDefaultCpuDispatcher.h>
-//#include <extensions/PxShapeExt.h>
-//#include <extensions/PxSimpleFactory.h>
-
-//#include <PxSimulationEventCallback.h>
-
-//#include <foundation/PxFoundation.h>
 
 #include <cloth/PxCloth.h>
 #include <cloth/PxClothCollisionData.h>
@@ -43,10 +28,11 @@ static PxClothFlag::Enum gGpuFlag = PxClothFlag::eDEFAULT;
 #endif
 
 struct PhyxResource {
-	float Position[3];
-	float Rotation[3];
-	float Quaternion[4];
-	float Scale[3];
+public:
+	float Position[3]	= {0.0f, 0.0f, 0.0f};
+	float Rotation[3]	= { 0.0f, 0.0f, 0.0f };
+	float Quaternion[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	float Scale[3]		= { 1.0f, 1.0f, 1.0f };
 };
 
 class Physics {
@@ -64,7 +50,8 @@ private:
 
 public:
 	std::vector<struct PhyxResource*> bindObj;
-	std::vector<PxRigidDynamic*> Colliders;
+	std::vector<PxRigidStatic*>  StaticColliders;
+	std::vector<PxRigidDynamic*> DynamicColliders;
 
 public:
 	void Init();
@@ -72,16 +59,16 @@ public:
 
 	void Update();
 
-	int BindObjColliber(PxRigidDynamic*, struct PhyxResource*);
-	PhyxResource* getTranspose(int idx);
+	void BindObjColliber(_In_ PxRigidStatic*, _In_  struct PhyxResource*);
+	void BindObjColliber(_In_ PxRigidDynamic*, _In_  struct PhyxResource*);
 
-	PxShape* CreateBox(float x, float y, float z);
-	PxShape* CreateSphere(float r);
-	PxShape* CreateCapsule(float r);
-	PxShape* CreateConvexMeshToShape(const PxConvexMeshDesc& convexDesc);
-	PxShape* CreateTriangleMeshToShape(const PxTriangleMeshDesc& meshDesc);
-	PxConvexMesh* CreateConvexMesh(const PxConvexMeshDesc& convexDesc);
-	PxTriangleMesh* CreateTriangleMesh(const PxTriangleMeshDesc& meshDesc);
+	PxShape* CreateBox(_In_ float x, _In_  float y, _In_  float z);
+	PxShape* CreateSphere(_In_ float r);
+	PxShape* CreateCapsule(_In_ float r);
+	PxShape* CreateConvexMeshToShape(_In_ const PxConvexMeshDesc& convexDesc);
+	PxShape* CreateTriangleMeshToShape(_In_ const PxTriangleMeshDesc& meshDesc);
+	PxConvexMesh* CreateConvexMesh(_In_ const PxConvexMeshDesc& convexDesc);
+	PxTriangleMesh* CreateTriangleMesh(_In_ const PxTriangleMeshDesc& meshDesc);
 
 	void CreateStack(PxShape* shape, const PxTransform&, PxU32, PxReal);
 
@@ -95,11 +82,11 @@ public:
 	void freeGeometry(PxShape* shape);
 
 public:
-	void setPosition(int idx, float x, float y, float z);
-	void setRotation(int idx, float x, float y, float z);
+	void setPosition(PxRigidDynamic* collider, float x, float y, float z);
+	void setRotation(PxRigidDynamic* collider, float x, float y, float z);
 
-	void setVelocity(int idx, float x, float y, float z);
-	void setTorque(int idx, float x, float y, float z);
+	void setVelocity(PxRigidDynamic* collider, float x, float y, float z);
+	void setTorque(PxRigidDynamic* collider, float x, float y, float z);
 
 	PxCloth* LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc);
 	bool RemoveCloth(PxCloth* cloth);

@@ -6,16 +6,22 @@
 
 #define MaxLights 16
 
-struct LightData
+struct Light
 {
-    float3 Strength;
-    float FalloffStart; // point/spot light only
-    float3 Direction;   // directional/spot light only
-    float FalloffEnd;   // point/spot light only
-    float3 Position;    // point light only
-    float SpotPower;    // spot light only
+	int	LightType;
+    float3	Strength;
+    float	FalloffStart; // point/spot light only
+    float3	Direction;   // directional/spot light only
+    float	FalloffEnd;   // point/spot light only
+    float3	Position;    // point light only
+    float	SpotPower;    // spot light only
 };
 
+struct LightData
+{
+	uint LightSize;
+	Light data[5];
+};
 
 struct MaterialData
 {
@@ -64,7 +70,7 @@ float3 BlinnPhong(float3 lightStrength, float3 lightVec, float3 normal, float3 t
 //---------------------------------------------------------------------------------------
 // Evaluates the lighting equation for directional lights.
 //---------------------------------------------------------------------------------------
-float3 ComputeDirectionalLight(LightData L, MaterialData mat, float3 normal, float3 toEye)
+float3 ComputeDirectionalLight(Light L, MaterialData mat, float3 normal, float3 toEye)
 {
     // The light vector aims opposite the direction the light rays travel.
     float3 lightVec = -L.Direction;
@@ -79,7 +85,7 @@ float3 ComputeDirectionalLight(LightData L, MaterialData mat, float3 normal, flo
 //---------------------------------------------------------------------------------------
 // Evaluates the lighting equation for point lights.
 //---------------------------------------------------------------------------------------
-float3 ComputePointLight(LightData L, MaterialData mat, float3 pos, float3 normal, float3 toEye)
+float3 ComputePointLight(Light L, MaterialData mat, float3 pos, float3 normal, float3 toEye)
 {
     // The vector from the surface to the light.
     float3 lightVec = L.Position - pos;
@@ -108,7 +114,7 @@ float3 ComputePointLight(LightData L, MaterialData mat, float3 pos, float3 norma
 //---------------------------------------------------------------------------------------
 // Evaluates the lighting equation for spot lights.
 //---------------------------------------------------------------------------------------
-float3 ComputeSpotLight(LightData L, MaterialData mat, float3 pos, float3 normal, float3 toEye)
+float3 ComputeSpotLight(Light L, MaterialData mat, float3 pos, float3 normal, float3 toEye)
 {
     // The vector from the surface to the light.
     float3 lightVec = L.Position - pos;
@@ -146,26 +152,21 @@ float4 ComputeLighting(LightData gLight, MaterialData mat,
 
     int i = 0;
 
-#if (NUM_DIR_LIGHTS > 0)
-    //for(i = 0; i < NUM_DIR_LIGHTS; ++i)
-    //{
-        result += shadowFactor[i] * ComputeDirectionalLight(gLight, mat, normal, toEye);
-    //}
-#endif
-
-#if (NUM_POINT_LIGHTS > 0)
-    //for(i = NUM_DIR_LIGHTS; i < NUM_DIR_LIGHTS+NUM_POINT_LIGHTS; ++i)
-    //{
-        result += ComputePointLight(gLight, mat, pos, normal, toEye);
-    //}
-#endif
-
-#if (NUM_SPOT_LIGHTS > 0)
-    //for(i = NUM_DIR_LIGHTS + NUM_POINT_LIGHTS; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
-    //{
-        result += ComputeSpotLight(gLight, mat, pos, normal, toEye);
-    //}
-#endif 
+	for (i = 0; i < gLight.LightSize; i++)
+	{
+		if (gLight.data[i].LightType == 0)
+		{
+			result += shadowFactor[i] * ComputeDirectionalLight(gLight.data[i], mat, normal, toEye);
+		}
+		else if (gLight.data[i].LightType == 1)
+		{
+			result += ComputePointLight(gLight.data[i], mat, pos, normal, toEye);
+		}
+		else
+		{
+			result += ComputeSpotLight(gLight.data[i], mat, pos, normal, toEye);
+		}
+	}
 
     return float4(result, 0.0f);
 }

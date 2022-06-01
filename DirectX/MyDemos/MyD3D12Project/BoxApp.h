@@ -260,7 +260,10 @@ public:
 
 	UINT SubmeshCount = 0;
 	UINT InstanceCount = 0;
-	std::vector<InstanceData> _Instance;
+	std::vector<InstanceData>		mInstances;
+
+	std::vector<PhyxResource>		mPhyxResources;
+	std::vector<PxRigidDynamic*>	mPhyxRigidBody;
 
 	UINT offset = 0;
 
@@ -367,8 +370,9 @@ public:
 
 	// Manipulate GameObject Function
 public:
-	RenderItem* CreateStaticGameObject(_In_ std::string Name, _In_ int instance);
-	RenderItem* CreateDynamicGameObject(_In_ std::string Name, _In_ int instance);
+	RenderItem* CreateStaticGameObject(_In_ std::string Name, _In_ int instance=1);
+	RenderItem* CreateKinematicGameObject(_In_ std::string Name, _In_ int instance=1);
+	RenderItem* CreateDynamicGameObject(_In_ std::string Name, _In_ int instance=1);
 
 	void CreateBoxObject(
 		_In_ std::string Name, 

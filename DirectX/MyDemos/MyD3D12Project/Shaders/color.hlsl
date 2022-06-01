@@ -108,11 +108,13 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 float4 PS(VertexOut pin) : SV_Target
 { 
     MaterialData matData = gMaterialData[pin.MatIndex];
-	LightData lightData  = gLightData[pin.MatIndex];
+	LightData lightData  = gLightData[0];
     
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * matData.DiffuseAlbedo;
+    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
     
-    clip(diffuseAlbedo.a - 0.2f);
+    clip(diffuseAlbedo.a - 0.4f);
+
+	diffuseAlbedo = diffuseAlbedo * matData.DiffuseAlbedo;
     
     pin.NormalW = normalize(pin.NormalW);
     
@@ -132,8 +134,8 @@ float4 PS(VertexOut pin) : SV_Target
 	);
     
     //float4 litColor = ambient + directLight;
-	float4 litColor = directLight * 0.05f;
-    litColor += ambient * 0.5f;
+	float4 litColor = directLight;
+    litColor += ambient * 2.0f;
     
     litColor.a = diffuseAlbedo.a;
 

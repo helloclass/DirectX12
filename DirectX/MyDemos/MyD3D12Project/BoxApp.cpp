@@ -1,12 +1,14 @@
 ﻿#include "BoxApp.h"
 
-
+// 시스템 종료시 전역 변수인 StopThread를 트리거하여 다른 스레드를 종료 시킬 수 있도록 도움을 줍니다. 
+Physics mPhys;
 bool StopThread = false;
 
-// Thread Resource
+// Animation Thread Resource
 DWORD hAnimThreadID;
 HANDLE hAnimThread;
 
+// Cloth Thread Resource
 DWORD hClothPhysxThreadID;
 HANDLE hClothPhysxThread;
 
@@ -17,11 +19,15 @@ BoxApp::BoxApp(HINSTANCE hInstance)
 	mRenderTypeCount[RenderItem::RenderType::_OPAQUE_SKINNED_RENDER_TYPE] = 0;
 	mRenderTypeCount[RenderItem::RenderType::_PMX_FORMAT_RENDER_TYPE] = 0;
 	mRenderTypeCount[RenderItem::RenderType::_ALPHA_RENDER_TYPE] = 0;
+	mRenderTypeCount[RenderItem::RenderType::_SKY_FORMAT_RENDER_TYPE] = 0;
 }
 
+// Pipeline State Object Type List
 std::unordered_map<RenderItem::RenderType, ComPtr<ID3D12PipelineState>> BoxApp::mPSOs;
+// Post Process RTV ( Will use to Blur, Sobel Calc)
 std::unique_ptr<RenderTarget> BoxApp::mOffscreenRT = nullptr;
 
+// Degree of Blur
 UINT BoxApp::mFilterCount = 0;
 
 std::unique_ptr<BlurFilter> BoxApp::mBlurFilter;
@@ -39,6 +45,7 @@ CD3DX12_GPU_DESCRIPTOR_HANDLE BoxApp::mTextureHeapGPUDescriptor;
 // Draw Thread Resource
 UINT BoxApp::numThread = 3;
 
+// Thread Trigger Event (Fence)
 HANDLE BoxApp::renderTargetEvent[3];
 HANDLE BoxApp::recordingDoneEvents[3];
 HANDLE BoxApp::drawThreads[3];
@@ -92,12 +99,13 @@ BoxApp::~BoxApp()
 #endif
 }
 
-// Physx Thread Section
-// Cloth and Morph
+/*
+	ThreadClothPhysxFunc
+	It is a thread that is calculated Cloth Physx and Morph Operation and stored to Result Data on vertices each of GameObjects.
+	The thread use Cloth Physx that is version Physx 3.4.
+*/
 DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 {
-	Physics mPhys;
-
 	std::vector<PxClothParticle> vertices;
 	std::vector<PxU32> primitives;
 
@@ -117,16 +125,17 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 	std::list<RenderItem*>::iterator& obj = mGameObjects.begin();
 	std::list<RenderItem*>::iterator& objEnd = mGameObjects.end();
 
-	// �� SubMesh�� Cloth Physx Obj �߰�
+	// Traversal each GameObject, than updated and got a new Cloth Data of Vertex
 	for (; obj != objEnd; obj++)
 	{
-		// �� ���� ������Ʈ �����͸� ����.
 		RenderItem* _RenderItem = *obj;
+		// The new Cloth Vertex Data will be stored in here.
 		ObjectData* _RenderData = mGameObjectDatas[_RenderItem->mName];
 
 		_RenderData->mClothes.resize(_RenderData->SubmeshCount);
 		_RenderData->mClothBinedBoneIDX.resize(_RenderData->SubmeshCount);
 
+		// Initialize 
 		for (UINT i = 0; i < _RenderData->SubmeshCount; i++)
 		{
 			_RenderData->mClothes[i] = NULL;
@@ -158,8 +167,6 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 				int mOffset = 0;
 				int mIDXMin;
-
-				DirectX::XMVECTOR posVector;
 
 				std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin();
 				std::set<int>::iterator& vEndIDX = _RenderData->vertBySubmesh[submesh].end();
@@ -341,7 +348,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				);
 
 				if (!mWeightImage)
-					throw std::runtime_error("Weight Image�� �ε��ϴµ� ����");
+					throw std::runtime_error("Can't Found Weight Images!!");
 
 				///////////////////////////////////////////////////////////////////////
 
@@ -421,7 +428,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				}
 
 				// ��� ���ؽ��� ������ ��찡 �ƴϸ�
-				UINT vertSize = vertices.size();
+				size_t vertSize = vertices.size();
 				if (vertices.size() > 0)
 				{
 					// �ּ� ���� ���ؽ�
@@ -790,8 +797,10 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			_RenderData->isLoop = true;
 
 			// ���� �������� ����ϸ�, �������� ���� �� �� Ʈ���Ÿ� �۵��Ѵ�.
+			//currentFrame =
+			//	(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
 			currentFrame =
-				(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
+				1;
 
 			// ���� ���� �������� �ִϸ��̼��� ���̶��?
 			if ((_RenderData->endAnimIndex) <= currentFrame) {
@@ -884,7 +893,7 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			{
 				for (mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++)
 				{
-					mMorph = _RenderData->mMorph[mIDX];
+					mMorph = _RenderData->mMorph[_RenderData->mMorphDirty[mIDX]];
 					weight = mMorph.mVertWeight;
 
 					for (i = 0; i < mMorph.mVertIndices.size(); i++)
@@ -897,6 +906,7 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 						DesctinationPos->z = DefaultPos[2] + mMorph.mVertOffset[i][2] * weight;
 					}
 				}
+				
 				_RenderData->mMorphDirty.resize(0);
 			}
 
@@ -1139,32 +1149,12 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 	}
 
 	RenderItem* obj = NULL;
+	PhyxResource* pr = nullptr;
 	std::list<RenderItem*>::iterator objIDX;
 	std::list<RenderItem*>::iterator objEnd;
-	std::vector<LightData>::iterator lightDataIDX = mLightDatas.begin();
+	std::vector<LightData>::iterator lightDataIDX;
 	std::vector<Light>::iterator lightIDX;
 	std::vector<Light>::iterator lightEnd = mLights.end();
-
-	//for (; objIDX != objEnd; objIDX++)
-	//{
-	//	obj = *objIDX;
-
-	//	std::vector<Light>::iterator& lightIDX = mLights.begin();
-	//	for (; lightIDX != lightEnd; lightIDX++)
-	//	{
-	//		obj->
-
-	//		// 오브젝트의 포지션을 얻어온다.
-	//		// 만일 라이트가 Dir이면
-	//			// 무조건 포함
-	//		// 만일 라이트가 Point이면
-	//			// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
-	//		// 만일 라이트가 Spot이면
-	//			// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
-	//	}
-
-	//	LightBuffer->CopyData(LightIDX++, *lightDataIDX++);
-	//}
 
 	mRenderInstTasks.resize(mGameObjectDatas.size());
 
@@ -1180,12 +1170,11 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 		for (i = 0; i < obj->InstanceCount; ++i)
 		{
 			// getSyncDesc
-			// ���� ������ �� ���� 
-			pr = phys.getTranspose(g->physxIdx[i]);
+			pr = &obj->mPhyxResources[i];
 
-			world = XMLoadFloat4x4(&obj->_Instance[i].World);
+			world = XMLoadFloat4x4(&obj->mInstances[i].World);
 
-			texTransform = XMLoadFloat4x4(&obj->_Instance[i].TexTransform);
+			texTransform = XMLoadFloat4x4(&obj->mInstances[i].TexTransform);
 
 			invWorld = XMMatrixInverse(&XMMatrixDeterminant(world), world);
 			viewToLocal = XMMatrixMultiply(invView, invWorld);
@@ -1194,9 +1183,9 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 			// ���� ĳ���Ͱ� ī�޶� �������� ������ �ʴ´ٸ�,
 			// ĳ���Ͱ� ������ ���� �����ϴ� Bound�� ��ġ���� ������Ʈ�� �ϰ�
 			// �� ĳ���ʹ� �������� �ʴ´�.
-			g->Bounds.Center.x = pr->Position[0];
-			g->Bounds.Center.y = pr->Position[1];
-			g->Bounds.Center.z = pr->Position[2];
+			obj->Bounds.Center.x = pr->Position[0];
+			obj->Bounds.Center.y = pr->Position[1];
+			obj->Bounds.Center.z = pr->Position[2];
 
 			XMFLOAT4X4 boundScale = MathHelper::Identity4x4();
 			boundScale._11 = 1.5f;
@@ -1211,7 +1200,7 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 				// �������� ���� �����ϴ� ������Ʈ�� ������ ���̴�
 				XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
 				XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(texTransform));
-				data.MaterialIndex = obj->_Instance[i].MaterialIndex;
+				data.MaterialIndex = obj->mInstances[i].MaterialIndex;
 
 				// ���� ������ �� ���� 
 				// ���� ĳ���Ͱ� ī�޶� ������ ���δٸ� ,
@@ -1220,9 +1209,9 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 				data.World._24 = pr->Position[1];
 				data.World._34 = pr->Position[2];
 
-				data.World._11 = pr->Scale[0];
-				data.World._22 = pr->Scale[1];
-				data.World._33 = pr->Scale[2];
+				//data.World._11 = pr->Scale[0];
+				//data.World._22 = pr->Scale[1];
+				//data.World._33 = pr->Scale[2];
 
 				// renderInstCounts = {5, 4, 2, 6, 7, 11 .....} �� ����� �ν��Ͻ� Index�� 
 				// renderInstIndex = {{0, 1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10}, {11, 12, ..., 16}, ...}
@@ -1231,17 +1220,64 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 
 				// Light Update
 				lightIDX = mLights.begin();
+				lightDataIDX = mLightDatas.begin();
+				Light* l = nullptr;
+				float* mObjectPos = pr->Position;
+				float distance = 0.0f;
+
+				DirectX::XMFLOAT3 lightVec;
+				DirectX::XMVECTOR lightData;
+
+				// 충돌 라이트를 최신화 하기 위해 clear한다.
+				(*lightDataIDX).LightSize = 0;
 				for (; lightIDX != lightEnd; lightIDX++)
 				{
-					obj->
-
 					// 오브젝트의 포지션을 얻어온다.
+
 					// 만일 라이트가 Dir이면
+					if ((*lightIDX).LightType == 0)
+					{
 						// 무조건 포함
+						(*lightDataIDX).data[(*lightDataIDX).LightSize++] = *lightIDX;
+					}
 					// 만일 라이트가 Point이면
+					else if ((*lightIDX).LightType == 1)
+					{
 						// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
+						lightVec.x = mObjectPos[0] - (*lightIDX).Position.x;
+						lightVec.y = mObjectPos[1] - (*lightIDX).Position.y;
+						lightVec.z = mObjectPos[2] - (*lightIDX).Position.z;
+
+						lightData = DirectX::XMLoadFloat3(&lightVec);
+
+						XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
+
+						if (distance < (*lightIDX).FalloffEnd)
+						{
+							(*lightDataIDX).data[(*lightDataIDX).LightSize++] = *lightIDX;
+						}
+					}
 					// 만일 라이트가 Spot이면
+					else if ((*lightIDX).LightType == 2)
+					{
 						// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
+						lightVec.x = mObjectPos[0] - (*lightIDX).Position.x;
+						lightVec.y = mObjectPos[1] - (*lightIDX).Position.y;
+						lightVec.z = mObjectPos[2] - (*lightIDX).Position.z;
+
+						lightData = DirectX::XMLoadFloat3(&lightVec);
+
+						XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
+
+						if (distance < (*lightIDX).FalloffEnd)
+						{
+							(*lightDataIDX).data[(*lightDataIDX).LightSize++] = *lightIDX;
+						}
+					}
+					else
+					{
+
+					}
 				}
 
 				LightBuffer->CopyData(visibleInstanceCount, *lightDataIDX++);
@@ -1288,7 +1324,7 @@ void BoxApp::UpdateMainPassCB(const GameTimer& gt)
 		mMainPassCB.TotalTime = gt.TotalTime();
 		mMainPassCB.DeltaTime = gt.DeltaTime();
 
-		mMainPassCB.AmbientLight = XMFLOAT4(0.1f, 0.1f, 0.15f, 1.0f);
+		mMainPassCB.AmbientLight = XMFLOAT4(0.4f, 0.4f, 0.4f, 1.0f);
 
 		PassCB->CopyData(0, mMainPassCB);
 	}
@@ -1420,14 +1456,14 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 	// PreMake offset of Descriptor Resource Buffer.
 	// Base Pointer
-	D3D12_GPU_VIRTUAL_ADDRESS objectCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
+	D3D12_GPU_VIRTUAL_ADDRESS instanceCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS matCB = MaterialBuffer->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS lightCB = LightBuffer->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS rateOfAnimTimeCB = RateOfAnimTimeCB->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS pmxBoneCB = PmxAnimationBuffer->Resource()->GetGPUVirtualAddress();
 
 	// Stack Pointer
-	D3D12_GPU_VIRTUAL_ADDRESS objCBAddress;
+	D3D12_GPU_VIRTUAL_ADDRESS instanceCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS matCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS rateOfAnimTimeCBAddress;
@@ -1488,7 +1524,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 			mGameObjectIndices[loop] = -1;
 			for (i = 0; i < mRenderInstTasks.size(); i++)
 			{
-				end = mRenderInstTasks[i].size() - 1;
+				end = (UINT)mRenderInstTasks[i].size() - 1;
 
 				if ((_taskOffset + loop) <= mRenderInstTasks[i][end])
 				{
@@ -1498,7 +1534,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 			}
 
 			if (mGameObjectIndices[loop] == -1)
-				throw std::runtime_error("�߸��� �ε���..");
+				throw std::runtime_error("Failed to Create Obejct of Index list..");
 		}
 
 #ifdef _USE_UBER_SHADER
@@ -1571,17 +1607,20 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 				);
 
 				// Move to Current Stack Pointer
-				objCBAddress = objectCB + _gInstOffset * sizeof(InstanceData);
-				/*pmxBoneCBAddress = pmxBoneCB + 0 * sizeof(PmxAnimationData);*/
-				pmxBoneCBAddress = pmxBoneCB;
-				/*rateOfAnimTimeCBAddress = rateOfAnimTimeCB + d3dUtil::CalcConstantBufferByteSize(gameIDX * sizeof(RateOfAnimTimeConstants));*/
+				instanceCBAddress		= instanceCB + _gInstOffset * sizeof(InstanceData);
+				lightCBAddress			= lightCB + _gInstOffset * sizeof(LightData);
+				pmxBoneCBAddress		= pmxBoneCB;
 				rateOfAnimTimeCBAddress = rateOfAnimTimeCB;
 
 				// Select Descriptor Buffer Index
 				{
 					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
 						2,
-						objCBAddress
+						instanceCBAddress
+					);
+					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+						4,
+						lightCBAddress
 					);
 					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
 						5,
@@ -1864,8 +1903,6 @@ void BoxApp::Draw(const GameTimer& gt)
 			WaitForSingleObject(_event, INFINITE);
 			CloseHandle(_event);
 		}
-
-		printf("");
 	}
 }
 
@@ -1944,7 +1981,7 @@ void BoxApp::BuildRootSignature()
 
 	// A root signature is an array of root parameters.
 	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		slotRootParameter.size(),
+		(UINT)slotRootParameter.size(),
 		slotRootParameter.data(),
 		(UINT)staticSamplers.size(),
 		staticSamplers.data(),
@@ -2665,12 +2702,27 @@ void BoxApp::BuildRenderItem()
 // Create or Modified Model Part
 ///////////////////////////////////////////
 
-RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance = 1)
+RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance)
 {
-	RenderItem* newGameObjects = new RenderItem();
+	RenderItem* newGameObjects	= new RenderItem();
+	PxRigidStatic* staticObj	= nullptr;
+	PxShape* sphere				= nullptr;
+
+	sphere = mPhys.CreateSphere(1.0f);
 
 	// Allocated RenderItem ID
 	newGameObjects->mName = Name;
+
+	// Bind Phy
+	newGameObjects->mPhyxResources.resize(instance);
+	for (int i = 0; i < instance; i++) {
+		staticObj = mPhys.CreateStatic(PxTransform(PxVec3(0, 0, 0)), sphere);
+
+		mPhys.BindObjColliber(
+			staticObj,
+			&newGameObjects->mPhyxResources[i]
+		);
+	}
 
 	// Create Collider Body
 	//phys.CreateBox(1, 1, 1);
@@ -2688,7 +2740,7 @@ RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance = 1)
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		newGameObjects->_Instance.push_back(id);
+		newGameObjects->mInstances.push_back(id);
 	}
 
 	mGameObjects.push_back(newGameObjects);
@@ -2698,21 +2750,32 @@ RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance = 1)
 	return mGameObjects.back();
 }
 
-RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance = 1)
+
+RenderItem* BoxApp::CreateKinematicGameObject(std::string Name, int instance)
 {
 	RenderItem* newGameObjects = new RenderItem();
-	//PxRigidDynamic* dynamicObj = nullptr;
+	PxRigidDynamic* dynamicObj = nullptr;
+	PxShape* sphere = nullptr;
+
+	sphere = mPhys.CreateSphere(1.0f);
 
 	// Allocated RenderItem ID
 	newGameObjects->mName = Name;
 
 	// Bind Phy
-	/*for (int i = 0; i < instance; i++) {
-		newGameObjects->physx.push_back(new PhyxResource());
-		dynamicObj = phys.CreateDynamic(PxTransform(PxVec3(0, 0, 0)), PxSphereGeometry(3), PxVec3(0, 0, 0));
+	newGameObjects->mPhyxResources.resize(instance);
+	for (int i = 0; i < instance; i++) {
+		dynamicObj = mPhys.CreateKinematic(PxTransform(PxVec3(0, 0, 0)), sphere, 1, PxVec3(0, 0, 0));
+		newGameObjects->mPhyxRigidBody.push_back(dynamicObj);
 
-		newGameObjects->physxIdx.push_back(phys.BindObjColliber(dynamicObj, newGameObjects->physx[i]));
-	}*/
+		mPhys.BindObjColliber(
+			dynamicObj,
+			&newGameObjects->mPhyxResources[i]
+		);
+	}
+
+	// Create Collider Body
+	//phys.CreateBox(1, 1, 1);
 
 	newGameObjects->ObjCBIndex = 0;
 	newGameObjects->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -2727,7 +2790,50 @@ RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance = 1)
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		newGameObjects->_Instance.push_back(id);
+		newGameObjects->mInstances.push_back(id);
+	}
+
+	mGameObjects.push_back(newGameObjects);
+	mGameObjectDatas[Name] = new ObjectData();
+	mGameObjectDatas[Name]->mName = Name;
+
+	return mGameObjects.back();
+}
+
+RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance)
+{
+	RenderItem* newGameObjects = new RenderItem();
+	PxRigidDynamic* dynamicObj = nullptr;
+
+	// Allocated RenderItem ID
+	newGameObjects->mName = Name;
+
+	// Bind Phy
+	newGameObjects->mPhyxResources.resize(instance);
+	for (int i = 0; i < instance; i++) {
+		dynamicObj = mPhys.CreateDynamic(PxTransform(PxVec3(0, 0, 0)), PxSphereGeometry(3), PxVec3(0, 0, 0));
+		newGameObjects->mPhyxRigidBody.push_back(dynamicObj);
+
+		mPhys.BindObjColliber(
+			dynamicObj,
+			&newGameObjects->mPhyxResources[i]
+		);
+	}
+
+	newGameObjects->ObjCBIndex = 0;
+	newGameObjects->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+	newGameObjects->InstanceCount = instance;
+
+	// Push Instance
+	for (UINT i = 0; i < newGameObjects->InstanceCount; i++)
+	{
+		InstanceData id;
+		id.World = MathHelper::Identity4x4();
+		id.TexTransform = MathHelper::Identity4x4();
+		id.MaterialIndex = 0;
+
+		newGameObjects->mInstances.push_back(id);
 	}
 
 	mGameObjects.push_back(newGameObjects);
@@ -2777,10 +2883,10 @@ void BoxApp::CreateBoxObject(
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size�� 0�Դϴ�.");
+		if (r->mInstances.size() == 0)
+			throw std::runtime_error("Instance Size must bigger than 0.");
 
-		r->_Instance.at(0) = id;
+		r->mInstances.at(0) = id;
 	}
 
 	r->mFormat = "";
@@ -2884,10 +2990,10 @@ void BoxApp::CreateSphereObject(
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size�� 0�Դϴ�.");
+		if (r->mInstances.size() == 0)
+			throw std::runtime_error("Instance Size must bigger than 0.");
 
-		r->_Instance.at(0) = id;
+		r->mInstances.at(0) = id;
 	}
 
 	r->mFormat = "";
@@ -2989,10 +3095,10 @@ void BoxApp::CreateGeoSphereObject(
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size�� 0�Դϴ�.");
+		if (r->mInstances.size() == 0)
+			throw std::runtime_error("Instance Size must bigger than 0.");
 
-		r->_Instance.at(0) = id;
+		r->mInstances.at(0) = id;
 	}
 
 	r->mFormat = "";
@@ -3098,10 +3204,10 @@ void BoxApp::CreateCylinberObject(
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size�� 0�Դϴ�.");
+		if (r->mInstances.size() == 0)
+			throw std::runtime_error("Instance Size must bigger than 0.");
 
-		r->_Instance.at(0) = id;
+		r->mInstances.at(0) = id;
 	}
 
 	r->mFormat = "";
@@ -3204,10 +3310,10 @@ void BoxApp::CreateGridObject(
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		if (r->_Instance.size() == 0)
-			throw std::runtime_error("Instance Size�� 0�Դϴ�.");
+		if (r->mInstances.size() == 0)
+			throw std::runtime_error("Instance Size must bigger than 0.");
 
-		r->_Instance.at(0) = id;
+		r->mInstances.at(0) = id;
 	}
 
 	r->mFormat = "";
@@ -3312,8 +3418,8 @@ void BoxApp::CreateFBXObject(
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		for (int i = 0; i < r->_Instance.size(); i++)
-			r->_Instance.at(i) = id;
+		for (int i = 0; i < r->mInstances.size(); i++)
+			r->mInstances.at(i) = id;
 	}
 
 	r->mFormat = "FBX";
@@ -3474,8 +3580,8 @@ void BoxApp::CreateFBXSkinnedObject(
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		for (int i = 0; i < r->_Instance.size(); i++)
-			r->_Instance.at(i) = id;
+		for (int i = 0; i < r->mInstances.size(); i++)
+			r->mInstances.at(i) = id;
 	}
 
 
@@ -3496,7 +3602,7 @@ void BoxApp::CreateFBXSkinnedObject(
 		uvMode
 	);
 
-	assert(!res && "�ִϸ��̼� ������ �������� �ʴ� ������Ʈ�� CreateFBXObject��");
+	assert(!res && "(CreateFBXObject)Failed to create FBX Model on CreateFBXObject.");
 
 	// �� �ִϸ��̼��� �ϳ��� ������ �� �ð�(�� ����)�� �ִϸ��̼��� ��ü �෹�̼� (�� ����)�� ���ɴϴ�.
 	for (int animCount = 0; animCount < mGameObjectDatas[r->mName]->countOfFrame.size(); animCount++)
@@ -3677,8 +3783,8 @@ void BoxApp::CreatePMXObject(
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		for (int i = 0; i < r->_Instance.size(); i++)
-			r->_Instance.at(i) = id;
+		for (int i = 0; i < r->mInstances.size(); i++)
+			r->mInstances.at(i) = id;
 	}
 
 
@@ -3762,8 +3868,8 @@ void BoxApp::CreatePMXObject(
 		{
 			struct ObjectData::_VERTEX_MORPH_DESCRIPTOR mMorph;
 
-			mMorph.Name.push_back((wchar_t)morph->morph_name.c_str());
-			mMorph.NickName.push_back((wchar_t)morph->morph_english_name.c_str());
+			mMorph.Name = morph->morph_name;
+			mMorph.NickName = morph->morph_english_name;
 
 			mMorph.mVertWeight = 0.0f;
 
@@ -3785,8 +3891,22 @@ void BoxApp::CreatePMXObject(
 		}
 	}
 
-	mGameObjectDatas[r->mName]->mMorph[0].mVertWeight = 1.0f;
-	mGameObjectDatas[r->mName]->mMorphDirty.push_back(0);
+	std::vector<struct ObjectData::_VERTEX_MORPH_DESCRIPTOR> test = mGameObjectDatas[r->mName]->mMorph;
+
+	mGameObjectDatas[r->mName]->mMorph[19].mVertWeight = 1.0f;
+	mGameObjectDatas[r->mName]->mMorphDirty.push_back(9);
+
+	mGameObjectDatas[r->mName]->mMorph[19].mVertWeight = 1.0f;
+	mGameObjectDatas[r->mName]->mMorphDirty.push_back(19);
+
+	mGameObjectDatas[r->mName]->mMorph[27].mVertWeight = 1.0f;
+	mGameObjectDatas[r->mName]->mMorphDirty.push_back(27);
+
+	mGameObjectDatas[r->mName]->mMorph[41].mVertWeight = 1.0f;
+	mGameObjectDatas[r->mName]->mMorphDirty.push_back(41);
+
+	mGameObjectDatas[r->mName]->mMorph[52].mVertWeight = 1.0f;
+	mGameObjectDatas[r->mName]->mMorphDirty.push_back(41);
 
 	//////////////////////////////////////
 
@@ -4366,7 +4486,7 @@ void BoxApp::ExtractAnimBones(
 		mGameObjectDatas[r->mName]->countOfFrame
 	);
 
-	assert(!res && "�ִϸ��̼� ������ �������� �ʴ� ������Ʈ�� CreateFBXObject��");
+	assert(!res &&  "(CreateFBXObject)Failed to extract FBX Data on ExtractedAnimationBone.");
 }
 
 void BoxApp::uploadTexture(_In_ Texture& tex, _In_ bool isSky) {
@@ -4477,8 +4597,7 @@ void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName, 
 void BoxApp::uploadLight(Light light)
 {
 	mLights.push_back(light);
-
-	printf("");
+	mLightDatas.resize(mLights.size());
 }
 
 void BoxApp::BindTexture(RenderItem* r, std::string name, int idx, bool isCubeMap) {
@@ -4609,31 +4728,39 @@ void BoxApp::BindMaterial(RenderItem* r, std::string matName, std::string texNam
 //////////////////////////////////
 
 void RenderItem::setPosition(_In_ XMFLOAT3 pos) {
-	for (UINT i = 0; i < InstanceCount; i++) {
-		physx[i]->Position[0] = pos.x;
-		physx[i]->Position[1] = pos.y;
-		physx[i]->Position[2] = pos.z;
+	XMVECTOR vec = DirectX::XMLoadFloat3(&pos);
 
-		phys.setPosition(physxIdx[i], pos.x, pos.y, pos.z);
+	for (UINT i = 0; i < InstanceCount; i++) {
+		//mPhyxResources[i].Position[0] = pos.x;
+		//mPhyxResources[i].Position[1] = pos.y;
+		//mPhyxResources[i].Position[2] = pos.z;
+
+		memcpy(mPhyxResources[i].Position, vec.m128_f32, sizeof(float) * 3);
+
+		mPhys.setPosition(mPhyxRigidBody[i], pos.x, pos.y, pos.z);
 	}
 }
 void RenderItem::setRotation(_In_ XMFLOAT3 rot) {
-	for (UINT i = 0; i < InstanceCount; i++) {
-		physx[i]->Rotation[0] = rot.x;
-		physx[i]->Rotation[1] = rot.y;
-		physx[i]->Rotation[2] = rot.z;
+	XMVECTOR vec = DirectX::XMLoadFloat3(&rot);
 
-		phys.setRotation(physxIdx[i], rot.x, rot.y, rot.z);
+	for (UINT i = 0; i < InstanceCount; i++) {
+		//mPhyxResources[i].Rotation[0] = rot.x;
+		//mPhyxResources[i].Rotation[1] = rot.y;
+		//mPhyxResources[i].Rotation[2] = rot.z;
+
+		memcpy(mPhyxResources[i].Rotation, vec.m128_f32, sizeof(float) * 3);
+
+		mPhys.setRotation(mPhyxRigidBody[i], rot.x, rot.y, rot.z);
 	}
 }
 
 void RenderItem::setVelocity(_In_ XMFLOAT3 vel) {
 	for (UINT i = 0; i < InstanceCount; i++)
-		phys.setVelocity(physxIdx[i], vel.x, vel.y, vel.z);
+		mPhys.setVelocity(mPhyxRigidBody[i], vel.x, vel.y, vel.z);
 }
 void RenderItem::setTorque(_In_ XMFLOAT3 torq) {
 	for (UINT i = 0; i < InstanceCount; i++)
-		phys.setTorque(physxIdx[i], torq.x, torq.y, torq.z);
+		mPhys.setTorque(mPhyxRigidBody[i], torq.x, torq.y, torq.z);
 }
 
 void RenderItem::setInstancePosition(_In_ XMFLOAT3 pos, _In_ UINT idx) {

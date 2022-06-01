@@ -40,10 +40,12 @@ void SobelCS(int3 dispatchThreadID : SV_DispatchThreadID)
 	float4 mag = sqrt(Gx*Gx + Gy*Gy);
     
     // 거리 파라미터를 받아서 멀어질 수록 magnitude가 선형적으로 작아져야 할 듯
-    mag = mag * 0.2f;
+    mag = mag * 0.3f;
 
 	// Make edges black, and nonedges white.
 	mag = 1.0f - saturate(CalcLuminance(mag.rgb));
+
+	mag.b = 1.0f;
     
 	gOutput[dispatchThreadID.xy] = mag;
 }
