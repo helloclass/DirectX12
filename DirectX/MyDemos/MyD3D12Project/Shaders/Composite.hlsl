@@ -44,6 +44,10 @@ VertexOut VS(uint vid : SV_VertexID)
 
 float4 PS(VertexOut pin) : SV_Target
 {
+	// 그림자 요소를 여기에다가 더할것이다.
+	// 이유1. 굳이 Shadow.hlsl을 만들어서 배경 + ShadowMap을 할 필요 없이 여기에 c + ShadowMap을 하여 결과를 얻을 수 있다. 최적화에 알맞음.
+	// 이유2. 그림자에 Sobel이 먹히는 현상을 방지할 수 있음. 
+
     float4 c = gBaseMap.SampleLevel(gsamPointClamp, pin.TexC, 0.0f);
 	float4 e = gEdgeMap.SampleLevel(gsamPointClamp, pin.TexC, 0.0f);
 	

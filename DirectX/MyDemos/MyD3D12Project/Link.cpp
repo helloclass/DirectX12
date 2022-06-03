@@ -13,6 +13,13 @@ void BoxApp::_Awake(BoxApp* app) {
 		app->uploadTexture(skyTexture, true);
 		app->uploadMaterial("SkyMat", "snowcube1024", true);
 
+		Texture BottomTex;
+		BottomTex.Name = "bottomTex";
+		BottomTex.Filename = L"../../Textures/ice.dds";
+
+		app->uploadTexture(BottomTex, false);
+		app->uploadMaterial("BottomMat", "bottomTex", false);
+
 		Texture texList[6];
 
 		// mTexture에다가 싸그리 집어넣고 BoxApp 초기화 첫 단계에서 LoadTexture 넣어주세요.

@@ -21,15 +21,15 @@ void Physics::Init() {
 	if (!gCooking)
 		throw std::runtime_error("Cooking is NULL!!");
 
-	if (!PxInitExtensions(*gPhysics, gPvd))
-		throw std::runtime_error("PxInitExtensions Failed!!");
+	//if (!PxInitExtensions(*gPhysics, gPvd))
+	//	throw std::runtime_error("PxInitExtensions Failed!!");
 
 	//PxCudaContextManagerDesc cudaContextManagerDesc;
 
 	//PxCudaContextManager* gCudaContextManager = PxCreateCudaContextManager(*gFoundation, cudaContextManagerDesc);
 
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
-	sceneDesc.gravity = PxVec3(0.0f, -9.8f, 0.0f);
+	sceneDesc.gravity = PxVec3(0.0f, 0.0f, 0.0f);
 	gDispatcher = PxDefaultCpuDispatcherCreate(4);
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;
@@ -274,7 +274,7 @@ void Physics::setTorque(PxRigidDynamic* collider, float x, float y, float z)
 
 // Cloth ½ÇÇè
 PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc) {
-	PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(0, 0, 0));
+	PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(0, -0.98, 0));
 	PX_ASSERT(fabric);
 
 	PxTransform pose = PxTransform(PxIdentity);
@@ -339,7 +339,7 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 		physx::PxClothStretchConfig mStretchConf;
 		mStretchConf.stiffness = 1.0f;
 		mStretchConf.stiffnessMultiplier = 1.0f;
-		mStretchConf.compressionLimit = 0.5f;
+		mStretchConf.compressionLimit = 0.0f;
 		mStretchConf.stretchLimit = 1.0f;
 
 		cloth->setStretchConfig(PxClothFabricPhaseType::eVERTICAL, mStretchConf);

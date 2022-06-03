@@ -348,7 +348,9 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				);
 
 				if (!mWeightImage)
+				{
 					throw std::runtime_error("Can't Found Weight Images!!");
+				}
 
 				///////////////////////////////////////////////////////////////////////
 
@@ -382,12 +384,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					FreeImage_GetPixelColor(mWeightImage, uvX, uvY, &color);
 
 					if (
-						color.rgbRed == 255 &&
 						color.rgbGreen == 0 &&
 						color.rgbBlue == 0
 						)
 					{
-						_RenderData->mClothWeights[*vIDX] = 0.0f;
+						_RenderData->mClothWeights[*vIDX] = (float)(255 - color.rgbRed) / 255.0f;
 					}
 
 					///////////////////////////
@@ -429,6 +430,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 				// ��� ���ؽ��� ������ ��찡 �ƴϸ�
 				size_t vertSize = vertices.size();
+
 				if (vertices.size() > 0)
 				{
 					// �ּ� ���� ���ؽ�
@@ -604,9 +606,9 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					//delta = DirectX::XMQuaternionNormalize(delta);
 
-					delta.m128_f32[0] *= 0.01f;
-					delta.m128_f32[1] *= 0.01f;
-					delta.m128_f32[2] *= 0.01f;
+					delta.m128_f32[0] *= 0.003f;
+					delta.m128_f32[1] *= 0.003f;
+					delta.m128_f32[2] *= 0.003f;
 
 					resQ = delta;
 
@@ -662,6 +664,13 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					while (mDstDynamicIter != mDstEndDynamicIter)
 					{
 						mSrcIterPos = &ppd->particles[*mSrcDynamicIter].pos;
+
+						//// DELTA
+						//{
+						//	(*mDstDynamicIter)->x - mSrcIterPos->x;
+						//	(*mDstDynamicIter)->y - mSrcIterPos->y;
+						//	(*mDstDynamicIter)->z - mSrcIterPos->z;
+						//}
 
 						memcpy((*mDstDynamicIter), mSrcIterPos, sizeof(float) * 3);
 
@@ -797,10 +806,10 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			_RenderData->isLoop = true;
 
 			// ���� �������� ����ϸ�, �������� ���� �� �� Ʈ���Ÿ� �۵��Ѵ�.
-			//currentFrame =
-			//	(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
 			currentFrame =
-				1;
+				(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
+			//currentFrame =
+			//	1;
 
 			// ���� ���� �������� �ִϸ��̼��� ���̶��?
 			if ((_RenderData->endAnimIndex) <= currentFrame) {
@@ -1205,9 +1214,9 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 				// ���� ������ �� ���� 
 				// ���� ĳ���Ͱ� ī�޶� ������ ���δٸ� ,
 				// ĳ������ SRT�� ������Ʈ �Ѵ�.
-				data.World._14 = pr->Position[0];
-				data.World._24 = pr->Position[1];
-				data.World._34 = pr->Position[2];
+				data.World._41 = pr->Position[0];
+				data.World._42 = pr->Position[1];
+				data.World._43 = pr->Position[2];
 
 				//data.World._11 = pr->Scale[0];
 				//data.World._22 = pr->Scale[1];
@@ -1659,13 +1668,12 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 							);
 
 							skyTex.Offset(
-								obj->Mat[0]->DiffuseSrvHeapIndex,
+								0,
 								mCbvSrvUavDescriptorSize
 							);
 						}
 						else
 						{
-							matCBAddress = matCB + obj->SkyMat[0]->MatInstIndex * sizeof(MaterialData);
 							matCBAddress = matCB;
 
 							// Move to Current Stack Pointer
@@ -3757,7 +3765,6 @@ void BoxApp::CreatePMXObject(
 	std::vector<PxU32> primitives;
 
 	pmx::PmxModel* model = &mGameObjectDatas[r->mName]->mModel;
-
 	{
 		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
 		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
@@ -4004,7 +4011,8 @@ void BoxApp::CreatePMXObject(
 
 	//std::vector<std::wstring> mWeightBonesRoot;
 	//mWeightBonesRoot.push_back(std::wstring(L"WaistString1_2"));
-	//mWeightBonesRoot.push_back(std::wstring(L"WaistString2_2"));
+	//mWeightBonesRoot.push_back(std::wstring(L"WaistString2_2")); 
+	//mWeightBonesRoot.push_back(std::wstring(L"UpperBody2"));
 	//mWeightBonesRoot.push_back(std::wstring(L"Skirt_1_1"));
 	//mWeightBonesRoot.push_back(std::wstring(L"Skirt_2_1"));
 	//mWeightBonesRoot.push_back(std::wstring(L"Skirt_1_2"));
@@ -4044,6 +4052,13 @@ void BoxApp::CreatePMXObject(
 	//mWeightBones.push_back(std::wstring(L"WaistString2_6"));
 	//mWeightBones.push_back(std::wstring(L"WaistString2_7"));
 	//mWeightBones.push_back(std::wstring(L"WaistString2_8"));
+	//mWeightBones.push_back(std::wstring(L"Breast_Root"));
+	//mWeightBones.push_back(std::wstring(L"Breast_Base.L"));
+	//mWeightBones.push_back(std::wstring(L"Breast_Base.R"));
+	//mWeightBones.push_back(std::wstring(L"Breast.L"));
+	//mWeightBones.push_back(std::wstring(L"Breast.R"));
+	//mWeightBones.push_back(std::wstring(L"Breast_Support.L"));
+	//mWeightBones.push_back(std::wstring(L"Breast_Support.R"));
 	//mWeightBones.push_back(std::wstring(L"Skirt_1_3"));
 	//mWeightBones.push_back(std::wstring(L"Skirt_1_4"));
 	//mWeightBones.push_back(std::wstring(L"Skirt_1_5"));
@@ -4247,6 +4262,7 @@ void BoxApp::CreatePMXObject(
 	//isClothSubmeshNames.push_back(std::string("FlontCloth_Metal"));
 	//isClothSubmeshNames.push_back(std::string("Cloth"));
 	//isClothSubmeshNames.push_back(std::string("Cloth_Blue"));
+	//isClothSubmeshNames.push_back(std::string("BodySuit"));
 	////isClothSubmeshNames.push_back(std::string("Cloth_Metal"));
 	////isClothSubmeshNames.push_back(std::string("Cloth_Jwel"));
 	//isClothSubmeshNames.push_back(std::string("WaistString"));
@@ -4299,7 +4315,7 @@ void BoxApp::CreatePMXObject(
 		if (vertWeight > 0.6f)
 			mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = 0.1f;
 		else
-			mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = vertWeight;
+			mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = vertWeight * 0.02f;
 	}
 
 	int count = 0;
@@ -4652,7 +4668,7 @@ void BoxApp::BindMaterial(RenderItem* r, std::string name, bool isCubeMap) {
 
 	Material* m = new Material;
 	r->isSky = isCubeMap;
-	m->isSkyTexture = m->isSkyTexture = isCubeMap;
+	m->isSkyTexture = isCubeMap;
 
 	for (auto& i = mMaterials.begin(); i != mMaterials.end(); i++) {
 		if (i->second.Name == name) {

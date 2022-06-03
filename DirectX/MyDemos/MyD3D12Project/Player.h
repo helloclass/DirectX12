@@ -6,11 +6,10 @@
 class Player {
 private:
 	BoxApp* app = nullptr;
+
 	RenderItem* p = nullptr;
-
 	RenderItem* SkyBox = nullptr;
-
-	// 이렇게 하나의 번들임.
+	RenderItem* Bottom = nullptr;
 	RenderItem* Charactor = nullptr;
 	std::vector<std::string> CharactorTextures;
 	std::vector<std::string> CharactorNormalTextures;
@@ -30,19 +29,10 @@ public:
 		std::vector<std::string> texturePaths;
 		std::vector<std::string> PinixTexturePaths;
 
-		// Upload SkyBox Texture
-		{
-			Texture SkyboxTex;
-			SkyboxTex.Name = "skyTex";
-			SkyboxTex.isCube = true;
-			SkyboxTex.Filename = L"../../Textures/snowcube1024.dds";
-
-			app->uploadTexture(SkyboxTex, true);
-		}
-
 		// Create Init Objects
 		{
 			SkyBox		= app->CreateStaticGameObject("SkyBoxGeo", 1);
+			Bottom		= app->CreateStaticGameObject("BottomGeo", 1);
 			Charactor	= app->CreateDynamicGameObject("CharactorGeo", 1);
 			Pinix		= app->CreateDynamicGameObject("PinixGeo", 1);
 
@@ -71,11 +61,29 @@ public:
 				renderType
 			);
 
+			renderType = RenderItem::RenderType::_OPAQUE_RENDER_TYPE;
+
+			app->BindMaterial(Bottom, "BottomMat", false);
+
+			app->CreateBoxObject(
+				"Bottom",
+				"",
+				Bottom,
+				1000.0f,
+				5.0f,
+				1000.0f,
+				{ 0, -3.0f, 0 },
+				{ 0.0f, 0.0f, 0.0f },
+				{ 1.0f, 1.0f, 1.0f },
+				1,
+				renderType
+			);
+
 			app->CreatePMXObject
 			(
 				"Charactor",
 				std::string("D:\\Modeling\\9c801715_Ganyu_HiPolySet_1.01\\Ganyu_HiPolySet_1.01"),
-				std::string("test.pmx"),
+				std::string("test1.pmx"),
 				texturePaths,
 				Charactor,
 				XMFLOAT3(0.0f, 0.0f, 0.0f),
@@ -98,14 +106,6 @@ public:
 
 		// Light
 		{
-			// AmbientLight = { 1.00f, 0.85f, 0.85f, 1.0f };
-			// Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-			// Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
-			// Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-			// Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
-			// Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
-			// Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
-
 			Light lightData;
 			lightData.LightType = LightType::DIR_LIGHTS;
 			lightData.Direction = { 0.57735f, -0.57735f, 0.57735f };

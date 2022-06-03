@@ -91,7 +91,9 @@ public:
 	PxCloth* LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc);
 	bool RemoveCloth(PxCloth* cloth);
 public:
-	Physics() { this->Init(); }
+	Physics() { 
+		this->Init();
+	}
 	~Physics() { 
 		this->CleanUp();
 		// clothes 할당 해제

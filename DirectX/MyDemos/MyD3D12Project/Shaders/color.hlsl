@@ -133,11 +133,16 @@ float4 PS(VertexOut pin) : SV_Target
 		shadowFactor
 	);
     
-    //float4 litColor = ambient + directLight;
 	float4 litColor = directLight;
-    litColor += ambient * 2.0f;
-    
-    litColor.a = diffuseAlbedo.a;
+    litColor += ambient;
+
+	// Add in specular reflection
+	float3 r = reflect(-toEyeW, pin.NormalW);
+	float4 reflectionColor = gCubeMap.Sample(gsamLinearWrap, r);
+
+	litColor.rgb += reflectionColor.rgb * shininess;
+
+	litColor.a = diffuseAlbedo.a;
 
     return litColor;
 
