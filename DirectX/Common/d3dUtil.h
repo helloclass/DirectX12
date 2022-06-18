@@ -268,19 +268,26 @@ public:
 	
 };
 
-/*
-#ifndef NUM_DIR_LIGHTS
-	#define NUM_DIR_LIGHTS 3
-#endif
+struct PassConstants
+{
+	DirectX::XMFLOAT4X4 view = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 Invview = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 Proj = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 InvProj = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 InvViewProj = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 ShadowViewProj = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 ShadowViewProjNDC = MathHelper::Identity4x4();
 
-#ifndef NUM_POINT_LIGHTS
-	#define NUM_POINT_LIGHTS 0
-#endif
+	DirectX::XMFLOAT3 EyePosW = { 0.0f, 0.0f, 0.0f };
+	//DirectX::XMFLOAT2 RenderTargetSize = { 0.0f, 0.0f };
+	//DirectX::XMFLOAT2 InvRenderTargetSize = { 0.0f, 0.0f };
 
-#ifndef NUM_SPOT_LIGHTS
-	#define NUM_SPOT_LIGHTS 0
-#endif
-*/
+	float NearZ = 0.0f;
+	float FarZ = 0.0f;
+	float TotalTime = 0.0f;
+	float DeltaTime = 0.0f;
+};
 
 typedef enum LightType
 {
@@ -291,22 +298,32 @@ typedef enum LightType
 
 struct Light
 {
-	LightType LightType;
-    DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
-    float FalloffStart = 1.0f;                          // point/spot light only
-    DirectX::XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };// directional/spot light only
-    float FalloffEnd = 10.0f;                           // point/spot light only
-    DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
-    float SpotPower = 64.0f;                            // spot light only
+	int mLightType;
+    DirectX::XMFLOAT3 mStrength = { 0.5f, 0.5f, 0.5f };
+    float mFalloffStart = 1.0f;                          // point/spot light only
+    DirectX::XMFLOAT3 mDirection = { 0.0f, -1.0f, 0.0f };// directional/spot light only
+    float mFalloffEnd = 10.0f;                           // point/spot light only
+    DirectX::XMFLOAT3 mPosition = { 0.0f, 0.0f, 0.0f };  // point/spot light only
+    float mSpotPower = 64.0f;                            // spot light only
+
+	float mLightNearZ = 0.0f;
+	float mLightFarZ = 0.0f;
+
+	DirectX::XMFLOAT3 mLightPosW = { 0.0f, 0.0f, 0.0f };
+
+	DirectX::XMFLOAT4X4 mLightView = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 mLightProj = MathHelper::Identity4x4();
+
+	DirectX::XMFLOAT4X4 ShadowViewProj = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 ShadowViewProjNDC = MathHelper::Identity4x4();
+
+	DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
 };
 
-struct LightData
+struct LightDataConstants
 {
-	int LightSize = 0;
 	Light data[5];
 };
-
-#define MaxLights 16
 
 struct MaterialConstants
 {

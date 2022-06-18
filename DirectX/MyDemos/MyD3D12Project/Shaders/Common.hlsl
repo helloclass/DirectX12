@@ -2,19 +2,6 @@
 // Common.hlsl by Frank Luna (C) 2015 All Rights Reserved.
 //***************************************************************************************
 
-// Defaults for number of lights.
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 3
-#endif
-
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 0
-#endif
-
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 0
-#endif
-
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
 
@@ -40,9 +27,13 @@ cbuffer cbPass : register(b0)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+	float4x4 gShadowViewProj;
+	float4x4 gShadowViewProjNDC;
+
     float3 gEyePosW;
-    float2 gRenderTargetSize;
-    float2 gInvRenderTargetSize;
+    //float2 gRenderTargetSize;
+    //float2 gInvRenderTargetSize;
+
     float gNearZ;
     float gFarZ;
     float gTotalTime;
@@ -54,20 +45,20 @@ cbuffer cbPass : register(b0)
 };
 
 // Rate of Anim
-cbuffer cbRateOfAnimTime : register(b1)
+cbuffer cbRateOfAnimTime : register(b2)
 {
     float rateOfAnimTime;
 }
 
 StructuredBuffer<InstanceData>	gInstanceData           : register(t0, space0);
 StructuredBuffer<MaterialData>	gMaterialData           : register(t0, space1);
-StructuredBuffer<LightData>		gLightData				: register(t0, space2);
 #ifdef _PMX_FORMAT
-StructuredBuffer<pmxBoneData> gPmxBoneData				: register(t0, space3);
+StructuredBuffer<pmxBoneData> gPmxBoneData				: register(t0, space2);
 #endif
 
 Texture2D gDiffuseMap									: register(t1, space0);
 TextureCube gCubeMap									: register(t2, space0);
+Texture2D gShadowMap									: register(t2, space1);
 
 SamplerState gsamPointWrap								: register(s0);
 SamplerState gsamPointClamp								: register(s1);
@@ -78,7 +69,6 @@ SamplerState gsamAnisotropicClamp						: register(s5);
 SamplerComparisonState gsamShadow						: register(s6);
 
 
-//Texture2D gShadowMap : register(t1);
 //Texture2D gSsaoMap   : register(t2);
 
 //// An array of textures, which is only supported in shader model 5.1+.  Unlike Texture2DArray, the textures
@@ -113,39 +103,49 @@ float3 NormalSampleToWorldSpace(float3 normalMapSample, float3 unitNormalW, floa
 //---------------------------------------------------------------------------------------
 // PCF for shadow mapping.
 //---------------------------------------------------------------------------------------
-//#define SMAP_SIZE = (2048.0f)
-//#define SMAP_DX = (1.0f / SMAP_SIZE)
+
 float CalcShadowFactor(float4 shadowPosH)
 {
-    //// Complete projection by doing division by w.
-    //shadowPosH.xyz /= shadowPosH.w;
+	// Complete projection by doing division by w.
+	shadowPosH.xyz /= shadowPosH.w;
 
-    //// Depth in NDC space.
-    //float depth = shadowPosH.z;
+	// Depth in NDC space.
+	float depth = shadowPosH.z;
 
-    //uint width, height, numMips;
-    //gShadowMap.GetDimensions(0, width, height, numMips);
+	if (shadowPosH.x < 0.01 || 0.99 < shadowPosH.x ||
+		shadowPosH.y < 0.01 || 0.99 < shadowPosH.y )
+		return 1.0;
 
-    //// Texel size.
-    //float dx = 1.0f / (float)width;
+	uint width, height, numMips;
+	gShadowMap.GetDimensions(0, width, height, numMips);
 
-    //float percentLit = 0.0f;
-    //const float2 offsets[9] =
-    //{
-    //    float2(-dx,  -dx), float2(0.0f,  -dx), float2(dx,  -dx),
-    //    float2(-dx, 0.0f), float2(0.0f, 0.0f), float2(dx, 0.0f),
-    //    float2(-dx,  +dx), float2(0.0f,  +dx), float2(dx,  +dx)
-    //};
+	// Texel size.
+	float dx = 1.0f / (float)width;
 
-    //[unroll]
-    //for(int i = 0; i < 9; ++i)
-    //{
-    //    percentLit += gShadowMap.SampleCmpLevelZero(gsamShadow,
-    //        shadowPosH.xy + offsets[i], depth).r;
-    //}
-    
-    //return percentLit / 9.0f;
-    
-    return 0.0f;
+	float percentLit = 0.0f;
+	const float2 offsets[9] =
+	{
+		float2(-dx,  -dx), float2(0.0f,  -dx), float2(dx,  -dx),
+		float2(-dx, 0.0f), float2(0.0f, 0.0f), float2(dx, 0.0f),
+		float2(-dx,  +dx), float2(0.0f,  +dx), float2(dx,  +dx)
+	};
+
+	// depth가 늘어나야 검은색
+	// 모든 맵은 검은색이 되어야 함.
+
+	[unroll]
+	for (int i = 0; i < 9; ++i)
+	{
+		percentLit +=
+			gShadowMap.SampleCmpLevelZero(
+				gsamShadow,
+				shadowPosH.xy + offsets[i],
+				depth
+			).r;
+	}
+
+	// 그림자 요소 값을 주는 것이 아닌, 
+	// 그림자가 적용된 밝기 값을 주는 것.
+	return percentLit / 9.0f;
 }
 

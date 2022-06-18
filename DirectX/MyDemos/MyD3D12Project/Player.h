@@ -16,6 +16,7 @@ private:
 	std::vector<std::string> CharactorAlphaTextures;
 
 	RenderItem* Pinix = nullptr;
+	RenderItem* TestBox = nullptr;
 
 public:
 	Player() {}
@@ -34,7 +35,8 @@ public:
 			SkyBox		= app->CreateStaticGameObject("SkyBoxGeo", 1);
 			Bottom		= app->CreateStaticGameObject("BottomGeo", 1);
 			Charactor	= app->CreateDynamicGameObject("CharactorGeo", 1);
-			Pinix		= app->CreateDynamicGameObject("PinixGeo", 1);
+			//Pinix		= app->CreateDynamicGameObject("PinixGeo", 1);
+			TestBox		= app->CreateDynamicGameObject("TestGeo", 1);
 
 			//app->ExtractAnimBones (
 			//	std::string("D:\\Animation\\ImportAnimation\\Assets\\m\\Wisard"),
@@ -58,25 +60,26 @@ public:
 				XMFLOAT3(0.0f, 0.0f, 0.0f),
 				XMFLOAT3(0.0f, 0.0f, 0.0f),
 				XMFLOAT3(1, 1, 1),
-				renderType
+				renderType,
+				false
 			);
 
 			renderType = RenderItem::RenderType::_OPAQUE_RENDER_TYPE;
 
 			app->BindMaterial(Bottom, "BottomMat", false);
-
-			app->CreateBoxObject(
+			app->CreateGridObject(
 				"Bottom",
 				"",
 				Bottom,
-				1000.0f,
-				5.0f,
-				1000.0f,
+				500.0f, 
+				500.0f, 
+				120, 
+				80,
 				{ 0, -3.0f, 0 },
 				{ 0.0f, 0.0f, 0.0f },
-				{ 1.0f, 1.0f, 1.0f },
-				1,
-				renderType
+				{ 1, 1, 1 },
+				renderType,
+				false
 			);
 
 			app->CreatePMXObject
@@ -91,35 +94,58 @@ public:
 				XMFLOAT3(1, 1, 1)
 			);
 
-			app->CreateFBXSkinnedObject
-			(
-				"Pet",
-				std::string("D:\\Modeling\\AnimationTEST\\phoenix-bird\\source"),
-				std::string("fly.fbx"),
-				PinixTexturePaths,
-				Pinix,
-				XMFLOAT3(8.0f, 20.0f, 0.0f),
-				XMFLOAT3(0.0f, 0.0f, 0.0f),
-				XMFLOAT3(0.01f, 0.01f, 0.01f)
+			app->BindMaterial(TestBox, "BottomMat", false);
+			app->CreateSphereObject(
+				"TestGeo",
+				"",
+				TestBox,
+				10.0f,
+				8,
+				8,
+				{ -20.0f, 0.0f, -30.0f },
+				{ 0.0f, 0.0f, 0.0f },
+				{ 1, 1, 1 },
+				renderType
 			);
+
+			//app->CreateFBXSkinnedObject
+			//(
+			//	"Pet",
+			//	std::string("D:\\Modeling\\AnimationTEST\\phoenix-bird\\source"),
+			//	std::string("fly.fbx"),
+			//	PinixTexturePaths,
+			//	Pinix,
+			//	XMFLOAT3(8.0f, 20.0f, 0.0f),
+			//	XMFLOAT3(0.0f, 0.0f, 0.0f),
+			//	XMFLOAT3(0.01f, 0.01f, 0.01f)
+			//);
 		}
 
 		// Light
 		{
 			Light lightData;
-			lightData.LightType = LightType::DIR_LIGHTS;
-			lightData.Direction = { 0.57735f, -0.57735f, 0.57735f };
-			lightData.Strength = { 0.8f, 0.8f, 0.8f };
+			lightData.mLightType = LightType::DIR_LIGHTS;
+			lightData.mPosition = { 0.0f, 0.0f, 0.0f };
+			lightData.mDirection = { 0.57735f, -0.57735f, 0.57735f };
+			lightData.mStrength = { 0.8f, 0.8f, 0.8f };
+			lightData.mFalloffStart = 0.0f;
+			lightData.mFalloffEnd = 100.0f;
 			app->uploadLight(lightData);
 
-			lightData.LightType = LightType::POINT_LIGHT;
-			lightData.Direction = { -0.57735f, -0.57735f, 0.57735f };
-			lightData.Strength = { 0.4f, 0.4f, 0.4f };
+			lightData.mLightType = LightType::POINT_LIGHT;
+			lightData.mPosition = { 0.0f, 0.0f, 0.0f };
+			lightData.mDirection = { -0.57735f, -0.57735f, 0.57735f };
+			lightData.mStrength = { 0.4f, 0.4f, 0.4f };
+			lightData.mFalloffStart = 0.0f;
+			lightData.mFalloffEnd = 100.0f;
 			app->uploadLight(lightData);
 
-			lightData.LightType = LightType::SPOT_LIGHT;
-			lightData.Direction = { 0.0f, -0.707f, -0.707f };
-			lightData.Strength = { 0.2f, 0.2f, 0.2f };
+			lightData.mLightType = LightType::SPOT_LIGHT;
+			lightData.mPosition = { 0.0f, 0.0f, 0.0f };
+			lightData.mDirection = { 0.0f, -0.707f, -0.707f };
+			lightData.mStrength = { 0.2f, 0.2f, 0.2f };
+			lightData.mFalloffStart = 0.0f;
+			lightData.mFalloffEnd = 100.0f;
 			app->uploadLight(lightData);
 
 		}
@@ -127,10 +153,7 @@ public:
 
 	void _Start()
 	{
-		{
-			
-		}
-
+		
 	}
 
 	void _Update(const GameTimer& gt)

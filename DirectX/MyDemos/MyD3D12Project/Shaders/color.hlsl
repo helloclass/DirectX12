@@ -21,8 +21,10 @@ struct VertexIn
 struct VertexOut
 {
 	float4 PosH     : SV_POSITION;
+	float4 ShadowPosH : POSITION0;
     float3 PosW     : POSITIONT;
     float3 NormalW  : NORMAL;
+	float3 TangentW : TANGENT;
     float2 TexC     : TEXCOORD;
     
     // 각 인스턴스 당 텍스쳐 인덱스가 겹치지 않도록 보간
@@ -33,7 +35,8 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
 	VertexOut vout = (VertexOut) 0.0f;
 
-	InstanceData instData = gInstanceData[instanceID];
+	InstanceData instData	= gInstanceData[instanceID];
+
 	float4x4 world = instData.World;
     float4x4 texTransform = instData.TexTransform;
     uint matIndex = instData.MaterialIndex;
@@ -95,9 +98,10 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
     vout.PosW = posW.xyz;
         
     vout.NormalW = mul(vin.NormalL, (float3x3) world);
-    
+
     vout.PosH = mul(posW, gViewProj);
-    
+	vout.ShadowPosH = mul(posW, gShadowViewProjNDC);
+
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), texTransform);
     vout.TexC = mul(texC, matData.MatTransform).xy;
     
@@ -108,11 +112,11 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 float4 PS(VertexOut pin) : SV_Target
 { 
     MaterialData matData = gMaterialData[pin.MatIndex];
-	LightData lightData  = gLightData[0];
-    
+
     float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
+	float3 bumpedNormalW = NormalSampleToWorldSpace(diffuseAlbedo.rgb, pin.NormalW, pin.TangentW);
     
-    clip(diffuseAlbedo.a - 0.4f);
+    clip(diffuseAlbedo.a - 0.2f);
 
 	diffuseAlbedo = diffuseAlbedo * matData.DiffuseAlbedo;
     
@@ -123,26 +127,26 @@ float4 PS(VertexOut pin) : SV_Target
     float4 ambient = gAmbientLight * diffuseAlbedo;
     
     const float shininess = 1.0f - matData.Roughness;
-    float3 shadowFactor = 1.0f;
+	float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
+	shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH);
+
     float4 directLight = ComputeLighting(
-		lightData,
 		matData, 
 		pin.PosW, 
-		pin.NormalW, 
+		pin.NormalW,
 		toEyeW, 
 		shadowFactor
 	);
-    
+
 	float4 litColor = directLight;
-    litColor += ambient;
 
-	// Add in specular reflection
-	float3 r = reflect(-toEyeW, pin.NormalW);
-	float4 reflectionColor = gCubeMap.Sample(gsamLinearWrap, r);
+	//// Add in specular reflection
+	//float3 r = reflect(-toEyeW, pin.NormalW);
+	//float4 reflectionColor = gCubeMap.Sample(gsamLinearWrap, r);
 
-	litColor.rgb += reflectionColor.rgb * shininess;
+	//litColor.rgb += reflectionColor.rgb * shininess * 0.1f;
 
-	litColor.a = diffuseAlbedo.a;
+	//litColor.a = diffuseAlbedo.a;
 
     return litColor;
 

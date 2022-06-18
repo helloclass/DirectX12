@@ -12,9 +12,9 @@
 
 #include "BlurFilter.h"
 #include "SobelFilter.h"
-
 #include "RenderTarget.h"
 #include "CubeRenderTarget.h"
+#include "ShadowMap.h"
 
 #include <vector>
 #include <list>
@@ -63,33 +63,6 @@ struct PmxAnimationData
 	DirectX::XMFLOAT4X4 mOriginMatrix;
 	DirectX::XMFLOAT4X4 mMatrix;
 };
-
-struct PassConstants
-{
-	DirectX::XMFLOAT4X4 view = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 Invview = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 Proj = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 InvProj = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 InvViewProj = MathHelper::Identity4x4();
-
-	DirectX::XMFLOAT3 EyePosW = { 0.0f, 0.0f, 0.0f };
-
-	DirectX::XMFLOAT2 RenderTargetSize = { 0.0f, 0.0f };
-	DirectX::XMFLOAT2 InvRenderTargetSize = { 0.0f, 0.0f };
-
-	float NearZ = 0.0f;
-	float FarZ = 0.0f;
-	float TotalTime = 0.0f;
-	float DeltaTime = 0.0f;
-
-	DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
-};
-
-//struct DeformConstants
-//{
-//	float Pose[4096 * 4];
-//};
 
 struct RateOfAnimTimeConstants
 {
@@ -223,6 +196,7 @@ public:
 		_OPAQUE_RENDER_TYPE,
 		_ALPHA_RENDER_TYPE,
 		_PMX_FORMAT_RENDER_TYPE,
+		_OPAQUE_SHADOW_MAP_RENDER_TYPE,
 		_SKY_FORMAT_RENDER_TYPE,
 		_OPAQUE_SKINNED_RENDER_TYPE,
 		_POST_PROCESSING_PIPELINE,
@@ -272,6 +246,8 @@ public:
 
 	bool isSky = false;
 	UINT mSkyCubeIndex = -1;
+
+	bool isDrawShadow = false;
 
 	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
@@ -385,7 +361,8 @@ public:
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale, 
 		_In_ int subDividNum,
-		RenderItem::RenderType renderType
+		RenderItem::RenderType renderType,
+		bool isDrawShadow = true
 	);
 	void CreateSphereObject(
 		_In_ std::string Name, 
@@ -397,7 +374,8 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		RenderItem::RenderType renderType
+		RenderItem::RenderType renderType,
+		bool isDrawShadow = true
 	);
 	void CreateGeoSphereObject(
 		_In_ std::string Name, 
@@ -408,7 +386,8 @@ public:
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale, 
 		_In_ int subdivid,
-		RenderItem::RenderType renderType
+		RenderItem::RenderType renderType,
+		bool isDrawShadow = true
 	);
 	void CreateCylinberObject(
 		_In_ std::string Name, 
@@ -422,7 +401,8 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		RenderItem::RenderType renderType
+		RenderItem::RenderType renderType,
+		bool isDrawShadow = true
 	);
 	void CreateGridObject(
 		_In_ std::string Name, 
@@ -435,7 +415,8 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		RenderItem::RenderType renderType
+		RenderItem::RenderType renderType,
+		bool isDrawShadow = true
 	);
 	void CreateFBXObject(
 		_In_ std::string Name, 
@@ -446,7 +427,8 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		_In_ bool uvMode = true
+		_In_ bool uvMode = true,
+		bool isDrawShadow = true
 	);
 	void CreateFBXSkinnedObject(
 		_In_ std::string Name, 
@@ -457,7 +439,8 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		_In_ bool uvMode = true
+		_In_ bool uvMode = true,
+		bool isDrawShadow = true
 	);
 	void CreatePMXObject(
 		_In_ std::string Name, 
@@ -467,7 +450,8 @@ public:
 		_Out_ RenderItem* r, 
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
-		_In_ DirectX::XMFLOAT3 scale
+		_In_ DirectX::XMFLOAT3 scale,
+		bool isDrawShadow = true
 	);
 	void ExtractAnimBones(
 		_In_ std::string Path,
@@ -503,6 +487,8 @@ private:
 	static std::unique_ptr<BlurFilter> mBlurFilter;
 	static std::unique_ptr<SobelFilter> mSobelFilter;
 
+	static std::unique_ptr<ShadowMap> mShadowMap;
+
 	BoundingFrustum				mCamFrustum;
 	PassConstants				mMainPassCB;
 	Camera						mCamera;
@@ -524,7 +510,7 @@ public:
 	std::vector<std::pair<std::string, Material>>		mMaterials;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>>	mShaders;
 	std::vector<Light>									mLights;
-	std::vector<LightData>								mLightDatas;
+	std::vector<LightDataConstants>						mLightDatas;
 
 public:
 	std::vector<Texture> texList;

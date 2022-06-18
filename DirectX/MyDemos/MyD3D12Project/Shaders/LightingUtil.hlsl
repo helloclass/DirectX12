@@ -4,7 +4,35 @@
 // Contains API for shader lighting.
 //***************************************************************************************
 
-#define MaxLights 16
+struct MaterialData
+{
+	float4 DiffuseAlbedo;
+	float3 FresnelRO;
+	float Roughness;
+	float4x4 MatTransform;
+	uint DiffuseMapIndex;
+};
+
+struct PassConstantData
+{
+	float4x4 gView;
+	float4x4 gInvView;
+	float4x4 gProj;
+	float4x4 gInvProj;
+	float4x4 gViewProj;
+	float4x4 gInvViewProj;
+	float4x4 gShadowViewProj;
+	float4x4 gShadowViewProjNDC;
+	float3 gEyePosW;
+	//float2 gRenderTargetSize;
+	//float2 gInvRenderTargetSize;
+	float gNearZ;
+	float gFarZ;
+	float gTotalTime;
+	float gDeltaTime;
+
+	float4 gAmbientLight;
+};
 
 struct Light
 {
@@ -15,21 +43,24 @@ struct Light
     float	FalloffEnd;   // point/spot light only
     float3	Position;    // point light only
     float	SpotPower;    // spot light only
+
+	float mLightNearZ;
+	float mLightFarZ;
+
+	float3 mLightPosW;
+
+	float4x4 mLightView;
+	float4x4 mLightProj;
+
+	float4x4 mShadowViewProj;
+	float4x4 mShadowViewProjNDC;
+
+	float4 mAmbientLight;
 };
 
-struct LightData
+cbuffer cbLightData : register(b1)
 {
-	uint LightSize;
-	Light data[5];
-};
-
-struct MaterialData
-{
-	float4 DiffuseAlbedo;
-	float3 FresnelRO;
-	float Roughness;
-	float4x4 MatTransform;
-	uint DiffuseMapIndex;
+	Light gLightData[5];
 };
 
 float CalcAttenuation(float d, float falloffStart, float falloffEnd)
@@ -85,7 +116,13 @@ float3 ComputeDirectionalLight(Light L, MaterialData mat, float3 normal, float3 
 //---------------------------------------------------------------------------------------
 // Evaluates the lighting equation for point lights.
 //---------------------------------------------------------------------------------------
-float3 ComputePointLight(Light L, MaterialData mat, float3 pos, float3 normal, float3 toEye)
+float3 ComputePointLight(
+	Light L, 
+	MaterialData mat, 
+	float3 pos, 
+	float3 normal, 
+	float3 toEye
+)
 {
     // The vector from the surface to the light.
     float3 lightVec = L.Position - pos;
@@ -144,27 +181,32 @@ float3 ComputeSpotLight(Light L, MaterialData mat, float3 pos, float3 normal, fl
     return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
 }
 
-float4 ComputeLighting(LightData gLight, MaterialData mat,
-                       float3 pos, float3 normal, float3 toEye,
-                       float3 shadowFactor)
+float4 ComputeLighting(
+	MaterialData mat,
+    float3 pos, 
+	float3 normal, 
+	float3 toEye,
+    float3 shadowFactor
+)
 {
     float3 result = 0.0f;
 
     int i = 0;
 
-	for (i = 0; i < gLight.LightSize; i++)
+	//for (i = 0; i < gLightSize; i++)
+	for (i = 0; i < 3; i++)
 	{
-		if (gLight.data[i].LightType == 0)
+		if (gLightData[i].LightType == 0)
 		{
-			result += shadowFactor[i] * ComputeDirectionalLight(gLight.data[i], mat, normal, toEye);
+			result += shadowFactor[0] * ComputeDirectionalLight(gLightData[i], mat, normal, toEye);
 		}
-		else if (gLight.data[i].LightType == 1)
+		else if (gLightData[i].LightType == 1)
 		{
-			result += ComputePointLight(gLight.data[i], mat, pos, normal, toEye);
+			result += ComputePointLight(gLightData[i], mat, pos, normal, toEye);
 		}
 		else
 		{
-			result += ComputeSpotLight(gLight.data[i], mat, pos, normal, toEye);
+			result += ComputeSpotLight(gLightData[i], mat, pos, normal, toEye);
 		}
 	}
 

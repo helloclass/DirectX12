@@ -33,6 +33,9 @@ UINT BoxApp::mFilterCount = 0;
 std::unique_ptr<BlurFilter> BoxApp::mBlurFilter;
 std::unique_ptr<SobelFilter> BoxApp::mSobelFilter;
 
+std::unique_ptr<ShadowMap> BoxApp::mShadowMap;
+DirectX::BoundingSphere mSceneBounds;				// 그림자가 그려지는 경계 구
+
 ComPtr<ID3D12DescriptorHeap> BoxApp::mSrvDescriptorHeap = nullptr;
 
 ComPtr<ID3D12RootSignature> BoxApp::mRootSignature = nullptr;
@@ -53,9 +56,9 @@ LPDWORD BoxApp::ThreadIndex[3] = { 0 };
 
 static std::unique_ptr<UploadBuffer<PassConstants>>				PassCB;
 static std::unique_ptr<UploadBuffer<RateOfAnimTimeConstants>>	RateOfAnimTimeCB;
+static std::unique_ptr<UploadBuffer<LightDataConstants>>		LightBufferCB;
 static std::unique_ptr<UploadBuffer<InstanceData>>				InstanceBuffer;
 static std::unique_ptr<UploadBuffer<MaterialData>>				MaterialBuffer;
-static std::unique_ptr<UploadBuffer<LightData>>					LightBuffer;
 static std::unique_ptr<UploadBuffer<PmxAnimationData>>			PmxAnimationBuffer;
 
 // Cloth Update SynchronizationEvent;
@@ -947,6 +950,7 @@ bool BoxApp::Initialize()
 	mBlurFilter = std::make_unique<BlurFilter>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	mSobelFilter = std::make_unique<SobelFilter>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	mOffscreenRT = std::make_unique<RenderTarget>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
+	mShadowMap = std::make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
 
 	BuildRootSignature();
 	BuildBlurRootSignature();
@@ -1011,7 +1015,7 @@ void BoxApp::CreateRtvAndDsvDescriptorHeaps()
 	));
 
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 1;
+	dsvHeapDesc.NumDescriptors = 2;
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	dsvHeapDesc.NodeMask = 0;
@@ -1043,6 +1047,10 @@ void BoxApp::OnResize()
 	{
 		mOffscreenRT->OnResize(mClientWidth, mClientHeight);
 	}
+	//if (mShadowMap != nullptr)
+	//{
+	//	mShadowMap->OnResize(2048, 2048);
+	//}
 }
 
 void BoxApp::Update(const GameTimer& gt)
@@ -1133,6 +1141,12 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 	MaterialData matData;
 	XMMATRIX matTransform;
 
+	//////
+	// 이후 각 라이트마다의 경계구로 변형 요망
+	//////
+	mSceneBounds.Center = XMFLOAT3{ 0.0f, 0.0f, 0.0f };
+	mSceneBounds.Radius = 100;
+
 	std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin();
 	std::vector<std::pair<std::string, Material>>::iterator& matEnd = mMaterials.end();
 	for (; matIDX != matEnd; matIDX++)
@@ -1161,9 +1175,49 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 	PhyxResource* pr = nullptr;
 	std::list<RenderItem*>::iterator objIDX;
 	std::list<RenderItem*>::iterator objEnd;
-	std::vector<LightData>::iterator lightDataIDX;
+	std::vector<LightDataConstants>::iterator lightDataIDX;
 	std::vector<Light>::iterator lightIDX;
 	std::vector<Light>::iterator lightEnd = mLights.end();
+
+	// 오브젝트가 프러스텀에 걸쳐있는지 여부를 확인하는 콜라이더 크기
+	XMFLOAT4X4 boundScale = MathHelper::Identity4x4();
+
+	Light* l = nullptr;
+	float* mObjectPos = pr->Position;
+	float distance = 0.0f;
+
+	DirectX::XMFLOAT3 lightVec;
+	DirectX::XMVECTOR lightData;
+
+	XMVECTOR lightDir;
+	XMVECTOR lightPos;
+	XMVECTOR targetPos;
+	XMVECTOR lightUp;
+	// Light View Matrix
+	XMMATRIX lightView;
+
+	// World View에서 Light View 방향으로 변형된 경계구의 위치
+	XMFLOAT3 sphereCenterL;
+
+	float rad;
+
+	XMMATRIX lightProj;
+	// NDC 매트릭스
+	XMMATRIX T(
+		0.5f, 0.0f, 0.0f, 0.0f,
+		0.0f, -0.5f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.5f, 0.5f, 0.0f, 1.0f
+	);
+
+	XMMATRIX S;
+
+	XMMATRIX viewProj;
+	XMMATRIX invProj;
+	XMMATRIX invViewProj;
+
+	UINT w;
+	UINT h;
 
 	mRenderInstTasks.resize(mGameObjectDatas.size());
 
@@ -1196,7 +1250,6 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 			obj->Bounds.Center.y = pr->Position[1];
 			obj->Bounds.Center.z = pr->Position[2];
 
-			XMFLOAT4X4 boundScale = MathHelper::Identity4x4();
 			boundScale._11 = 1.5f;
 			boundScale._22 = 1.5f;
 			boundScale._33 = 1.5f;
@@ -1227,75 +1280,133 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 				// ���� ���������� �þ��.
 				InstanceBuffer->CopyData(visibleInstanceCount, data);
 
-				// Light Update
-				lightIDX = mLights.begin();
-				lightDataIDX = mLightDatas.begin();
-				Light* l = nullptr;
-				float* mObjectPos = pr->Position;
-				float distance = 0.0f;
-
-				DirectX::XMFLOAT3 lightVec;
-				DirectX::XMVECTOR lightData;
-
-				// 충돌 라이트를 최신화 하기 위해 clear한다.
-				(*lightDataIDX).LightSize = 0;
-				for (; lightIDX != lightEnd; lightIDX++)
+				if (mLightDatas.size() > 0)
 				{
-					// 오브젝트의 포지션을 얻어온다.
+					// Light Update
+					lightIDX = mLights.begin();
+					lightDataIDX = mLightDatas.begin();
 
-					// 만일 라이트가 Dir이면
-					if ((*lightIDX).LightType == 0)
+					mObjectPos = pr->Position;
+					distance = 0.0f;
+
+					// 충돌 라이트를 최신화 하기 위해 clear한다.
+					int LightSize = 0;
+					while (lightIDX != lightEnd)
 					{
-						// 무조건 포함
-						(*lightDataIDX).data[(*lightDataIDX).LightSize++] = *lightIDX;
-					}
-					// 만일 라이트가 Point이면
-					else if ((*lightIDX).LightType == 1)
-					{
-						// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
-						lightVec.x = mObjectPos[0] - (*lightIDX).Position.x;
-						lightVec.y = mObjectPos[1] - (*lightIDX).Position.y;
-						lightVec.z = mObjectPos[2] - (*lightIDX).Position.z;
-
-						lightData = DirectX::XMLoadFloat3(&lightVec);
-
-						XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
-
-						if (distance < (*lightIDX).FalloffEnd)
+						// 라이트 무브먼트 테스트
 						{
-							(*lightDataIDX).data[(*lightDataIDX).LightSize++] = *lightIDX;
+							/*(*lightIDX).Position.x += gt.DeltaTime() * 0.5f;
+							(*lightIDX).Position.z += gt.DeltaTime() * 0.5f;
+							(*lightIDX).Position.y += gt.DeltaTime() * 0.5f;*/
 						}
-					}
-					// 만일 라이트가 Spot이면
-					else if ((*lightIDX).LightType == 2)
-					{
-						// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
-						lightVec.x = mObjectPos[0] - (*lightIDX).Position.x;
-						lightVec.y = mObjectPos[1] - (*lightIDX).Position.y;
-						lightVec.z = mObjectPos[2] - (*lightIDX).Position.z;
 
-						lightData = DirectX::XMLoadFloat3(&lightVec);
+						// 오브젝트의 포지션을 얻어온다.
 
-						XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
-
-						if (distance < (*lightIDX).FalloffEnd)
+						// 만일 라이트가 Dir이면
+						if ((*lightIDX).mLightType == 0)
 						{
-							(*lightDataIDX).data[(*lightDataIDX).LightSize++] = *lightIDX;
+							// 무조건 포함
+							(*lightDataIDX).data[LightSize] = *lightIDX;
 						}
-					}
-					else
-					{
+						// 만일 라이트가 Point이면
+						else if ((*lightIDX).mLightType == 1)
+						{
+							// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
+							lightVec.x = mObjectPos[0] - (*lightIDX).mPosition.x;
+							lightVec.y = mObjectPos[1] - (*lightIDX).mPosition.y;
+							lightVec.z = mObjectPos[2] - (*lightIDX).mPosition.z;
 
-					}
-				}
+							lightData = DirectX::XMLoadFloat3(&lightVec);
 
-				LightBuffer->CopyData(visibleInstanceCount, *lightDataIDX++);
+							XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
+
+							if (distance < (*lightIDX).mFalloffEnd)
+							{
+								(*lightDataIDX).data[LightSize] = *lightIDX;
+							}
+						}
+						// 만일 라이트가 Spot이면
+						else if ((*lightIDX).mLightType == 2)
+						{
+							// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
+							lightVec.x = mObjectPos[0] - (*lightIDX).mPosition.x;
+							lightVec.y = mObjectPos[1] - (*lightIDX).mPosition.y;
+							lightVec.z = mObjectPos[2] - (*lightIDX).mPosition.z;
+
+							lightData = DirectX::XMLoadFloat3(&lightVec);
+
+							XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
+
+							if (distance < (*lightIDX).mFalloffEnd)
+							{
+								(*lightDataIDX).data[LightSize] = *lightIDX;
+							}
+						}
+
+						//lightDir = XMLoadFloat3(&(*lightIDX).mDirection);
+						lightDir.m128_f32[0] = 0.57735f;
+						lightDir.m128_f32[1] = -0.57735f;
+						lightDir.m128_f32[2] = 0.57735f;
+						lightPos = -2.0f * lightDir;
+						targetPos = XMLoadFloat3(&mSceneBounds.Center);
+						lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+						// Light View Matrix
+						lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
+
+						// Store Light Pos
+						XMStoreFloat3(&(*lightIDX).mLightPosW, lightPos);
+
+						// World View에서 Light View 방향으로 변형된 경계구의 위치
+						XMStoreFloat3(&sphereCenterL, XMVector3TransformCoord(targetPos, lightView));
+
+						rad = mSceneBounds.Radius;
+
+						// Ortho 프러스텀 생성
+						(*lightIDX).mLightNearZ = sphereCenterL.z - rad;
+						(*lightIDX).mLightFarZ = sphereCenterL.z + rad;
+
+						lightProj =
+							XMMatrixOrthographicOffCenterLH(
+								sphereCenterL.x - rad,
+								sphereCenterL.x + rad,
+								sphereCenterL.y - rad,
+								sphereCenterL.y + rad,
+								sphereCenterL.z - rad,
+								sphereCenterL.z + rad
+							);
+
+						S = lightView * lightProj * T;
+						XMStoreFloat4x4(&(*lightIDX).mLightView, lightView);
+						XMStoreFloat4x4(&(*lightIDX).mLightProj, lightProj);
+
+						viewProj = XMMatrixMultiply(lightView, lightProj);
+						invView = XMMatrixInverse(&XMMatrixDeterminant(lightView), lightView);
+						invProj = XMMatrixInverse(&XMMatrixDeterminant(lightProj), lightProj);
+						invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+
+						XMStoreFloat4x4(&(*lightIDX).ShadowViewProj, XMMatrixTranspose(viewProj));
+						XMStoreFloat4x4(&(*lightIDX).ShadowViewProjNDC, XMMatrixTranspose(S));
+						XMStoreFloat4x4(&mMainPassCB.ShadowViewProj, XMMatrixTranspose(viewProj));
+						XMStoreFloat4x4(&mMainPassCB.ShadowViewProjNDC, XMMatrixTranspose(S));
+
+						(*lightIDX).AmbientLight = XMFLOAT4(0.4f, 0.4f, 0.4f, 1.0f);
+
+						w = mShadowMap->Width();
+						h = mShadowMap->Height();
+
+						LightSize += 1;
+						lightIDX++;
+					}// while (lightIDX != lightEnd)
+
+					LightBufferCB->CopyData(visibleInstanceCount, (*lightDataIDX));
+				}// if (mLightDatas.size() > 0)
 
 				// �ش� ������Ʈ�� ������ �� �ν��Ͻ� ���� ���� (���ּ� ������)
 				// ���� Draw������ "�������� ���� �����ϴ�" InstanceCounts �迭�� ������ ������ ���� �۾��� �����Ѵ�.
 				// renderInstCounts = {5, 4, 1, 2, 3, 6, 7, 9, 11 .....} �� ���
 				// Thread 0 = {5, 2, 7, ...} Thread 1 = {4, 3, 9, ...} Thread 2 = {1, 6, 11, ...}
 				// �� ���� �����Ͽ�, "�������� ���� �����ϴ� ������Ʈ"���� ������.
+				lightDataIDX++;
 				mRenderInstTasks[gIdx][i] = visibleInstanceCount++;
 			}
 		}
@@ -1313,7 +1424,6 @@ void BoxApp::UpdateMainPassCB(const GameTimer& gt)
 		XMMATRIX view = mCamera.GetView();
 		XMMATRIX proj = mCamera.GetProj();
 		XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-
 		XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
 		XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
 		XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
@@ -1326,14 +1436,12 @@ void BoxApp::UpdateMainPassCB(const GameTimer& gt)
 		XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
 
 		mMainPassCB.EyePosW = mCamera.GetPosition3f();
-		mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
-		mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+		//mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+		//mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
 		mMainPassCB.NearZ = 1.0f;
 		mMainPassCB.FarZ = 1000.0f;
 		mMainPassCB.TotalTime = gt.TotalTime();
 		mMainPassCB.DeltaTime = gt.DeltaTime();
-
-		mMainPassCB.AmbientLight = XMFLOAT4(0.4f, 0.4f, 0.4f, 1.0f);
 
 		PassCB->CopyData(0, mMainPassCB);
 	}
@@ -1360,19 +1468,23 @@ void BoxApp::UpdateAnimation(const GameTimer& gt)
 void BoxApp::InitSwapChain(int numThread)
 {
 	{
-		RenderItem* beginItem = *(mGameObjects.begin());
-
-		// commandAlloc, commandList�� ���� �ϱ� ���� ��������
+		// commandAlloc, commandList의 재사용을 위한 리셋
 		ThrowIfFailed(mDirectCmdListAlloc->Reset());
 		for (int i = 0; i < 3; i++)
 			ThrowIfFailed(mMultiCmdListAlloc[i]->Reset());
 
 		ThrowIfFailed(
-			mCommandList->Reset(mDirectCmdListAlloc.Get(),
-				mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get())
+			mCommandList->Reset(
+				mDirectCmdListAlloc.Get(),
+				mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get()
+			)
 		);
 		for (int i = 0; i < 3; i++)
-			ThrowIfFailed(mMultiCommandList[i]->Reset(mMultiCmdListAlloc[i].Get(), mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get()));
+			ThrowIfFailed(mMultiCommandList[i]->Reset(
+				mMultiCmdListAlloc[i].Get(), 
+				mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get()
+			)
+		);
 
 		// Indicate a state transition on the resource usage.
 		mCommandList->ResourceBarrier(
@@ -1394,23 +1506,34 @@ void BoxApp::InitSwapChain(int numThread)
 		);
 
 		// Clear the back buffer and depth buffer.
-		mCommandList->ClearRenderTargetView(mOffscreenRT->Rtv(), Colors::LightSteelBlue, 0, nullptr);
-		mCommandList->ClearDepthStencilView(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+		mCommandList->ClearRenderTargetView(
+			mOffscreenRT->Rtv(), 
+			Colors::LightSteelBlue, 
+			0, 
+			nullptr
+		);
+		mCommandList->ClearDepthStencilView(
+			mDsvHeap->GetCPUDescriptorHandleForHeapStart(), 
+			D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 
+			1.0f, 
+			0, 
+			0, 
+			nullptr
+		);
 
 	}
 
+	// 이전 프레임에서 계산한 Cloth Vertices 결과를 업데이트.
 	{
 		RenderItem* obj = NULL;
 		std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
 		std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
-		for (; objIDX != objEnd; objIDX++)
+		while (objIDX != objEnd)
 		{
-			obj = *objIDX;
+			obj = *objIDX++;
 
 			if (!mGameObjectDatas[obj->mName]->isDirty)
-			{
 				continue;
-			}
 
 			mGameObjectDatas[obj->mName]->isDirty = false;
 
@@ -1423,17 +1546,134 @@ void BoxApp::InitSwapChain(int numThread)
 			);
 		}
 
-		// Cloth�� Write���� ����
+		// 옷 버텍스를 업데이트 하였다면, 다시 쓰기모드로 바꾸기
 		ResetEvent(mClothReadEvent);
 		SetEvent(mClothWriteEvent);
 		ResetEvent(mAnimationReadEvent);
 		SetEvent(mAnimationWriteEvent);
+	}
 
-		mCommandList->Close();
+	// Opaque 아이템을 렌더 하여 DepthMap을 그린다.
+	{
+		mCommandList->ResourceBarrier(
+			1,
+			&CD3DX12_RESOURCE_BARRIER::Transition(
+				mShadowMap->Resource(),
+				D3D12_RESOURCE_STATE_GENERIC_READ,
+				D3D12_RESOURCE_STATE_DEPTH_WRITE
+			)
+		);
+
+		mCommandList->RSSetViewports(1, &mShadowMap->Viewport());
+		mCommandList->RSSetScissorRects(1, &mShadowMap->ScissorRect());
+
+		UINT passCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
+
+		mCommandList->ClearDepthStencilView (
+			mShadowMap->Dsv(),
+			D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+			1.0f,
+			0,
+			0,
+			nullptr
+		);
+
+		// Set null render target because we are only going to draw to
+		// depth buffer.  Setting a null render target will disable color writes.
+		// Note the active PSO also must specify a render target count of 0.
+		mCommandList->OMSetRenderTargets(
+			0,
+			nullptr,
+			false,
+			&mShadowMap->Dsv()
+		);
+
+		ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+		mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+		mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+		// Select Descriptor Buffer Index
+		mCommandList->SetGraphicsRootConstantBufferView (
+			0,
+			PassCB->Resource()->GetGPUVirtualAddress()
+		);
+
+		mCommandList->SetPipelineState(mPSOs[RenderItem::RenderType::_OPAQUE_SHADOW_MAP_RENDER_TYPE].Get());
+
+		// Instance Count
+		D3D12_GPU_VIRTUAL_ADDRESS objectCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
+		D3D12_GPU_VIRTUAL_ADDRESS lightCB = LightBufferCB->Resource()->GetGPUVirtualAddress();
+
+		// For each render item...
+		size_t instAcc = 0;
+		RenderItem* obj = NULL;
+		for (size_t i = 0; i < mGameObjects.size(); ++i)
+		{
+			obj = *std::next(mGameObjects.begin(), i);
+
+			if (!obj->isDrawShadow)
+			{
+				instAcc++;
+				continue;
+			}
+
+			for (size_t j = 0; j < obj->InstanceCount; j++)
+			{
+				// Instance
+				D3D12_GPU_VIRTUAL_ADDRESS objCBAddress =
+					objectCB + instAcc * sizeof(InstanceData);
+				D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress =
+					lightCB + instAcc * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
+
+				mCommandList->IASetVertexBuffers(0, 1, &obj->mGeometry.VertexBufferView());
+				mCommandList->IASetIndexBuffer(&obj->mGeometry.IndexBufferView());
+				mCommandList->IASetPrimitiveTopology(obj->PrimitiveType);
+
+				mCommandList->SetGraphicsRootConstantBufferView(
+					1,
+					lightCBAddress
+				);
+				mCommandList->SetGraphicsRootShaderResourceView (
+					3,
+					objCBAddress
+				);
+
+				for (size_t k = 0; k < obj->SubmeshCount; k++)
+				{
+					SubmeshGeometry* sg = &obj->mGeometry.DrawArgs[
+						obj->mGeometry.meshNames[k].c_str()
+					];
+
+					mCommandList->DrawIndexedInstanced(
+						sg->IndexSize,
+						obj->InstanceCount,
+						sg->StartIndexLocation,
+						sg->BaseVertexLocation,
+						0
+					);
+				}
+
+				instAcc++;
+			}
+		}
+
+		// Change back to GENERIC_READ so we can read the texture in a shader.
+		mCommandList->ResourceBarrier(
+			1,
+			&CD3DX12_RESOURCE_BARRIER::Transition(
+				mShadowMap->Resource(),
+				D3D12_RESOURCE_STATE_DEPTH_WRITE,
+				D3D12_RESOURCE_STATE_GENERIC_READ
+			)
+		);
 	}
 
 	{
-		ID3D12CommandList* commands[] = { mCommandList.Get() };
+		mCommandList->Close();
+
+		ID3D12CommandList* commands[] = { 
+			mCommandList.Get() 
+		};
 		mCommandQueue->ExecuteCommandLists(_countof(commands), commands);
 
 		mCurrentFence++;
@@ -1467,7 +1707,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	// Base Pointer
 	D3D12_GPU_VIRTUAL_ADDRESS instanceCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS matCB = MaterialBuffer->Resource()->GetGPUVirtualAddress();
-	D3D12_GPU_VIRTUAL_ADDRESS lightCB = LightBuffer->Resource()->GetGPUVirtualAddress();
+	D3D12_GPU_VIRTUAL_ADDRESS lightCB = LightBufferCB->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS rateOfAnimTimeCB = RateOfAnimTimeCB->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS pmxBoneCB = PmxAnimationBuffer->Resource()->GetGPUVirtualAddress();
 
@@ -1553,7 +1793,12 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 			mMultiCommandList[ThreadIDX]->RSSetScissorRects(1, &mScissorRect);
 
 			// Specify the buffers we are going to render to.
-			mMultiCommandList[ThreadIDX]->OMSetRenderTargets(1, &mOffscreenRT->Rtv(), true, &mDsvHeap->GetCPUDescriptorHandleForHeapStart());
+			mMultiCommandList[ThreadIDX]->OMSetRenderTargets(
+				1, 
+				&mOffscreenRT->Rtv(), 
+				true, 
+				&mDsvHeap->GetCPUDescriptorHandleForHeapStart()
+);
 		}
 
 #else// _USE_UBER_SHADER
@@ -1572,16 +1817,27 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 			// ��ũ���� ���ε�
 			ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
-			mMultiCommandList[ThreadIDX]->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+			mMultiCommandList[ThreadIDX]->SetDescriptorHeaps(
+				_countof(descriptorHeaps), 
+				descriptorHeaps
+			);
 
 			// �ñ״��� (��ũ���� ��) ���ε�
 			mMultiCommandList[ThreadIDX]->SetGraphicsRootSignature(mRootSignature.Get());
 
 			// Select Descriptor Buffer Index
-			mMultiCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
-				0,
-				PassCB->Resource()->GetGPUVirtualAddress()
-			);
+			{
+				// PassCB
+				mMultiCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
+					0,
+					PassCB->Resource()->GetGPUVirtualAddress()
+				);
+				// ShadowMapSRV
+				mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+					8,
+					mShadowMap->Srv()
+				);
+			}
 
 			mMultiCommandList[ThreadIDX]->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		}
@@ -1617,32 +1873,31 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 				// Move to Current Stack Pointer
 				instanceCBAddress		= instanceCB + _gInstOffset * sizeof(InstanceData);
-				lightCBAddress			= lightCB + _gInstOffset * sizeof(LightData);
+				lightCBAddress			= lightCB + _gInstOffset * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
 				pmxBoneCBAddress		= pmxBoneCB;
 				rateOfAnimTimeCBAddress = rateOfAnimTimeCB;
 
 				// Select Descriptor Buffer Index
 				{
-					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-						2,
-						instanceCBAddress
-					);
-					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-						4,
+					mMultiCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
+						1,
 						lightCBAddress
+					);
+					if (obj->mFormat == "PMX")
+					{
+						mMultiCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
+							2,
+							rateOfAnimTimeCBAddress
+						);
+					}
+					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+						3,
+						instanceCBAddress
 					);
 					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
 						5,
 						pmxBoneCBAddress
 					);
-
-					if (obj->mFormat == "PMX")
-					{
-						mMultiCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
-							1,
-							rateOfAnimTimeCBAddress
-						);
-					}
 				}
 
 				{
@@ -1653,8 +1908,12 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 							throw std::runtime_error("");
 
 						// Select Texture to Index
-						CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-						CD3DX12_GPU_DESCRIPTOR_HANDLE skyTex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+						CD3DX12_GPU_DESCRIPTOR_HANDLE tex(
+							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+						);
+						CD3DX12_GPU_DESCRIPTOR_HANDLE skyTex(
+							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+						);
 
 						if (obj->Mat.size() > 0)
 						{
@@ -1691,12 +1950,13 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 						// Select Descriptor Buffer Index
 						{
 							mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-								3,
+								4,
 								matCBAddress
 							);
 							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
 								6,
-								tex
+								//tex
+								mShadowMap->Srv()
 							);
 							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
 								7,
@@ -1764,7 +2024,11 @@ void BoxApp::Draw(const GameTimer& gt)
 	// CommandAllocationList�� ����� RenderItem���� CommnadQ�� ������.
 	{
 		// Add the command list to the queue for execution.
-		ID3D12CommandList* cmdsLists[] = { mMultiCommandList[0].Get(), mMultiCommandList[1].Get(), mMultiCommandList[2].Get() };
+		ID3D12CommandList* cmdsLists[] = { 
+			mMultiCommandList[0].Get(), 
+			mMultiCommandList[1].Get(), 
+			mMultiCommandList[2].Get() 
+		};
 		mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
 		mCurrentFence++;
@@ -1772,7 +2036,12 @@ void BoxApp::Draw(const GameTimer& gt)
 		mCommandQueue->Signal(mFence.Get(), mCurrentFence);
 
 		if (mFence->GetCompletedValue() <= mCurrentFence) {
-			HANDLE _event = CreateEvent(nullptr, false, false, nullptr);
+			HANDLE _event = CreateEvent(
+				nullptr, 
+				false, 
+				false, 
+				nullptr
+			);
 
 			mFence->SetEventOnCompletion(mCurrentFence, _event);
 
@@ -1789,7 +2058,10 @@ void BoxApp::Draw(const GameTimer& gt)
 
 		// commandAlloc, commandList�� ���� �ϱ� ���� ��������
 		ThrowIfFailed(mDirectCmdListAlloc->Reset());
-		ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get()));
+		ThrowIfFailed(mCommandList->Reset(
+			mDirectCmdListAlloc.Get(), 
+			mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get())
+		);
 
 		// ��ũ���� ���ε�
 		ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
@@ -1801,7 +2073,12 @@ void BoxApp::Draw(const GameTimer& gt)
 		mCommandList->RSSetScissorRects(1, &mScissorRect);
 
 		// Specify the buffers we are going to render to.
-		mCommandList->OMSetRenderTargets(1, &mOffscreenRT->Rtv(), true, &DepthStencilView());
+		mCommandList->OMSetRenderTargets(
+			1, 
+			&mOffscreenRT->Rtv(), 
+			true, 
+			&DepthStencilView()
+		);
 
 		// �ñ״��� (��ũ���� ��) ���ε�
 		mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
@@ -1836,6 +2113,7 @@ void BoxApp::Draw(const GameTimer& gt)
 			true,
 			&DepthStencilView()
 		);
+
 
 		mCommandList->SetGraphicsRootSignature(mSobelRootSignature.Get());
 		mCommandList->SetPipelineState(mPSOs[RenderItem::RenderType::_COMPOSITE_COMPUTE_TYPE].Get());
@@ -1963,27 +2241,30 @@ void BoxApp::BuildRootSignature()
 	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0);
 	CD3DX12_DESCRIPTOR_RANGE skyTexTable;
 	skyTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 2, 0);
+	CD3DX12_DESCRIPTOR_RANGE shadowTexTable;
+	shadowTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 1);
 
 	// Root parameter can be a table, root descriptor or root constants.
-	std::array<CD3DX12_ROOT_PARAMETER, 8> slotRootParameter;
+	std::array<CD3DX12_ROOT_PARAMETER, 9> slotRootParameter;
 
 	// PassCB
 	slotRootParameter[0].InitAsConstantBufferView(0);
-	// Animation Index and Time Space
-	slotRootParameter[1].InitAsConstantBufferView(1);
-	// Instance SRV
-	slotRootParameter[2].InitAsShaderResourceView(0, 0);
-	// Material SRV
-	slotRootParameter[3].InitAsShaderResourceView(0, 1);
 	// Light SRV
-	slotRootParameter[4].InitAsShaderResourceView(0, 2);
+	slotRootParameter[1].InitAsConstantBufferView(1);
+	// Animation Index and Time Space
+	slotRootParameter[2].InitAsConstantBufferView(2);
+	// Instance SRV
+	slotRootParameter[3].InitAsShaderResourceView(0, 0);
+	// Material SRV
+	slotRootParameter[4].InitAsShaderResourceView(0, 1);
 	// PMX BONE CB
-	slotRootParameter[5].InitAsShaderResourceView(0, 3);
+	slotRootParameter[5].InitAsShaderResourceView(0, 2);
 	// Main Textures
 	slotRootParameter[6].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
 	// Sky Textures
 	slotRootParameter[7].InitAsDescriptorTable(1, &skyTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
-
+	// Shadow Textures
+	slotRootParameter[8].InitAsDescriptorTable(1, &shadowTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
@@ -2111,12 +2392,18 @@ void BoxApp::BuildSobelRootSignature()
 void BoxApp::BuildDescriptorHeaps()
 {
 	const int texCount = (const int)mTextures.size();
-	const int blurDescriptorCount = 4;
+	const int blurDescriptorCount = 2;
 	const int sobelDescriptorCount = mSobelFilter->DescriptorCount();
-	const int postProcessDescriptorCount = 4;
+	const int postProcessDescriptorCount = 2;
+	const int shdowMapDescriptorCount = 2;
 
 	D3D12_DESCRIPTOR_HEAP_DESC SrvUavHeapDesc;
-	SrvUavHeapDesc.NumDescriptors = texCount + blurDescriptorCount + sobelDescriptorCount + postProcessDescriptorCount;
+	SrvUavHeapDesc.NumDescriptors = 
+		texCount + 
+		blurDescriptorCount + 
+		sobelDescriptorCount + 
+		postProcessDescriptorCount + 
+		shdowMapDescriptorCount;
 	SrvUavHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	SrvUavHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	SrvUavHeapDesc.NodeMask = 0;
@@ -2136,12 +2423,12 @@ void BoxApp::BuildDescriptorHeaps()
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 			(int)texCount,
-			mCbvSrvUavDescriptorSize
+			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 			(int)texCount,
-			mCbvSrvUavDescriptorSize
+			(UINT)mCbvSrvUavDescriptorSize
 		),
 		mCbvSrvUavDescriptorSize
 	);
@@ -2150,12 +2437,12 @@ void BoxApp::BuildDescriptorHeaps()
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 			(int)(texCount + blurDescriptorCount),
-			mCbvSrvUavDescriptorSize
+			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
 			(int)(texCount + blurDescriptorCount),
-			mCbvSrvUavDescriptorSize
+			(UINT)mCbvSrvUavDescriptorSize
 		),
 		mCbvSrvUavDescriptorSize
 	);
@@ -2175,6 +2462,24 @@ void BoxApp::BuildDescriptorHeaps()
 			mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
 			SwapChainBufferCount,
 			(UINT)mRtvDescriptorSize
+		)
+	);
+
+	mShadowMap->BuildDescriptors(
+		CD3DX12_CPU_DESCRIPTOR_HANDLE(
+			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+			(int)(texCount + blurDescriptorCount + sobelDescriptorCount + postProcessDescriptorCount),
+			(UINT)mCbvSrvUavDescriptorSize
+		),
+		CD3DX12_GPU_DESCRIPTOR_HANDLE(
+			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+			(int)(texCount + blurDescriptorCount + sobelDescriptorCount + postProcessDescriptorCount),
+			(UINT)mCbvSrvUavDescriptorSize
+		),
+		CD3DX12_CPU_DESCRIPTOR_HANDLE(
+			mDsvHeap->GetCPUDescriptorHandleForHeapStart(),
+			1,
+			(UINT)mDsvDescriptorSize
 		)
 	);
 
@@ -2250,6 +2555,9 @@ void BoxApp::BuildShadersAndInputLayout()
 	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
 
+	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["shadowOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "PS", "ps_5_1");
+
 	mInputLayout =
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -2294,13 +2602,18 @@ void BoxApp::BuildFrameResource()
 	PassCB = std::make_unique<UploadBuffer<PassConstants>>(md3dDevice.Get(), 1, true);
 	RateOfAnimTimeCB	= 
 		std::make_unique<UploadBuffer<RateOfAnimTimeConstants>>(md3dDevice.Get(), 1, true);
-	InstanceBuffer		= 
-		std::make_unique<UploadBuffer<InstanceData>>(md3dDevice.Get(), InstanceNum, false);
-	MaterialBuffer		= 
-		std::make_unique<UploadBuffer<MaterialData>>(md3dDevice.Get(), mMaterials.size(), false);
-	LightBuffer =
-		std::make_unique<UploadBuffer<LightData>>(md3dDevice.Get(), InstanceNum, false);
-	PmxAnimationBuffer	= std::make_unique<UploadBuffer<PmxAnimationData>>(md3dDevice.Get(), BoneNum, false);
+	if (InstanceNum > 0)
+		LightBufferCB =
+		std::make_unique<UploadBuffer<LightDataConstants>>(md3dDevice.Get(), InstanceNum, true);
+	if (InstanceNum > 0)
+		InstanceBuffer		= 
+			std::make_unique<UploadBuffer<InstanceData>>(md3dDevice.Get(), InstanceNum, false);
+	if (mMaterials.size() > 0)
+		MaterialBuffer		= 
+			std::make_unique<UploadBuffer<MaterialData>>(md3dDevice.Get(), mMaterials.size(), false);
+	if (BoneNum > 0)
+		PmxAnimationBuffer	= 
+			std::make_unique<UploadBuffer<PmxAnimationData>>(md3dDevice.Get(), BoneNum, false);
 }
 
 void BoxApp::BuildPSO()
@@ -2456,6 +2769,35 @@ void BoxApp::BuildPSO()
 		mShaders["compositePS"]->GetBufferSize()
 	};
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&compositePSO, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_COMPOSITE_COMPUTE_TYPE])));
+
+	//
+	// PSO for shadow map pass.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC smapPsoDesc = psoDesc;
+	smapPsoDesc.RasterizerState.DepthBias = 100000;
+	smapPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
+	smapPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
+	smapPsoDesc.pRootSignature = mRootSignature.Get();
+	smapPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
+		mShaders["shadowVS"]->GetBufferSize()
+	};
+	smapPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["shadowOpaquePS"]->GetBufferPointer()),
+		mShaders["shadowOpaquePS"]->GetBufferSize()
+	};
+
+	// Shadow map pass does not have a render target.
+	smapPsoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+	smapPsoDesc.NumRenderTargets = 0;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&smapPsoDesc, 
+		IID_PPV_ARGS(
+			&mPSOs[RenderItem::RenderType::_OPAQUE_SHADOW_MAP_RENDER_TYPE]
+		)
+	));
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxApp::GetStaticSamplers()
@@ -2521,9 +2863,14 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxApp::GetStaticSamplers()
 	);
 
 	return {
-		pointWrap, pointClamp,
-		linearWrap, linearClamp,
-		anisotropicWrap, anisotropicClamp, shadow };
+		pointWrap, 
+		pointClamp,
+		linearWrap, 
+		linearClamp,
+		anisotropicWrap, 
+		anisotropicClamp, 
+		shadow 
+	};
 }
 
 void BoxApp::BuildRenderItem()
@@ -2862,7 +3209,8 @@ void BoxApp::CreateBoxObject(
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
 	int subDividNum,
-	RenderItem::RenderType renderType
+	RenderItem::RenderType renderType,
+	bool isDrawShadow
 )
 {
 	GeometryGenerator Geom;
@@ -2899,6 +3247,7 @@ void BoxApp::CreateBoxObject(
 
 	r->mFormat = "";
 	r->mRenderType = renderType;
+	r->isDrawShadow = isDrawShadow;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
@@ -2969,7 +3318,8 @@ void BoxApp::CreateSphereObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	RenderItem::RenderType renderType
+	RenderItem::RenderType renderType,
+	bool isDrawShadow
 )
 {
 	GeometryGenerator Geom;
@@ -3006,6 +3356,7 @@ void BoxApp::CreateSphereObject(
 
 	r->mFormat = "";
 	r->mRenderType = renderType;
+	r->isDrawShadow = isDrawShadow;
 
 	// input subGeom
 	GeometryGenerator::MeshData Sphere;
@@ -3074,7 +3425,8 @@ void BoxApp::CreateGeoSphereObject(
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
 	int subdivid,
-	RenderItem::RenderType renderType
+	RenderItem::RenderType renderType,
+	bool isDrawShadow
 )
 {
 	GeometryGenerator Geom;
@@ -3111,6 +3463,7 @@ void BoxApp::CreateGeoSphereObject(
 
 	r->mFormat = "";
 	r->mRenderType = renderType;
+	r->isDrawShadow = isDrawShadow;
 
 	// input subGeom
 	GeometryGenerator::MeshData Sphere;
@@ -3183,7 +3536,8 @@ void BoxApp::CreateCylinberObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	RenderItem::RenderType renderType
+	RenderItem::RenderType renderType,
+	bool isDrawShadow
 )
 {
 	GeometryGenerator Geom;
@@ -3220,6 +3574,7 @@ void BoxApp::CreateCylinberObject(
 
 	r->mFormat = "";
 	r->mRenderType = renderType;
+	r->isDrawShadow = isDrawShadow;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
@@ -3289,7 +3644,8 @@ void BoxApp::CreateGridObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	RenderItem::RenderType renderType
+	RenderItem::RenderType renderType,
+	bool isDrawShadow
 )
 {
 	GeometryGenerator Geom;
@@ -3326,6 +3682,7 @@ void BoxApp::CreateGridObject(
 
 	r->mFormat = "";
 	r->mRenderType = renderType;
+	r->isDrawShadow = isDrawShadow;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
@@ -3395,7 +3752,8 @@ void BoxApp::CreateFBXObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	bool uvMode
+	bool uvMode,
+	bool isDrawShadow
 )
 {
 	GeometryGenerator Geom;
@@ -3432,6 +3790,7 @@ void BoxApp::CreateFBXObject(
 
 	r->mFormat = "FBX";
 	r->mRenderType = RenderItem::RenderType::_OPAQUE_RENDER_TYPE;
+	r->isDrawShadow = isDrawShadow;
 
 	mRenderTypeCount[r->mRenderType] += 1;
 
@@ -3554,7 +3913,8 @@ void BoxApp::CreateFBXSkinnedObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	bool uvMode
+	bool uvMode,
+	bool isDrawShadow
 )
 {
 	// input subGeom
@@ -3595,6 +3955,7 @@ void BoxApp::CreateFBXSkinnedObject(
 
 	r->mFormat = "FBX";
 	r->mRenderType = RenderItem::RenderType::_OPAQUE_SKINNED_RENDER_TYPE;
+	r->isDrawShadow = isDrawShadow;
 
 	mRenderTypeCount[r->mRenderType] += 1;
 
@@ -3756,7 +4117,8 @@ void BoxApp::CreatePMXObject(
 	RenderItem* r,
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
-	DirectX::XMFLOAT3 scale
+	DirectX::XMFLOAT3 scale,
+	bool isDrawShadow
 )
 {
 	// meshData�� 0������ Vertices �迭
@@ -3805,6 +4167,7 @@ void BoxApp::CreatePMXObject(
 	r->mFormat = "PMX";
 	mGameObjectDatas[r->mName]->mFormat = "PMX";
 	r->mRenderType = RenderItem::RenderType::_PMX_FORMAT_RENDER_TYPE;
+	r->isDrawShadow = isDrawShadow;
 
 	mRenderTypeCount[r->mRenderType] += 1;
 
