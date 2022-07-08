@@ -82,7 +82,7 @@ void Physics::CleanUp() {
 }
 
 void Physics::BindObjColliber(PxRigidStatic* obj, struct PhyxResource* res) {
-	uint32_t colliderSize = (
+	size_t colliderSize = (
 		StaticColliders.size() + 
 		DynamicColliders.size()
 	);
@@ -96,7 +96,7 @@ void Physics::BindObjColliber(PxRigidStatic* obj, struct PhyxResource* res) {
 }
 
 void Physics::BindObjColliber(PxRigidDynamic* obj, struct PhyxResource* res) {
-	uint32_t colliderSize = (
+	size_t colliderSize = (
 		StaticColliders.size() + 
 		DynamicColliders.size()
 	);
@@ -274,7 +274,7 @@ void Physics::setTorque(PxRigidDynamic* collider, float x, float y, float z)
 
 // Cloth ½ÇÇè
 PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc) {
-	PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(0, -0.98, 0));
+	PxClothFabric* fabric = PxClothFabricCreate(*gPhysics, meshDesc, PxVec3(0, 0, 0));
 	PX_ASSERT(fabric);
 
 	PxTransform pose = PxTransform(PxIdentity);

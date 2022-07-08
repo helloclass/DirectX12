@@ -89,7 +89,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> d3dUtil::CreateDefaultBuffer(
 void d3dUtil::UpdateDefaultBuffer(
 	ID3D12GraphicsCommandList* cmdList,						// DefaultBuffer를 업데이트 시켜 줄 파이프라인
 	const void* initData,									// DefaultBuffer에 업데이트 시킬 데이터
-	UINT64 byteSize,										// 타겟 데이터의 사이즈
+	UINT64 rowPitchbyteSize,								// 타겟 데이터의 "ROW" 사이즈
 	Microsoft::WRL::ComPtr<ID3D12Resource> uploadBuffer,	// 업로드 버퍼
 	Microsoft::WRL::ComPtr<ID3D12Resource>& defaultBuffer	// GPU 버퍼
 )
@@ -98,20 +98,41 @@ void d3dUtil::UpdateDefaultBuffer(
 		// Describe the data we want to copy into the default buffer.
 		D3D12_SUBRESOURCE_DATA subResourceData = {};
 		subResourceData.pData = initData;
-		subResourceData.RowPitch = byteSize;
+		subResourceData.RowPitch = rowPitchbyteSize;
 		subResourceData.SlicePitch = subResourceData.RowPitch;
 
 		// Schedule to copy the data to the default buffer resource.  At a high level, the helper function UpdateSubresources
 		// will copy the CPU memory into the intermediate upload heap.  Then, using ID3D12CommandList::CopySubresourceRegion,
 		// the intermediate upload heap data will be copied to mBuffer.
-		cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(defaultBuffer.Get(),
-			D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST));
-		UpdateSubresources<1>(cmdList, defaultBuffer.Get(), uploadBuffer.Get(), 0, 0, 1, &subResourceData);
-		cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(defaultBuffer.Get(),
-			D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ));
+
+		cmdList->ResourceBarrier(
+			1, 
+			&CD3DX12_RESOURCE_BARRIER::Transition(
+				defaultBuffer.Get(),
+				D3D12_RESOURCE_STATE_COMMON, 
+				D3D12_RESOURCE_STATE_COPY_DEST
+			)
+		);
+
+		UpdateSubresources<1>(
+			cmdList, 
+			defaultBuffer.Get(), 
+			uploadBuffer.Get(), 
+			0, 0, 1, 
+			&subResourceData
+		);
+
+		cmdList->ResourceBarrier(
+			1, 
+			&CD3DX12_RESOURCE_BARRIER::Transition(
+				defaultBuffer.Get(),
+				D3D12_RESOURCE_STATE_COPY_DEST, 
+				D3D12_RESOURCE_STATE_GENERIC_READ
+			)
+		);
 	}
 	catch (std::exception e) {
-		MessageBox(NULL, L"파이프라인 닫힌거 아님?", L"바보", MB_OK);
+		MessageBox(NULL, L"파이프라인 닫힌거 아님?", L"", MB_OK);
 	}
 
 }
@@ -268,6 +289,33 @@ FIBITMAP* d3dUtil::loadImage (
 	char filename_input[300]; 
 	strcpy(filename_input, Path.c_str()); 
 	
+	// 이미지 파일을 읽어들입니다. 
+	image = FreeImage_Load(FIF_PNG, filename_input, PNG_DEFAULT);
+	if (!image)
+		return NULL;
+
+	width = FreeImage_GetWidth(image);
+	height = FreeImage_GetHeight(image);
+
+	// RGBQUAD color; 
+	// FreeImage_GetPixelColor(image, x, y, &color);
+
+	return image;
+}
+
+FIBITMAP* d3dUtil::loadImage(
+	std::string name,
+	int& width,
+	int& height
+)
+{
+	FIBITMAP* image = NULL;
+	std::string Path = name;
+
+	// 읽어들일 이미지 파일의 이름 
+	char filename_input[1000];
+	strcpy(filename_input, Path.c_str());
+
 	// 이미지 파일을 읽어들입니다. 
 	image = FreeImage_Load(FIF_PNG, filename_input, PNG_DEFAULT);
 	if (!image)

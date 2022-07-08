@@ -20,6 +20,13 @@ void BoxApp::_Awake(BoxApp* app) {
 		app->uploadTexture(BottomTex, false);
 		app->uploadMaterial("BottomMat", "bottomTex", false);
 
+		Texture SketchTex;
+		SketchTex.Name = "sketchTex";
+		SketchTex.Filename = L"../../Textures/Sketch.dds";
+
+		app->uploadTexture(SketchTex, false);
+		app->uploadMaterial("SketchMat", "sketchTex", false);
+
 		Texture texList[6];
 
 		// mTexture에다가 싸그리 집어넣고 BoxApp 초기화 첫 단계에서 LoadTexture 넣어주세요.
@@ -46,6 +53,7 @@ void BoxApp::_Awake(BoxApp* app) {
 		}
 
 		app->uploadMaterial("Default");
+
 	}
 
 	player._Awake(app);

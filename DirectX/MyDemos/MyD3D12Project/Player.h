@@ -7,9 +7,9 @@ class Player {
 private:
 	BoxApp* app = nullptr;
 
-	RenderItem* p = nullptr;
 	RenderItem* SkyBox = nullptr;
 	RenderItem* Bottom = nullptr;
+
 	RenderItem* Charactor = nullptr;
 	std::vector<std::string> CharactorTextures;
 	std::vector<std::string> CharactorNormalTextures;
@@ -17,6 +17,8 @@ private:
 
 	RenderItem* Pinix = nullptr;
 	RenderItem* TestBox = nullptr;
+
+	RenderItem* Tonado = nullptr;
 
 public:
 	Player() {}
@@ -34,9 +36,12 @@ public:
 		{
 			SkyBox		= app->CreateStaticGameObject("SkyBoxGeo", 1);
 			Bottom		= app->CreateStaticGameObject("BottomGeo", 1);
+
 			Charactor	= app->CreateDynamicGameObject("CharactorGeo", 1);
 			//Pinix		= app->CreateDynamicGameObject("PinixGeo", 1);
 			TestBox		= app->CreateDynamicGameObject("TestGeo", 1);
+
+			Tonado		= app->CreateDynamicGameObject("TonadoGeo", 1);
 
 			//app->ExtractAnimBones (
 			//	std::string("D:\\Animation\\ImportAnimation\\Assets\\m\\Wisard"),
@@ -46,15 +51,14 @@ public:
 			//	Charactor
 			//);
 
-			RenderItem::RenderType renderType = RenderItem::RenderType::_SKY_FORMAT_RENDER_TYPE;
+			ObjectData::RenderType renderType = ObjectData::RenderType::_SKY_FORMAT_RENDER_TYPE;
 
 			app->BindMaterial(SkyBox, "SkyMat", true);
-
 			app->CreateSphereObject(
 				"SkyBox",
 				"",
 				SkyBox,
-				1.0f,
+				500.0f,
 				30,
 				20,
 				XMFLOAT3(0.0f, 0.0f, 0.0f),
@@ -64,7 +68,7 @@ public:
 				false
 			);
 
-			renderType = RenderItem::RenderType::_OPAQUE_RENDER_TYPE;
+			renderType = ObjectData::RenderType::_OPAQUE_RENDER_TYPE;
 
 			app->BindMaterial(Bottom, "BottomMat", false);
 			app->CreateGridObject(
@@ -75,7 +79,7 @@ public:
 				500.0f, 
 				120, 
 				80,
-				{ 0, -3.0f, 0 },
+				{ 0, -1.0f, 0 },
 				{ 0.0f, 0.0f, 0.0f },
 				{ 1, 1, 1 },
 				renderType,
@@ -93,20 +97,28 @@ public:
 				XMFLOAT3(0.0f, 0.0f, 0.0f),
 				XMFLOAT3(1, 1, 1)
 			);
+			app->CreateDebugBoxObject(Charactor);
+			Charactor->setAnimClip("RUN");
 
-			app->BindMaterial(TestBox, "BottomMat", false);
-			app->CreateSphereObject(
+			renderType = ObjectData::RenderType::_DRAW_MAP_RENDER_TYPE;
+
+			app->BindMaterial(TestBox, "SketchMat");
+			app->CreateGridObject(
 				"TestGeo",
 				"",
 				TestBox,
-				10.0f,
-				8,
-				8,
-				{ -20.0f, 0.0f, -30.0f },
-				{ 0.0f, 0.0f, 0.0f },
+				30.0f,
+				30.0f,
+				2,
+				2,
+				{ 0.0f, 15.0f, 0 },
+				{ 90.0f, 0.0f, 0.0f },
 				{ 1, 1, 1 },
-				renderType
+				renderType, 
+				false,
+				true
 			);
+			app->CreateDebugBoxObject(TestBox);
 
 			//app->CreateFBXSkinnedObject
 			//(
@@ -148,6 +160,72 @@ public:
 			lightData.mFalloffEnd = 100.0f;
 			app->uploadLight(lightData);
 
+		}
+
+		// 스킬 이펙트
+		{
+			RenderItem* StartSplash = new RenderItem("StartSplash", 50);
+
+			app->CreateGridObject(
+				"StartSplashGeo",
+				"",
+				StartSplash,
+				10.0f,
+				10.0f,
+				2,
+				2,
+				{ 0.0f, 1.0f, 0.0f },
+				{ 0.0f, 0.0f, 0.0f },
+				{ 1, 1, 1 },
+				ObjectData::RenderType::_OPAQUE_RENDER_TYPE,
+				false,
+				true
+			);
+
+			app->BindMaterial(StartSplash, "BottomMat");
+
+			Tonado->appendChildRenderItem(StartSplash);
+
+			Texture StartSplash_Diffuse_Tex;
+			StartSplash_Diffuse_Tex.Name = "StartSplash_Diffuse_Tex";
+			StartSplash_Diffuse_Tex.Filename = L"../../Textures/White.dds";
+
+			Texture StartSplash_Mask_Tex;
+			StartSplash_Mask_Tex.Name = "StartSplash_Mask_Tex";
+			StartSplash_Mask_Tex.Filename = L"../../Textures/Skill/ToonProject2/MaskForShader.dds";
+
+			Texture StartSplash_Noise_Tex;
+			StartSplash_Noise_Tex.Name = "StartSplash_Noise_Tex";
+			StartSplash_Noise_Tex.Filename = L"../../Textures/Skill/ToonProject2/Noise34.dds";
+
+			app->uploadTexture(StartSplash_Diffuse_Tex, false);
+			app->uploadTexture(StartSplash_Mask_Tex, false);
+			app->uploadTexture(StartSplash_Noise_Tex, false);
+			
+			app->uploadMaterial(
+				"SketchMat", 
+				"StartSplash_Diffuse_Tex",
+				"StartSplash_Mask_Tex", 
+				"StartSplash_Noise_Tex",
+				false
+			);
+
+			app->BindMaterial(
+				Tonado->getChildRenderItem("StartSplash"),
+				"SketchMat"
+			);
+
+			// 여기에 Velocity, 사라지는 시간 설정 필요.
+			Particle mStartSplashParticles(StartSplash->InstanceCount);
+
+			mStartSplashParticles.setDurationTime(3.0f);
+
+			mStartSplashParticles.setMinVelo(DirectX::XMFLOAT3(-3.0f, 3.0f, -3.0f));
+			mStartSplashParticles.setMaxVelo(DirectX::XMFLOAT3(3.0f, 10.0f, 3.0f));
+
+			mStartSplashParticles.setOnPlayAwake(true);
+
+			mStartSplashParticles.Generator();
 		}
 	}
 

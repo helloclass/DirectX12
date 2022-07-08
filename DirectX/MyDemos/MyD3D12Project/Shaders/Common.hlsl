@@ -57,8 +57,11 @@ StructuredBuffer<pmxBoneData> gPmxBoneData				: register(t0, space2);
 #endif
 
 Texture2D gDiffuseMap									: register(t1, space0);
+Texture2D gMaskMap										: register(t1, space1);
+Texture2D gNoiseMap										: register(t1, space2);
 TextureCube gCubeMap									: register(t2, space0);
 Texture2D gShadowMap									: register(t2, space1);
+Texture2D gDrawTexMap									: register(t2, space2);
 
 SamplerState gsamPointWrap								: register(s0);
 SamplerState gsamPointClamp								: register(s1);

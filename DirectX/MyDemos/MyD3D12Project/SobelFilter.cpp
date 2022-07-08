@@ -23,7 +23,8 @@ UINT SobelFilter::DescriptorCount()const
 	return 2;
 }
 
-void SobelFilter::BuildDescriptors(CD3DX12_CPU_DESCRIPTOR_HANDLE hCpuDescriptor,
+void SobelFilter::BuildDescriptors(
+	CD3DX12_CPU_DESCRIPTOR_HANDLE hCpuDescriptor,
 	CD3DX12_GPU_DESCRIPTOR_HANDLE hGpuDescriptor,
 	UINT descriptorSize)
 {
@@ -56,8 +57,16 @@ void SobelFilter::Execute(ID3D12GraphicsCommandList* cmdList,
 	cmdList->SetComputeRootSignature(rootSig);
 	cmdList->SetPipelineState(pso);
 
-	cmdList->SetComputeRootDescriptorTable(0, input);
-	cmdList->SetComputeRootDescriptorTable(2, mhGpuUav);
+	// Sobel Signature의 0번째 디스크립터에 Post Processing 전 이미지를 넣는다.
+	cmdList->SetComputeRootDescriptorTable(
+		0, 
+		input
+	);
+	// Sobel Signature의 2번째 디스크립터에 RW가 가능한 UAV를 삽입.
+	cmdList->SetComputeRootDescriptorTable(
+		2, 
+		mhGpuUav
+	);
 
 	cmdList->ResourceBarrier(
 		1,
@@ -70,6 +79,7 @@ void SobelFilter::Execute(ID3D12GraphicsCommandList* cmdList,
 
 	UINT numGroupsX = (UINT)ceilf(mWidth / 16.0f);
 	UINT numGroupsY = (UINT)ceilf(mHeight / 16.0f);
+
 	cmdList->Dispatch(numGroupsX, numGroupsY, 1);
 
 	cmdList->ResourceBarrier(

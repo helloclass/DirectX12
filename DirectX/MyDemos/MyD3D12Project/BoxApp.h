@@ -15,18 +15,13 @@
 #include "RenderTarget.h"
 #include "CubeRenderTarget.h"
 #include "ShadowMap.h"
-
-#include <vector>
-#include <list>
-#include <algorithm>
-#include <crtdbg.h>
-
-#include <thread>
+#include "DrawTexture.h"
+#include "Animation.h"
+#include "Particle.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
-
 
 typedef struct Vertex
 {
@@ -72,19 +67,47 @@ struct RateOfAnimTimeConstants
 class ObjectData
 {
 public:
-	ObjectData() {}
+	ObjectData():
+		isDebugBox(false)
+	{}
 	~ObjectData() {
+		for (int i = 0; i < Mat.size(); i++)
+			delete(Mat[i]);
+
 		vertices.resize(0);
 		indices.resize(0);
 
 		vertices.clear();
 		indices.clear();
 	}
-	std::string mName;
-	std::string mFormat;
+
+	typedef enum RenderType {
+		_OPAQUE_RENDER_TYPE,
+		_ALPHA_RENDER_TYPE,
+		_PMX_FORMAT_RENDER_TYPE,
+		_OPAQUE_SHADOW_MAP_RENDER_TYPE,
+		_OPAQUE_PICK_UP_MAP_RENDER_TYPE,
+		_SKY_FORMAT_RENDER_TYPE,
+		_OPAQUE_SKINNED_RENDER_TYPE,
+		_DRAW_MAP_RENDER_TYPE,
+		_POST_PROCESSING_PIPELINE,
+		_BLUR_HORZ_COMPUTE_TYPE,
+		_BLUR_VERT_COMPUTE_TYPE,
+		_SOBEL_COMPUTE_TYPE,
+		_COMPOSITE_COMPUTE_TYPE,
+		_DEBUG_BOX_TYPE,
+		_DRAW_MAP_TYPE
+	}RenderType;
+
+	std::string		mName;
+	std::string		mFormat;
+	RenderType		mRenderType;
 
 	std::vector<struct Vertex> vertices;
 	std::vector<std::uint32_t> indices;
+
+	// 하나의 게임 오브젝트 내, 서브매쉬들을 해당 지오메트리에서 같이 공유한다.
+	MeshGeometry mGeometry;
 
 	// 모든 서브메쉬의 인덱스가 저장
 	std::vector<std::set<int>> vertBySubmesh;
@@ -95,7 +118,22 @@ public:
 	std::vector<std::vector<int>> srcDynamicVertexSubmesh;
 	std::vector<std::vector<DirectX::XMFLOAT3*>> dstDynamicVertexSubmesh;
 
+	// 여러개의 서브메쉬를 갖으므로 여러 개(서브매쉬 개수 만큼)의 Texture, Material을 표현 할 수 있다. 
+	std::vector<Material*> Mat;
+	std::vector<Material*> SkyMat;
+
+	// This BoundingBox will be used to checked that is in the FRUSTUM BOX or not.
+	DirectX::XMFLOAT3 mColliderOffset;
+	std::vector<BoundingBox> Bounds;
+
 	UINT SubmeshCount = 0;
+	UINT InstanceCount = 0;
+	std::vector<InstanceData>		mInstances;
+
+	std::vector<PhyxResource>		mPhyxResources;
+	std::vector<PxRigidDynamic*>	mPhyxRigidBody;
+
+	AnimationClip mAnimationClip;
 
 	struct _OBJECT_DATA_DESCRIPTOR {
 		// Offset of Vertex
@@ -130,6 +168,15 @@ public:
 	std::vector<struct _VERTEX_MORPH_DESCRIPTOR>	mMorph;
 
 	bool isDirty;
+
+	bool isSky = false;
+	bool isDrawShadow = false;
+	bool isDrawTexture = false;
+
+// Debug Box
+public:
+	bool isDebugBox = false;
+	std::unique_ptr<ObjectData> mDebugBoxData = nullptr;
 
 // Animation Kit
 public:
@@ -186,37 +233,32 @@ public:
 class RenderItem
 {
 public:
-	RenderItem() {}
-	~RenderItem() {
-		for (int i = 0; i < Mat.size(); i++)
-			delete(Mat[i]);
+	RenderItem():
+		mFormat(""),
+		ObjCBIndex(0),
+		PrimitiveType(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST),
+		InstanceCount(0) 
+	{}
+
+	RenderItem(std::string mName, UINT instance):
+		mName(mName),
+		mFormat(""),
+		ObjCBIndex(0),
+		PrimitiveType(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST),
+		InstanceCount(instance)
+	{
+		isDirty.resize(instance);
 	}
 
-	typedef enum RenderType {
-		_OPAQUE_RENDER_TYPE,
-		_ALPHA_RENDER_TYPE,
-		_PMX_FORMAT_RENDER_TYPE,
-		_OPAQUE_SHADOW_MAP_RENDER_TYPE,
-		_SKY_FORMAT_RENDER_TYPE,
-		_OPAQUE_SKINNED_RENDER_TYPE,
-		_POST_PROCESSING_PIPELINE,
-		_BLUR_HORZ_COMPUTE_TYPE,
-		_BLUR_VERT_COMPUTE_TYPE,
-		_SOBEL_COMPUTE_TYPE,
-		_COMPOSITE_COMPUTE_TYPE,
-	}RenderType;
+	~RenderItem() {}
 
 	std::string mName;
 	std::string mFormat;
-	enum RenderType mRenderType;
 
 	// Physx와 동기화가 되어야함.
 	// Instance 당 하나의 PhtxResource를 부여받을 수 있음.
-	//std::vector<int> physxIdx;
-	//std::vector<PhyxResource*> physx;
-
-	// 하나의 게임 오브젝트 내, 서브매쉬들을 해당 지오메트리에서 같이 공유한다.
-	MeshGeometry mGeometry;
+	//std::vector<int>				physxIdx;
+	//std::vector<PhyxResource*>	physx;
 
 	XMFLOAT4X4 mTexTransform = MathHelper::Identity4x4();
 
@@ -225,33 +267,50 @@ public:
 	UINT ObjCBIndex = -1;
 	UINT MatCBIndex = -1;
 
-	// 여러개의 서브메쉬를 갖으므로 여러 개(서브매쉬 개수 만큼)의 Texture, Material을 표현 할 수 있다. 
-	std::vector<Material*> Mat;
-	std::vector<Material*> SkyMat;
-
-	// This BoundingBox will be used to checked that is in the FRUSTUM BOX or not.
-	BoundingBox Bounds;
-
 	UINT SubmeshCount = 0;
 	UINT InstanceCount = 0;
-	std::vector<InstanceData>		mInstances;
-
-	std::vector<PhyxResource>		mPhyxResources;
-	std::vector<PxRigidDynamic*>	mPhyxRigidBody;
 
 	UINT offset = 0;
 
 	UINT StartIndexLocation = 0;
 	UINT BaseVertexLocation = 0;
 
-	bool isSky = false;
-	UINT mSkyCubeIndex = -1;
+	// 해당 오브젝트가 카메라 프러스텀 내에 있다면 true.
+	std::vector<bool> isDirty;
 
+	bool isSky = false;
 	bool isDrawShadow = false;
+	bool isDrawTexture = false;
+
+	UINT mSkyCubeIndex = -1;
 
 	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
-	//std::vector<physx::PxRigidDynamic*> test;
+public:
+	RenderItem* mParent;
+	std::unordered_map<std::string, RenderItem*> mChilds;
+
+public:
+	inline RenderItem* getParentRenderItem()
+	{
+		return mParent;
+	}
+	inline RenderItem* getChildRenderItem(std::string mName)
+	{
+		return mChilds[mName];
+	}
+	inline void setParentRenderItem(RenderItem* model)
+	{
+		mParent = model;
+	}
+	inline void appendChildRenderItem(RenderItem* model)
+	{
+		mChilds[model->mName] = model;
+	}
+	inline void removeChildRenderItem(RenderItem* model)
+	{
+		mChilds.erase(model->mName);
+	}
 
 public:
 	void setPosition(_In_ XMFLOAT3 pos);
@@ -274,6 +333,28 @@ public:
 	float getAnimEndIndex();
 	void setAnimIsLoop(_In_ bool animLoop);
 	int getAnimIsLoop();
+
+	void setAnimClip(_In_ std::string mClipName);
+	const std::string getAnimClip() const;
+};
+
+// GameObjects Resources
+static std::list<RenderItem*> mGameObjects;
+// The variable Has a Vertex, Index datas of each GameObjects
+static std::unordered_map<std::string, ObjectData*> mGameObjectDatas;
+
+// A Tasks list that is on the Frustum.
+static std::vector<ObjectData*>			mRenderTasks;
+static std::vector<std::vector<UINT>>	mRenderInstTasks;
+// 전체 인스턴스 개수
+static UINT mInstanceCount = 0;
+
+// 멀티 스레딩을 이용하여 오브젝트를 그릴 때,
+// 하나의 스레드가 그려야 할 게임 오브젝트와 인스턴스의 시작, 끝 인덱스를 정의
+struct PieceOfRenderItemByThread
+{
+	ObjectData* mObjPTR;
+	UINT mInstanceOffset;
 };
 
 /*
@@ -282,18 +363,6 @@ public:
 	2. 리스트 내에 존재하는 원소가 자주 생성 되고 지워짐. (생성이야 스택으로 넣으면 되지만, 
 	중간에 있는 원소가 제거되는 경우에는 리스트 만한 자료구조가 없음.) 
 */
-
-// GameObjects Resources
-static std::list<RenderItem*> mGameObjects;
-// The variable Has a Vertex, Index datas of each GameObjects
-static std::unordered_map<std::string, ObjectData*> mGameObjectDatas;
-// The Count of Object of separated to RenderType
-static std::unordered_map<RenderItem::RenderType, UINT> mRenderTypeCount;
-
-// A Tasks list that is on the Frustum.
-static std::vector<std::vector<UINT>> mRenderInstTasks;
-// 전체 인스턴스 개수
-static UINT mInstanceCount = 0;
 
 class BoxApp : public D3DApp
 {
@@ -318,10 +387,21 @@ private:
 	static void InitSwapChain(_In_ int numThread);
 	static DWORD WINAPI DrawThread(_In_ LPVOID temp);
 
+	void RecursionChildItem(
+		_In_ RenderItem* child
+	);
+	void RecursionFrameResource(
+		_In_ RenderItem* obj,
+		_Out_ int& InstanceNum,
+		_Out_ int& SubmeshNum,
+		_Out_ int& BoneNum
+	);
+
 	void BuildDescriptorHeaps(void);
 	void BuildRootSignature(void);
 	void BuildBlurRootSignature(void);
 	void BuildSobelRootSignature(void);
+	void BuildDrawMapSignature(void);
 	void BuildShadersAndInputLayout(void);
 	void BuildRenderItem(void);
 	void BuildFrameResource(void);
@@ -335,6 +415,10 @@ private:
 	void UpdateAnimation(_In_ const GameTimer& gt);
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
+
+public:
+	void Pick(int sx, int sy);
+	void PickBrush(int sx, int sy);
 
 public:
 	void _Awake(_In_ BoxApp* app);
@@ -361,8 +445,9 @@ public:
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale, 
 		_In_ int subDividNum,
-		RenderItem::RenderType renderType,
-		bool isDrawShadow = true
+		ObjectData::RenderType renderType,
+		bool isDrawShadow = true,
+		bool isDrawTexture = false
 	);
 	void CreateSphereObject(
 		_In_ std::string Name, 
@@ -374,8 +459,9 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		RenderItem::RenderType renderType,
-		bool isDrawShadow = true
+		ObjectData::RenderType renderType,
+		bool isDrawShadow = true,
+		bool isDrawTexture = false
 	);
 	void CreateGeoSphereObject(
 		_In_ std::string Name, 
@@ -386,8 +472,9 @@ public:
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale, 
 		_In_ int subdivid,
-		RenderItem::RenderType renderType,
-		bool isDrawShadow = true
+		ObjectData::RenderType renderType,
+		bool isDrawShadow = true,
+		bool isDrawTexture = false
 	);
 	void CreateCylinberObject(
 		_In_ std::string Name, 
@@ -401,8 +488,9 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		RenderItem::RenderType renderType,
-		bool isDrawShadow = true
+		ObjectData::RenderType renderType,
+		bool isDrawShadow = true,
+		bool isDrawTexture = false
 	);
 	void CreateGridObject(
 		_In_ std::string Name, 
@@ -415,8 +503,9 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		RenderItem::RenderType renderType,
-		bool isDrawShadow = true
+		ObjectData::RenderType renderType,
+		bool isDrawShadow = true,
+		bool isDrawTexture = false
 	);
 	void CreateFBXObject(
 		_In_ std::string Name, 
@@ -428,7 +517,8 @@ public:
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
 		_In_ bool uvMode = true,
-		bool isDrawShadow = true
+		bool isDrawShadow = true,
+		bool isDrawTexture = false
 	);
 	void CreateFBXSkinnedObject(
 		_In_ std::string Name, 
@@ -440,7 +530,8 @@ public:
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
 		_In_ bool uvMode = true,
-		bool isDrawShadow = true
+		bool isDrawShadow = true,
+		bool isDrawTexture = false
 	);
 	void CreatePMXObject(
 		_In_ std::string Name, 
@@ -451,7 +542,11 @@ public:
 		_In_ DirectX::XMFLOAT3 position, 
 		_In_ DirectX::XMFLOAT3 rotation, 
 		_In_ DirectX::XMFLOAT3 scale,
-		bool isDrawShadow = true
+		bool isDrawShadow = true,
+		bool isDrawTexture = false
+	);
+	void CreateDebugBoxObject(
+		_In_ RenderItem* r
 	);
 	void ExtractAnimBones(
 		_In_ std::string Path,
@@ -460,12 +555,16 @@ public:
 		_In_ std::string targetFileName,
 		_Out_ RenderItem* r
 	);
+	void SetBoundBoxScale(
+		_Out_ RenderItem* r,
+		_In_ XMFLOAT3	scale
+	);
 
 private:
-
 	static ComPtr<ID3D12RootSignature> mRootSignature;
 	static ComPtr<ID3D12RootSignature> mBlurRootSignature;
 	static ComPtr<ID3D12RootSignature> mSobelRootSignature;
+	static ComPtr<ID3D12RootSignature> mDrawMapSignature;
 
 	static ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap;
 
@@ -484,15 +583,16 @@ private:
 
 	static std::unique_ptr<RenderTarget> mOffscreenRT;
 
-	static std::unique_ptr<BlurFilter> mBlurFilter;
+	static std::unique_ptr<BlurFilter>	mBlurFilter;
 	static std::unique_ptr<SobelFilter> mSobelFilter;
-
-	static std::unique_ptr<ShadowMap> mShadowMap;
+	static std::unique_ptr<ShadowMap>	mShadowMap;
+	static std::unique_ptr<DrawTexture> mDrawTexture;
 
 	BoundingFrustum				mCamFrustum;
 	PassConstants				mMainPassCB;
 	Camera						mCamera;
 
+	bool isMousePressed = false;
 	POINT mLastMousePos;
 
 	static UINT mFilterCount;
@@ -502,7 +602,7 @@ private:
 	static CD3DX12_CPU_DESCRIPTOR_HANDLE mTextureHeapDescriptor;
 	static CD3DX12_GPU_DESCRIPTOR_HANDLE mTextureHeapGPUDescriptor;
 
-	static std::unordered_map<RenderItem::RenderType, ComPtr<ID3D12PipelineState>> mPSOs;
+	static std::unordered_map<ObjectData::RenderType, ComPtr<ID3D12PipelineState>> mPSOs;
 
 public:
 	std::vector<std::string>							mTextureList;
@@ -515,19 +615,69 @@ public:
 public:
 	std::vector<Texture> texList;
 	// 새로운 DDS 텍스쳐를 로드
-	void uploadTexture(_In_ Texture& t, _In_ bool isCube=false);
+	void uploadTexture(
+		_In_ Texture& t, 
+		_In_ bool isCube=false
+	);
 	// 새로운 머테리얼을 로드
-	void uploadMaterial(_In_ std::string name, _In_ bool isSkyTexture=false);
+	void uploadMaterial(
+		_In_ std::string name, 
+		_In_ bool isSkyTexture=false
+	);
 	// 새로운 머테리얼을 로드하고 텍스쳐를 바인드
-	void uploadMaterial(_In_ std::string matName, _In_ std::string texName, _In_ bool isSkyTexture=false);
+	void uploadMaterial(
+		_In_ std::string matName, 
+		_In_ std::string texName, 
+		_In_ bool isSkyTexture=false
+	);
+	void BoxApp::uploadMaterial(
+		_In_ std::string matName,
+		_In_ std::string tex_Diffuse_Name,
+		_In_ std::string tex_Mask_Name,
+		_In_ std::string tex_Noise_Name,
+		_In_ bool isSkyTexture
+	);
 	// 새로운 라이트 바인드
-	void uploadLight(_In_ Light light);
+	void uploadLight(
+		_In_ Light light
+	);
 	// 오브젝트에 텍스쳐를 바인드
-	void BindTexture(_Out_ RenderItem* r, _In_ std::string name, int idx, _In_ bool isCubeMap = false);
+	void BindTexture(
+		_Out_ RenderItem* r, 
+		_In_ std::string name, 
+		int idx, 
+		_In_ bool isCubeMap = false
+	);
 	// 오브젝트에 머테리얼을 바인드
-	void BindMaterial(_Out_ RenderItem* r, _In_ std::string name, _In_ bool isCubeMap=false);
+	void BindMaterial(
+		_Out_ RenderItem* r,
+		_In_ std::string name,
+		_In_ bool isCubeMap = false
+	);
+	// 오브젝트에 머테리얼을 바인드
+	void BindMaterial(
+		_Out_ RenderItem* r, 
+		_In_ std::string name, 
+		_In_ std::string maskTexName,
+		_In_ std::string noiseTexName, 
+		_In_ bool isCubeMap				= false
+	);
 	// 오브젝트에 머테리얼과 텍스쳐를 바인드
-	void BindMaterial(_Out_ RenderItem* r, _In_ std::string matName, _In_ std::string texName, _In_ bool isCubeMap=false);
+	void BindMaterial(
+		_Out_ RenderItem* r,
+		_In_ std::string matName,
+		_In_ std::string texName,
+		_In_ bool isCubeMap = false
+	);
+	// 오브젝트에 머테리얼과 텍스쳐를 바인드
+	void BindMaterial(
+		_Out_ RenderItem* r, 
+		_In_ std::string matName, 
+		_In_ std::string texName,
+		_In_ std::string maskTexName,
+		_In_ std::string noiseTexName,
+		_In_ bool isCubeMap				= false
+	);
 
 private:
 	// Draw Thread Resource

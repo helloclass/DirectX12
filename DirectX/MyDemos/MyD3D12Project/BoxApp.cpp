@@ -13,27 +13,21 @@ DWORD hClothPhysxThreadID;
 HANDLE hClothPhysxThread;
 
 BoxApp::BoxApp(HINSTANCE hInstance)
-	: D3DApp(hInstance)
-{
-	mRenderTypeCount[RenderItem::RenderType::_OPAQUE_RENDER_TYPE] = 0;
-	mRenderTypeCount[RenderItem::RenderType::_OPAQUE_SKINNED_RENDER_TYPE] = 0;
-	mRenderTypeCount[RenderItem::RenderType::_PMX_FORMAT_RENDER_TYPE] = 0;
-	mRenderTypeCount[RenderItem::RenderType::_ALPHA_RENDER_TYPE] = 0;
-	mRenderTypeCount[RenderItem::RenderType::_SKY_FORMAT_RENDER_TYPE] = 0;
-}
+	: D3DApp(hInstance){}
 
 // Pipeline State Object Type List
-std::unordered_map<RenderItem::RenderType, ComPtr<ID3D12PipelineState>> BoxApp::mPSOs;
+std::unordered_map<ObjectData::RenderType, ComPtr<ID3D12PipelineState>> BoxApp::mPSOs;
 // Post Process RTV ( Will use to Blur, Sobel Calc)
 std::unique_ptr<RenderTarget> BoxApp::mOffscreenRT = nullptr;
 
 // Degree of Blur
 UINT BoxApp::mFilterCount = 0;
 
-std::unique_ptr<BlurFilter> BoxApp::mBlurFilter;
-std::unique_ptr<SobelFilter> BoxApp::mSobelFilter;
+std::unique_ptr<BlurFilter>		BoxApp::mBlurFilter;
+std::unique_ptr<SobelFilter>	BoxApp::mSobelFilter;
+std::unique_ptr<ShadowMap>		BoxApp::mShadowMap;
+std::unique_ptr<DrawTexture>	BoxApp::mDrawTexture;
 
-std::unique_ptr<ShadowMap> BoxApp::mShadowMap;
 DirectX::BoundingSphere mSceneBounds;				// 그림자가 그려지는 경계 구
 
 ComPtr<ID3D12DescriptorHeap> BoxApp::mSrvDescriptorHeap = nullptr;
@@ -41,6 +35,7 @@ ComPtr<ID3D12DescriptorHeap> BoxApp::mSrvDescriptorHeap = nullptr;
 ComPtr<ID3D12RootSignature> BoxApp::mRootSignature = nullptr;
 ComPtr<ID3D12RootSignature> BoxApp::mBlurRootSignature = nullptr;
 ComPtr<ID3D12RootSignature> BoxApp::mSobelRootSignature = nullptr;
+ComPtr<ID3D12RootSignature> BoxApp::mDrawMapSignature = nullptr;
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE BoxApp::mTextureHeapDescriptor;
 CD3DX12_GPU_DESCRIPTOR_HANDLE BoxApp::mTextureHeapGPUDescriptor;
@@ -125,8 +120,8 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 	FIBITMAP* mWeightImage = NULL;
 	int width, height;
 
-	std::list<RenderItem*>::iterator& obj = mGameObjects.begin();
-	std::list<RenderItem*>::iterator& objEnd = mGameObjects.end();
+	std::list<RenderItem*>::iterator& obj		= mGameObjects.begin();
+	std::list<RenderItem*>::iterator& objEnd	= mGameObjects.end();
 
 	// Traversal each GameObject, than updated and got a new Cloth Data of Vertex
 	for (; obj != objEnd; obj++)
@@ -134,6 +129,9 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 		RenderItem* _RenderItem = *obj;
 		// The new Cloth Vertex Data will be stored in here.
 		ObjectData* _RenderData = mGameObjectDatas[_RenderItem->mName];
+
+		if (!_RenderData)	
+			continue;
 
 		_RenderData->mClothes.resize(_RenderData->SubmeshCount);
 		_RenderData->mClothBinedBoneIDX.resize(_RenderData->SubmeshCount);
@@ -156,11 +154,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 			if (_RenderData->mFormat == "PMX")
 			{
-				vOffset = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].BaseVertexLocation;
-				iOffset = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].StartIndexLocation;
+				vOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].BaseVertexLocation;
+				iOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].StartIndexLocation;
 
-				vSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].VertexSize;
-				iSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].IndexSize;
+				vSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].VertexSize;
+				iSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].IndexSize;
 
 				// ���� Material�� Vertex�� ������ ���´�.
 				vertices.clear();
@@ -243,11 +241,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 			if (_RenderData->mFormat == "FBX")
 			{
-				vOffset = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].BaseVertexLocation;
-				iOffset = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].StartIndexLocation;
+				vOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].BaseVertexLocation;
+				iOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].StartIndexLocation;
 
-				vSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].VertexSize;
-				iSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].IndexSize;
+				vSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].VertexSize;
+				iSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].IndexSize;
 
 				vertices.resize(vSize);
 				primitives.resize(iSize);
@@ -283,11 +281,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 			}
 			else if (_RenderData->mFormat == "PMX")
 			{
-				vOffset = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].BaseVertexLocation;
-				iOffset = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].StartIndexLocation;
+				vOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].BaseVertexLocation;
+				iOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].StartIndexLocation;
 
-				vSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].VertexSize;
-				iSize = _RenderItem->mGeometry.DrawArgs[_RenderItem->mGeometry.meshNames[submesh]].IndexSize;
+				vSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].VertexSize;
+				iSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].IndexSize;
 
 				// ���� Material�� Vertex�� ������ ���´�.
 				vertices.clear();
@@ -951,10 +949,12 @@ bool BoxApp::Initialize()
 	mSobelFilter = std::make_unique<SobelFilter>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	mOffscreenRT = std::make_unique<RenderTarget>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	mShadowMap = std::make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
+	mDrawTexture = std::make_unique<DrawTexture>(md3dDevice.Get(), 2048, 2048, DXGI_FORMAT_R8G8B8A8_UNORM);
 
 	BuildRootSignature();
 	BuildBlurRootSignature();
 	BuildSobelRootSignature();
+	BuildDrawMapSignature();
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 
@@ -1006,7 +1006,7 @@ bool BoxApp::CloseCommandList()
 void BoxApp::CreateRtvAndDsvDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 1;
+	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 2;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -1047,10 +1047,6 @@ void BoxApp::OnResize()
 	{
 		mOffscreenRT->OnResize(mClientWidth, mClientHeight);
 	}
-	//if (mShadowMap != nullptr)
-	//{
-	//	mShadowMap->OnResize(2048, 2048);
-	//}
 }
 
 void BoxApp::Update(const GameTimer& gt)
@@ -1122,13 +1118,13 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
 
 	XMMATRIX world, texTransform, invWorld, viewToLocal;
-	BoundingFrustum localSpaceFrustum;
 	InstanceData data;
 
 	//const PhyxResource* pr = nullptr;
 	UINT visibleInstanceCount = 0;
 
 	UINT i;
+	// Game Index
 	int gIdx = 0;
 
 	// (���� ������Ʈ ���� * ���� ����޽�) ���� ��ŭ�� ���׸��� ������ �Ϸķ� ���� ��Ű�� ���� �ε��� 
@@ -1171,10 +1167,10 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 		// matIDX->second.NumFramesDirty--;
 	}
 
-	RenderItem* obj = NULL;
+	ObjectData* obj = NULL;
 	PhyxResource* pr = nullptr;
-	std::list<RenderItem*>::iterator objIDX;
-	std::list<RenderItem*>::iterator objEnd;
+	std::unordered_map<std::string, ObjectData*>::iterator objIDX;
+	std::unordered_map<std::string, ObjectData*>::iterator objEnd;
 	std::vector<LightDataConstants>::iterator lightDataIDX;
 	std::vector<Light>::iterator lightIDX;
 	std::vector<Light>::iterator lightEnd = mLights.end();
@@ -1212,28 +1208,35 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 
 	XMMATRIX S;
 
-	XMMATRIX viewProj;
-	XMMATRIX invProj;
-	XMMATRIX invViewProj;
+	XMMATRIX mLightViewProj;
+	XMMATRIX mLightInvProj;
+	XMMATRIX mLightInvView;
+	XMMATRIX mLightInvViewProj;
 
 	UINT w;
 	UINT h;
 
+	mRenderTasks.resize(mGameObjectDatas.size());
 	mRenderInstTasks.resize(mGameObjectDatas.size());
 
-	objIDX = mGameObjects.begin();
-	objEnd = mGameObjects.end();
+	objIDX = mGameObjectDatas.begin();
+	objEnd = mGameObjectDatas.end();
 	for (; objIDX != objEnd; objIDX++)
 	{
-		obj = *objIDX;
+		obj = (*objIDX).second;
+		mRenderTasks[gIdx] = obj;
 
-		// �������� ���� �����ϴ� ������Ʈ, ������Ʈ �ν��Ͻ� ���� �ʱ�ȭ
-		mRenderInstTasks[gIdx].resize(obj->InstanceCount);
+		mRenderInstTasks[gIdx].clear();
 
 		for (i = 0; i < obj->InstanceCount; ++i)
 		{
 			// getSyncDesc
 			pr = &obj->mPhyxResources[i];
+
+			// Collider Box 또한 이동
+			obj->Bounds[i].Center.x = pr->Position[0];
+			obj->Bounds[i].Center.y = pr->Position[1];
+			obj->Bounds[i].Center.z = pr->Position[2];
 
 			world = XMLoadFloat4x4(&obj->mInstances[i].World);
 
@@ -1241,39 +1244,22 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 
 			invWorld = XMMatrixInverse(&XMMatrixDeterminant(world), world);
 			viewToLocal = XMMatrixMultiply(invView, invWorld);
+
+			BoundingFrustum localSpaceFrustum;
+			// 카메라의 시야에 ((worldMat)^-1 * (viewMat)^-1)를 곱하여, 오브젝트 관점에서의 프러스텀으로 변형
+			// 후, 최종 결과의 프러스텀 내 오브젝트가 존재한다면 실행
 			mCamFrustum.Transform(localSpaceFrustum, viewToLocal);
 
-			// ���� ĳ���Ͱ� ī�޶� �������� ������ �ʴ´ٸ�,
-			// ĳ���Ͱ� ������ ���� �����ϴ� Bound�� ��ġ���� ������Ʈ�� �ϰ�
-			// �� ĳ���ʹ� �������� �ʴ´�.
-			obj->Bounds.Center.x = pr->Position[0];
-			obj->Bounds.Center.y = pr->Position[1];
-			obj->Bounds.Center.z = pr->Position[2];
-
-			boundScale._11 = 1.5f;
-			boundScale._22 = 1.5f;
-			boundScale._33 = 1.5f;
-
-			obj->Bounds.Transform(obj->Bounds, XMLoadFloat4x4(&boundScale));
-
-			// ���� �������� �ڽ����� �����Ѵٸ�
-			if ((localSpaceFrustum.Contains(obj->Bounds) != DirectX::DISJOINT))
+			// 프러스텀 내에 존재하는 오브젝트인지 확인 후, true라면 오브젝트 정보를 적재
+			if (
+					(obj->mRenderType == (UINT)ObjectData::RenderType::_SKY_FORMAT_RENDER_TYPE) ||
+					(obj->mRenderType == (UINT)ObjectData::RenderType::_DEBUG_BOX_TYPE) ||
+					(localSpaceFrustum.Contains(obj->Bounds[i]) != DirectX::DISJOINT)
+				)
 			{
-				// �������� ���� �����ϴ� ������Ʈ�� ������ ���̴�
 				XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
 				XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(texTransform));
 				data.MaterialIndex = obj->mInstances[i].MaterialIndex;
-
-				// ���� ������ �� ���� 
-				// ���� ĳ���Ͱ� ī�޶� ������ ���δٸ� ,
-				// ĳ������ SRT�� ������Ʈ �Ѵ�.
-				data.World._41 = pr->Position[0];
-				data.World._42 = pr->Position[1];
-				data.World._43 = pr->Position[2];
-
-				//data.World._11 = pr->Scale[0];
-				//data.World._22 = pr->Scale[1];
-				//data.World._33 = pr->Scale[2];
 
 				// renderInstCounts = {5, 4, 2, 6, 7, 11 .....} �� ����� �ν��Ͻ� Index�� 
 				// renderInstIndex = {{0, 1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10}, {11, 12, ..., 16}, ...}
@@ -1303,13 +1289,13 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 						// 오브젝트의 포지션을 얻어온다.
 
 						// 만일 라이트가 Dir이면
-						if ((*lightIDX).mLightType == 0)
+						if ((*lightIDX).mLightType == LightType::DIR_LIGHTS)
 						{
 							// 무조건 포함
 							(*lightDataIDX).data[LightSize] = *lightIDX;
 						}
 						// 만일 라이트가 Point이면
-						else if ((*lightIDX).mLightType == 1)
+						else if ((*lightIDX).mLightType == LightType::POINT_LIGHT)
 						{
 							// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
 							lightVec.x = mObjectPos[0] - (*lightIDX).mPosition.x;
@@ -1326,7 +1312,7 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 							}
 						}
 						// 만일 라이트가 Spot이면
-						else if ((*lightIDX).mLightType == 2)
+						else if ((*lightIDX).mLightType == LightType::SPOT_LIGHT)
 						{
 							// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
 							lightVec.x = mObjectPos[0] - (*lightIDX).mPosition.x;
@@ -1379,14 +1365,14 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 						XMStoreFloat4x4(&(*lightIDX).mLightView, lightView);
 						XMStoreFloat4x4(&(*lightIDX).mLightProj, lightProj);
 
-						viewProj = XMMatrixMultiply(lightView, lightProj);
-						invView = XMMatrixInverse(&XMMatrixDeterminant(lightView), lightView);
-						invProj = XMMatrixInverse(&XMMatrixDeterminant(lightProj), lightProj);
-						invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+						mLightViewProj = XMMatrixMultiply(lightView, lightProj);
+						mLightInvView = XMMatrixInverse(&XMMatrixDeterminant(lightView), lightView);
+						mLightInvProj = XMMatrixInverse(&XMMatrixDeterminant(lightProj), lightProj);
+						mLightInvViewProj = XMMatrixInverse(&XMMatrixDeterminant(mLightViewProj), mLightViewProj);
 
-						XMStoreFloat4x4(&(*lightIDX).ShadowViewProj, XMMatrixTranspose(viewProj));
+						XMStoreFloat4x4(&(*lightIDX).ShadowViewProj, XMMatrixTranspose(mLightViewProj));
 						XMStoreFloat4x4(&(*lightIDX).ShadowViewProjNDC, XMMatrixTranspose(S));
-						XMStoreFloat4x4(&mMainPassCB.ShadowViewProj, XMMatrixTranspose(viewProj));
+						XMStoreFloat4x4(&mMainPassCB.ShadowViewProj, XMMatrixTranspose(mLightViewProj));
 						XMStoreFloat4x4(&mMainPassCB.ShadowViewProjNDC, XMMatrixTranspose(S));
 
 						(*lightIDX).AmbientLight = XMFLOAT4(0.4f, 0.4f, 0.4f, 1.0f);
@@ -1401,13 +1387,10 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 					LightBufferCB->CopyData(visibleInstanceCount, (*lightDataIDX));
 				}// if (mLightDatas.size() > 0)
 
-				// �ش� ������Ʈ�� ������ �� �ν��Ͻ� ���� ���� (���ּ� ������)
-				// ���� Draw������ "�������� ���� �����ϴ�" InstanceCounts �迭�� ������ ������ ���� �۾��� �����Ѵ�.
-				// renderInstCounts = {5, 4, 1, 2, 3, 6, 7, 9, 11 .....} �� ���
-				// Thread 0 = {5, 2, 7, ...} Thread 1 = {4, 3, 9, ...} Thread 2 = {1, 6, 11, ...}
-				// �� ���� �����Ͽ�, "�������� ���� �����ϴ� ������Ʈ"���� ������.
+				mRenderInstTasks[gIdx].push_back(visibleInstanceCount);
+
+				visibleInstanceCount++;
 				lightDataIDX++;
-				mRenderInstTasks[gIdx][i] = visibleInstanceCount++;
 			}
 		}
 
@@ -1476,13 +1459,13 @@ void BoxApp::InitSwapChain(int numThread)
 		ThrowIfFailed(
 			mCommandList->Reset(
 				mDirectCmdListAlloc.Get(),
-				mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get()
+				mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get()
 			)
 		);
 		for (int i = 0; i < 3; i++)
 			ThrowIfFailed(mMultiCommandList[i]->Reset(
 				mMultiCmdListAlloc[i].Get(), 
-				mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get()
+				mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get()
 			)
 		);
 
@@ -1525,21 +1508,22 @@ void BoxApp::InitSwapChain(int numThread)
 
 	// 이전 프레임에서 계산한 Cloth Vertices 결과를 업데이트.
 	{
-		RenderItem* obj = NULL;
-		std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
-		std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
+		ObjectData* obj = NULL;
+		std::unordered_map<std::string, ObjectData*>::iterator objIDX = mGameObjectDatas.begin();
+		std::unordered_map<std::string, ObjectData*>::iterator objEnd = mGameObjectDatas.end();
 		while (objIDX != objEnd)
 		{
-			obj = *objIDX++;
+			obj = (*objIDX).second;
+			objIDX++;
 
-			if (!mGameObjectDatas[obj->mName]->isDirty)
+			if (!obj->isDirty)
 				continue;
 
-			mGameObjectDatas[obj->mName]->isDirty = false;
+			obj->isDirty = false;
 
 			d3dUtil::UpdateDefaultBuffer(
 				mCommandList.Get(),
-				mGameObjectDatas[obj->mName]->vertices.data(),
+				obj->vertices.data(),
 				obj->mGeometry.VertexBufferByteSize,
 				obj->mGeometry.VertexBufferUploader,
 				obj->mGeometry.VertexBufferGPU
@@ -1598,7 +1582,7 @@ void BoxApp::InitSwapChain(int numThread)
 			PassCB->Resource()->GetGPUVirtualAddress()
 		);
 
-		mCommandList->SetPipelineState(mPSOs[RenderItem::RenderType::_OPAQUE_SHADOW_MAP_RENDER_TYPE].Get());
+		mCommandList->SetPipelineState(mPSOs[ObjectData::RenderType::_OPAQUE_SHADOW_MAP_RENDER_TYPE].Get());
 
 		// Instance Count
 		D3D12_GPU_VIRTUAL_ADDRESS objectCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
@@ -1606,10 +1590,10 @@ void BoxApp::InitSwapChain(int numThread)
 
 		// For each render item...
 		size_t instAcc = 0;
-		RenderItem* obj = NULL;
-		for (size_t i = 0; i < mGameObjects.size(); ++i)
+		ObjectData* obj = NULL;
+		for (size_t i = 0; i < mGameObjectDatas.size(); ++i)
 		{
-			obj = *std::next(mGameObjects.begin(), i);
+			obj = (std::next(mGameObjectDatas.begin(), i))->second;
 
 			if (!obj->isDrawShadow)
 			{
@@ -1627,7 +1611,7 @@ void BoxApp::InitSwapChain(int numThread)
 
 				mCommandList->IASetVertexBuffers(0, 1, &obj->mGeometry.VertexBufferView());
 				mCommandList->IASetIndexBuffer(&obj->mGeometry.IndexBufferView());
-				mCommandList->IASetPrimitiveTopology(obj->PrimitiveType);
+				mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 				mCommandList->SetGraphicsRootConstantBufferView(
 					1,
@@ -1638,9 +1622,10 @@ void BoxApp::InitSwapChain(int numThread)
 					objCBAddress
 				);
 
+				SubmeshGeometry* sg = nullptr;
 				for (size_t k = 0; k < obj->SubmeshCount; k++)
 				{
-					SubmeshGeometry* sg = &obj->mGeometry.DrawArgs[
+					sg = &obj->mGeometry.DrawArgs[
 						obj->mGeometry.meshNames[k].c_str()
 					];
 
@@ -1668,11 +1653,54 @@ void BoxApp::InitSwapChain(int numThread)
 		);
 	}
 
+	// Compute Draw Texture
+	if (mDrawTexture->isDirty)
+	{
+		mDrawTexture->isDirty = false;
+
+		mDrawTexture->Execute(
+			mCommandList.Get(),
+			mDrawMapSignature.Get(),
+			mPSOs[ObjectData::RenderType::_DRAW_MAP_TYPE].Get()
+		);
+	}
+
+	// 이전 프레임에서 계산한 Cloth Vertices 결과를 업데이트.
+	{
+		ObjectData* obj = NULL;
+		std::unordered_map<std::string, ObjectData*>::iterator objIDX = mGameObjectDatas.begin();
+		std::unordered_map<std::string, ObjectData*>::iterator objEnd = mGameObjectDatas.end();
+		while (objIDX != objEnd)
+		{
+			obj = (*objIDX).second;
+			objIDX++;
+
+			if (!obj->isDirty)
+				continue;
+
+			obj->isDirty = false;
+
+			d3dUtil::UpdateDefaultBuffer(
+				mCommandList.Get(),
+				obj->vertices.data(),
+				obj->mGeometry.VertexBufferByteSize,
+				obj->mGeometry.VertexBufferUploader,
+				obj->mGeometry.VertexBufferGPU
+			);
+		}
+
+		// 옷 버텍스를 업데이트 하였다면, 다시 쓰기모드로 바꾸기
+		ResetEvent(mClothReadEvent);
+		SetEvent(mClothWriteEvent);
+		ResetEvent(mAnimationReadEvent);
+		SetEvent(mAnimationWriteEvent);
+	}
+
 	{
 		mCommandList->Close();
 
-		ID3D12CommandList* commands[] = { 
-			mCommandList.Get() 
+		ID3D12CommandList* commands[] = {
+			mCommandList.Get()
 		};
 		mCommandQueue->ExecuteCommandLists(_countof(commands), commands);
 
@@ -1704,14 +1732,14 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	SubmeshGeometry* sg = nullptr;
 
 	// PreMake offset of Descriptor Resource Buffer.
-	// Base Pointer
+	// 프레임 버퍼의 시작 주소 (Base Pointer)
 	D3D12_GPU_VIRTUAL_ADDRESS instanceCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS matCB = MaterialBuffer->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS lightCB = LightBufferCB->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS rateOfAnimTimeCB = RateOfAnimTimeCB->Resource()->GetGPUVirtualAddress();
 	D3D12_GPU_VIRTUAL_ADDRESS pmxBoneCB = PmxAnimationBuffer->Resource()->GetGPUVirtualAddress();
 
-	// Stack Pointer
+	// 프레임 버퍼 (Stack Pointer)
 	D3D12_GPU_VIRTUAL_ADDRESS instanceCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS matCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress;
@@ -1722,8 +1750,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	uint32_t _gInstOffset = 0;
 
 	// loop Resource
-	UINT i;
-	UINT j;
+	UINT i, j;
 
 	// RenderInstTasks Offset
 	UINT _taskOffset;
@@ -1731,13 +1758,13 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	UINT _taskEnd;
 
 	// Extracted Render Items.
-	RenderItem* obj = nullptr;
+	ObjectData* obj = nullptr;
 	int amountOfTask = 0;
 	int continueIDX = -1;
 	UINT taskIDX = 0;
 
 	// GameObjectIndices
-	std::vector<UINT> mGameObjectIndices;
+	std::vector<struct PieceOfRenderItemByThread> mGameObjectIndices;
 
 	UINT loop = 0;
 	UINT end = 0;
@@ -1745,10 +1772,9 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	int MatIDX = 0;
 	int gameIDX = 0;
 
-	// ������ ���� �� �� ���� ��Ƽ ������ ������ ���
 	while (ThreadIDX < numThread)
 	{
-		// CommandList�� ���������̼��� ��ġ��, ���� Ÿ�� �̺�Ʈ�� ȣ�� �� �� ���� ���.
+		// Draw에서 Update를 마치고 Draw를 시작하라고 지시 할 때 까지 대기
 		WaitForSingleObject(renderTargetEvent[ThreadIDX], INFINITE);
 
 		// Initialization
@@ -1757,33 +1783,49 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 		instanceIDX = 0;
 
 		// Divid RenderItem Geometrys by ThreadIDX
-		// This Situation will be make Minimalized saving of VBV buffer.
+		// This Situation will be make Minimalized saving to VBV buffer.
+		
+		// 그려야 할 인스턴스 리스트를 삼등분 하여 나누어 렌더링
 
+		// 시작 인스턴스 인덱스 
 		_taskOffset = (mInstanceCount / 3) * ThreadIDX;
 
+		// 끝 인스턴스 인덱스
 		if (ThreadIDX != 2)
 			_taskEnd = (mInstanceCount / 3) * (ThreadIDX + 1);
 		else
 			_taskEnd = mInstanceCount;
 
+		// 렌더링 할 오브젝트가 없다면 스킵
+		if (_taskEnd - _taskOffset == 0)
+		{
+			ThrowIfFailed(mMultiCommandList[ThreadIDX]->Close());
+
+			ResetEvent(renderTargetEvent[ThreadIDX]);
+			SetEvent(recordingDoneEvents[ThreadIDX]);
+
+			return 1;
+		}
+
+		// 하나의 스레드가 그려야 할 인스턴스의 개수만큼 공간을 할당함.
 		mGameObjectIndices.resize(_taskEnd - _taskOffset);
 
-		for (loop = 0; loop < _taskEnd - _taskOffset; loop++)
+		UINT count = 0;
+		UINT index = 0;
+		// _taskEnd
+		for (i = 0; i < mRenderInstTasks.size(); i++)
 		{
-			mGameObjectIndices[loop] = -1;
-			for (i = 0; i < mRenderInstTasks.size(); i++)
+			for (j = 0; j < mRenderInstTasks[i].size(); j++)
 			{
-				end = (UINT)mRenderInstTasks[i].size() - 1;
-
-				if ((_taskOffset + loop) <= mRenderInstTasks[i][end])
+				if (_taskOffset <= count && count < _taskEnd)
 				{
-					mGameObjectIndices[loop] = i;
-					break;
-				}
-			}
+					mGameObjectIndices[index].mObjPTR = mRenderTasks[i];
+					mGameObjectIndices[index].mInstanceOffset = mRenderInstTasks[i][j];
 
-			if (mGameObjectIndices[loop] == -1)
-				throw std::runtime_error("Failed to Create Obejct of Index list..");
+					index++;
+				}
+				count++;
+			}
 		}
 
 #ifdef _USE_UBER_SHADER
@@ -1834,8 +1876,13 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 				);
 				// ShadowMapSRV
 				mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
-					8,
+					10,
 					mShadowMap->Srv()
+				);
+				// DrawTexture
+				mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+					11,
+					mDrawTexture->OutputSrv()
 				);
 			}
 
@@ -1847,20 +1894,17 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 			continueIDX = -1;
 			MatIDX = 0;
 
-			// �ν��Ͻ� ���۴� ��� ���� ������Ʈ�� ���� �ν��Ͻ� ������ ��� ������ �ֱ⿡, �������� �Ҵ�.
-			// ���� Instance Update �� ��, Instance Buffer���ٰ� �Ϸķ� Instance ������ ���ε� (CopyData) �Ͽ��⿡
-			// �� ���� ��� ���� ������Ʈ�� �ν��Ͻ��� ���� �ؾ� ��. (���� �������ҿ��� ���� ��, ������Ʈ ����)
-
-			// count of Objects
-			// �ν��Ͻ� ī��Ʈ X ���� ������Ʈ ī��Ʈ�� ����
 			for (taskIDX = 0; taskIDX < (_taskEnd - _taskOffset); taskIDX++)
 			{
-				// ������ ���� ������Ʈ�� �ε���
-				gameIDX = mGameObjectIndices[taskIDX];
-				_gInstOffset = taskIDX + _taskOffset;
+				obj				= mGameObjectIndices[taskIDX].mObjPTR;
+				_gInstOffset	= mGameObjectIndices[taskIDX].mInstanceOffset;
 
-				obj = *std::next(mGameObjects.begin(), gameIDX);
-				mMultiCommandList[ThreadIDX]->SetPipelineState(mPSOs[obj->mRenderType].Get());
+				UINT vertSize = obj->vertices.size();
+				if (!obj || !vertSize) break;
+
+				mMultiCommandList[ThreadIDX]->SetPipelineState(
+					mPSOs[(ObjectData::RenderType)obj->mRenderType].Get()
+				);
 
 				mMultiCommandList[ThreadIDX]->IASetVertexBuffers(
 					0,
@@ -1872,8 +1916,8 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 				);
 
 				// Move to Current Stack Pointer
-				instanceCBAddress		= instanceCB + _gInstOffset * sizeof(InstanceData);
-				lightCBAddress			= lightCB + _gInstOffset * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
+				instanceCBAddress		= instanceCB	+ _gInstOffset * sizeof(InstanceData);
+				lightCBAddress			= lightCB		+ _gInstOffset * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
 				pmxBoneCBAddress		= pmxBoneCB;
 				rateOfAnimTimeCBAddress = rateOfAnimTimeCB;
 
@@ -1911,6 +1955,12 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 						CD3DX12_GPU_DESCRIPTOR_HANDLE tex(
 							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
 						);
+						CD3DX12_GPU_DESCRIPTOR_HANDLE maskTex(
+							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+						);
+						CD3DX12_GPU_DESCRIPTOR_HANDLE noiseTex(
+							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+						);
 						CD3DX12_GPU_DESCRIPTOR_HANDLE skyTex(
 							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
 						);
@@ -1923,6 +1973,16 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 							// Move to Current Stack Pointer
 							tex.Offset(
 								obj->Mat[j]->DiffuseSrvHeapIndex,
+								mCbvSrvUavDescriptorSize
+							);
+
+							maskTex.Offset(
+								obj->Mat[j]->MaskSrvHeapIndex >= 0 ? obj->Mat[j]->MaskSrvHeapIndex : 0,
+								mCbvSrvUavDescriptorSize
+							);
+
+							noiseTex.Offset(
+								obj->Mat[j]->NoiseSrvHeapIndex >= 0 ? obj->Mat[j]->NoiseSrvHeapIndex : 0,
 								mCbvSrvUavDescriptorSize
 							);
 
@@ -1941,6 +2001,16 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 								mCbvSrvUavDescriptorSize
 							);
 
+							maskTex.Offset(
+								0,
+								mCbvSrvUavDescriptorSize
+							);
+
+							noiseTex.Offset(
+								0,
+								mCbvSrvUavDescriptorSize
+							);
+
 							skyTex.Offset(
 								0,
 								mCbvSrvUavDescriptorSize
@@ -1955,17 +2025,22 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 							);
 							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
 								6,
-								//tex
-								mShadowMap->Srv()
+								tex
 							);
 							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
 								7,
+								maskTex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								8,
+								noiseTex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								9,
 								skyTex
 							);
 						}
 
-						// ���⼭ Local ����.
-						// ���� submesh Geometry�� ����
 						sg = &obj->mGeometry.DrawArgs[
 							obj->mGeometry.meshNames[
 								j
@@ -1979,14 +2054,60 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 							sg->BaseVertexLocation,
 							0
 						);
-
-						// ����Ž� �� �ν��Ͻ��� �������� �ʴ´�.
-						// ���� �ܰ迡�� ���� SRT Mat�� ���ε� ��ų ��.
 					}
 				}
 
 				// ���� Geometry�� offset ����
 				// _gInstOffset	+= mGameObjects[gameIDX]->InstanceCount;
+				_gInstOffset += 1;
+			}
+			_gInstOffset = 0;
+		}
+
+		// DebugBox를 그리는 구간.
+		{
+			continueIDX = -1;
+			MatIDX = 0;
+
+			for (taskIDX = 0; taskIDX < (_taskEnd - _taskOffset); taskIDX++)
+			{
+				obj = mGameObjectIndices[taskIDX].mObjPTR;
+				_gInstOffset = mGameObjectIndices[taskIDX].mInstanceOffset;
+
+				if (!obj || !obj->isDebugBox)	continue;
+
+				mMultiCommandList[ThreadIDX]->SetPipelineState(
+					mPSOs[ObjectData::RenderType::_DEBUG_BOX_TYPE].Get()
+				);
+
+				mMultiCommandList[ThreadIDX]->IASetVertexBuffers(
+					0,
+					1,
+					&obj->mDebugBoxData->mGeometry.VertexBufferView()
+				);
+				mMultiCommandList[ThreadIDX]->IASetIndexBuffer(
+					&obj->mDebugBoxData->mGeometry.IndexBufferView()
+				);
+
+				// Move to Current Stack Pointer
+				instanceCBAddress = instanceCB + _gInstOffset * sizeof(InstanceData);
+				mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+					3,
+					instanceCBAddress
+				);
+
+				sg = &obj->mDebugBoxData->mGeometry.DrawArgs[
+					obj->mDebugBoxData->mGeometry.meshNames[0]
+				];
+
+				mMultiCommandList[ThreadIDX]->DrawIndexedInstanced(
+					sg->IndexSize,
+					obj->mDebugBoxData->InstanceCount,
+					sg->StartIndexLocation,
+					sg->BaseVertexLocation,
+					0
+				);
+
 				_gInstOffset += 1;
 			}
 			_gInstOffset = 0;
@@ -2060,14 +2181,14 @@ void BoxApp::Draw(const GameTimer& gt)
 		ThrowIfFailed(mDirectCmdListAlloc->Reset());
 		ThrowIfFailed(mCommandList->Reset(
 			mDirectCmdListAlloc.Get(), 
-			mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get())
+			mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get())
 		);
 
 		// ��ũ���� ���ε�
 		ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 		mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-		//mCommandList->SetPipelineState(mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE].Get());
+		//mCommandList->SetPipelineState(mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get());
 
 		mCommandList->RSSetViewports(1, &mScreenViewport);
 		mCommandList->RSSetScissorRects(1, &mScissorRect);
@@ -2099,11 +2220,10 @@ void BoxApp::Draw(const GameTimer& gt)
 		);
 
 		//
-
 		mSobelFilter->Execute(
 			mCommandList.Get(),
 			mSobelRootSignature.Get(),
-			mPSOs[RenderItem::RenderType::_SOBEL_COMPUTE_TYPE].Get(),
+			mPSOs[ObjectData::RenderType::_SOBEL_COMPUTE_TYPE].Get(),
 			mOffscreenRT->Srv()
 		);
 
@@ -2116,9 +2236,18 @@ void BoxApp::Draw(const GameTimer& gt)
 
 
 		mCommandList->SetGraphicsRootSignature(mSobelRootSignature.Get());
-		mCommandList->SetPipelineState(mPSOs[RenderItem::RenderType::_COMPOSITE_COMPUTE_TYPE].Get());
-		mCommandList->SetGraphicsRootDescriptorTable(0, mOffscreenRT->Srv());
-		mCommandList->SetGraphicsRootDescriptorTable(1, mSobelFilter->OutputSrv());
+		mCommandList->SetPipelineState(mPSOs[ObjectData::RenderType::_COMPOSITE_COMPUTE_TYPE].Get());
+
+		// Post Processing 전 이미지
+		mCommandList->SetGraphicsRootDescriptorTable(
+			0, 
+			mOffscreenRT->Srv()
+		);
+		// Sobel Contour line 결과 이미지
+		mCommandList->SetGraphicsRootDescriptorTable(
+			1, 
+			mSobelFilter->OutputSrv()
+		);
 
 		mCommandList->IASetVertexBuffers(0, 1, nullptr);
 		mCommandList->IASetIndexBuffer(nullptr);
@@ -2138,8 +2267,8 @@ void BoxApp::Draw(const GameTimer& gt)
 		mBlurFilter->Execute(
 			mCommandList.Get(),
 			mBlurRootSignature.Get(),
-			mPSOs[RenderItem::RenderType::_BLUR_HORZ_COMPUTE_TYPE].Get(),
-			mPSOs[RenderItem::RenderType::_BLUR_VERT_COMPUTE_TYPE].Get(),
+			mPSOs[ObjectData::RenderType::_BLUR_HORZ_COMPUTE_TYPE].Get(),
+			mPSOs[ObjectData::RenderType::_BLUR_VERT_COMPUTE_TYPE].Get(),
 			CurrentBackBuffer(),
 			mFilterCount
 		);
@@ -2164,11 +2293,11 @@ void BoxApp::Draw(const GameTimer& gt)
 				D3D12_RESOURCE_STATE_PRESENT
 			)
 		);
-
-		mCommandList->Close();
 	}
 
 	{
+		mCommandList->Close();
+
 		// Add the command list to the queue for execution.
 		ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
 		mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
@@ -2194,9 +2323,20 @@ void BoxApp::Draw(const GameTimer& gt)
 
 void BoxApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
+	if ((btnState & MK_LBUTTON) != 0)
+	{
+		if (GetAsyncKeyState(VK_MENU) & 0x8000)
+		{
+			PickBrush(x, y);
+		}
 
+		mLastMousePos.x = x;
+		mLastMousePos.y = y;
+	}
+	else if ((btnState & MK_RBUTTON) != 0)
+	{
+		Pick(x, y);
+	}
 	SetCapture(mhMainWnd);
 }
 
@@ -2209,24 +2349,49 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
 	if ((btnState & MK_LBUTTON) != 0)
 	{
-		// Make each pixel correspond to a quarter of a degree.
-		float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
-		float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
+		if (GetAsyncKeyState(VK_MENU) & 0x8000)
+		{
+			XMFLOAT4X4 P = mCamera.GetProj4x4f();
 
-		// Update angles based on input to orbit camera around box.
-		mTheta += dx;
-		mPhi += dy;
+			// Compute picking ray in view space.
+			// [0, 600] -> [-1, 1] [0, 800] -> [-1, 1]
+			float vx = (x - mLastMousePos.x) / (float)(mClientWidth);
+			float vy = (y - mLastMousePos.y) / (float)(mClientHeight);
 
-		// Restrict the angle mPhi.
-		mPhi = MathHelper::Clamp(mPhi, 0.1f, MathHelper::Pi - 0.1f);
+			//// z축을 노말라이즈
+			//vx = vx / P(0, 0);
+			//vy = vy / P(1, 1);
 
+			mDrawTexture->isDirty = true;
+			
+			mDrawTexture->Position.x =
+				mDrawTexture->Origin.x +
+				vx;
+			mDrawTexture->Position.y =
+				mDrawTexture->Origin.y -
+				vy;
+		}
 
-		mCamera.Pitch(dy);
-		mCamera.RotateY(dx);
+		else
+		{
+			// Make each pixel correspond to a quarter of a degree.
+			float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
+			float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
+
+			// Update angles based on input to orbit camera around box.
+			mTheta += dx;
+			mPhi += dy;
+
+			// Restrict the angle mPhi.
+			mPhi = MathHelper::Clamp(mPhi, 0.1f, MathHelper::Pi - 0.1f);
+
+			mCamera.Pitch(dy);
+			mCamera.RotateY(dx);
+
+			mLastMousePos.x = x;
+			mLastMousePos.y = y;
+		}
 	}
-
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
 }
 
 void BoxApp::BuildRootSignature()
@@ -2239,13 +2404,19 @@ void BoxApp::BuildRootSignature()
 
 	CD3DX12_DESCRIPTOR_RANGE texTable;
 	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0);
+	CD3DX12_DESCRIPTOR_RANGE maskTexTable;
+	maskTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 1);
+	CD3DX12_DESCRIPTOR_RANGE noiseTexTable;
+	noiseTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 2);
 	CD3DX12_DESCRIPTOR_RANGE skyTexTable;
 	skyTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 2, 0);
 	CD3DX12_DESCRIPTOR_RANGE shadowTexTable;
 	shadowTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 1);
+	CD3DX12_DESCRIPTOR_RANGE drawTexTable;
+	drawTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 2);
 
 	// Root parameter can be a table, root descriptor or root constants.
-	std::array<CD3DX12_ROOT_PARAMETER, 9> slotRootParameter;
+	std::array<CD3DX12_ROOT_PARAMETER, 12> slotRootParameter;
 
 	// PassCB
 	slotRootParameter[0].InitAsConstantBufferView(0);
@@ -2261,10 +2432,16 @@ void BoxApp::BuildRootSignature()
 	slotRootParameter[5].InitAsShaderResourceView(0, 2);
 	// Main Textures
 	slotRootParameter[6].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	// Mask Textures
+	slotRootParameter[7].InitAsDescriptorTable(1, &maskTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	// Noise Textures
+	slotRootParameter[8].InitAsDescriptorTable(1, &noiseTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 	// Sky Textures
-	slotRootParameter[7].InitAsDescriptorTable(1, &skyTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[9].InitAsDescriptorTable(1, &skyTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 	// Shadow Textures
-	slotRootParameter[8].InitAsDescriptorTable(1, &shadowTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[10].InitAsDescriptorTable(1, &shadowTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	// Draw Textures
+	slotRootParameter[11].InitAsDescriptorTable(1, &drawTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
@@ -2342,9 +2519,11 @@ void BoxApp::BuildBlurRootSignature()
 
 void BoxApp::BuildSobelRootSignature()
 {
+	// Post Processing 전 이미지
 	CD3DX12_DESCRIPTOR_RANGE srvTable0;
 	srvTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 
+	// Sobel Contour line 결과 이미지
 	CD3DX12_DESCRIPTOR_RANGE srvTable1;
 	srvTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
 
@@ -2389,21 +2568,74 @@ void BoxApp::BuildSobelRootSignature()
 		IID_PPV_ARGS(mSobelRootSignature.GetAddressOf())));
 }
 
+void BoxApp::BuildDrawMapSignature()
+{
+	// Post Processing 전 이미지
+	CD3DX12_DESCRIPTOR_RANGE srvTable0;
+	srvTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+	CD3DX12_DESCRIPTOR_RANGE uavTable0;
+	uavTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
+
+	// Root parameter can be a table, root descriptor or root constants.
+	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+
+	// Perfomance TIP: Order from most frequent to least frequent.
+	slotRootParameter[0].InitAsConstants(12, 0);
+	slotRootParameter[1].InitAsDescriptorTable(1, &srvTable0);
+	slotRootParameter[2].InitAsDescriptorTable(1, &uavTable0);
+
+	auto staticSamplers = GetStaticSamplers();
+
+	// A root signature is an array of root parameters.
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
+		3,
+		slotRootParameter,
+		(UINT)staticSamplers.size(),
+		staticSamplers.data(),
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
+	);
+
+	// create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(
+		md3dDevice->CreateRootSignature(
+			0,
+			serializedRootSig->GetBufferPointer(),
+			serializedRootSig->GetBufferSize(),
+			IID_PPV_ARGS(mDrawMapSignature.GetAddressOf())
+		)
+	);
+}
+
 void BoxApp::BuildDescriptorHeaps()
 {
 	const int texCount = (const int)mTextures.size();
-	const int blurDescriptorCount = 2;
-	const int sobelDescriptorCount = mSobelFilter->DescriptorCount();
-	const int postProcessDescriptorCount = 2;
-	const int shdowMapDescriptorCount = 2;
+	const int blurDescriptorCount			= 2;
+	const int sobelDescriptorCount			= mSobelFilter->DescriptorCount();
+	const int postProcessDescriptorCount	= 2;
+	const int shdowMapDescriptorCount		= 2;
+	const int drawTextureDescriptorCount	= mDrawTexture->DescriptorCount();
 
 	D3D12_DESCRIPTOR_HEAP_DESC SrvUavHeapDesc;
 	SrvUavHeapDesc.NumDescriptors = 
-		texCount + 
-		blurDescriptorCount + 
-		sobelDescriptorCount + 
-		postProcessDescriptorCount + 
-		shdowMapDescriptorCount;
+		texCount					+ 
+		blurDescriptorCount			+ 
+		sobelDescriptorCount		+ 
+		postProcessDescriptorCount	+ 
+		shdowMapDescriptorCount		+ 
+		drawTextureDescriptorCount;
+
 	SrvUavHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	SrvUavHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	SrvUavHeapDesc.NodeMask = 0;
@@ -2418,44 +2650,50 @@ void BoxApp::BuildDescriptorHeaps()
 	// �ؽ��İ� ����� ���� �����Ѵ�.
 	//
 
+	int mDescOffset = texCount;
+
 	// Build Descriptors 
 	mBlurFilter->BuildDescriptors(
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-			(int)texCount,
+			mDescOffset,
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-			(int)texCount,
+			mDescOffset,
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		mCbvSrvUavDescriptorSize
 	);
+
+	mDescOffset += blurDescriptorCount;
 
 	mSobelFilter->BuildDescriptors(
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-			(int)(texCount + blurDescriptorCount),
+			mDescOffset,
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-			(int)(texCount + blurDescriptorCount),
+			mDescOffset,
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		mCbvSrvUavDescriptorSize
 	);
 
+	mDescOffset += sobelDescriptorCount;
+
 	mOffscreenRT->BuildDescriptors(
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-			(int)(texCount + blurDescriptorCount + sobelDescriptorCount),
+			mDescOffset,
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-			(int)(texCount + blurDescriptorCount + sobelDescriptorCount),
+			mDescOffset,
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
@@ -2465,15 +2703,17 @@ void BoxApp::BuildDescriptorHeaps()
 		)
 	);
 
+	mDescOffset += postProcessDescriptorCount;
+
 	mShadowMap->BuildDescriptors(
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-			(int)(texCount + blurDescriptorCount + sobelDescriptorCount + postProcessDescriptorCount),
+			mDescOffset,
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_GPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-			(int)(texCount + blurDescriptorCount + sobelDescriptorCount + postProcessDescriptorCount),
+			mDescOffset,
 			(UINT)mCbvSrvUavDescriptorSize
 		),
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
@@ -2482,6 +2722,24 @@ void BoxApp::BuildDescriptorHeaps()
 			(UINT)mDsvDescriptorSize
 		)
 	);
+
+	mDescOffset += drawTextureDescriptorCount;
+
+	mDrawTexture->BuildDescriptors(
+		CD3DX12_CPU_DESCRIPTOR_HANDLE(
+			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+			mDescOffset,
+			(UINT)mCbvSrvUavDescriptorSize
+		),
+		CD3DX12_GPU_DESCRIPTOR_HANDLE(
+			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+			mDescOffset,
+			(UINT)mCbvSrvUavDescriptorSize
+		),
+		mCbvSrvUavDescriptorSize
+	);
+
+	mDescOffset += shdowMapDescriptorCount;
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
 		mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
@@ -2538,11 +2796,25 @@ void BoxApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
+	const D3D_SHADER_MACRO debugDefines[] =
+	{
+		"DEBUG", "1",
+		NULL, NULL
+	};
+
+	const D3D_SHADER_MACRO drawTexDefines[] =
+	{
+		"DRAW_TEX", "1",
+		NULL, NULL
+	};
+
 	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", alphaTestDefines, "VS", "vs_5_1");
 	mShaders["skinnedVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", skinnedDefines, "VS", "vs_5_1");
 	mShaders["pmxFormatVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", pmxFormatDefines, "VS", "vs_5_1");
 
 	mShaders["pix"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["debugPS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", debugDefines, "PS", "ps_5_1");
+	mShaders["drawTexPS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", drawTexDefines, "PS", "ps_5_1");
 
 	mShaders["horzBlurCS"] = d3dUtil::CompileShader(L"Shaders\\Blur.hlsl", nullptr, "HorzBlurCS", "cs_5_0");
 	mShaders["vertBlurCS"] = d3dUtil::CompileShader(L"Shaders\\Blur.hlsl", nullptr, "VertBlurCS", "cs_5_0");
@@ -2551,6 +2823,7 @@ void BoxApp::BuildShadersAndInputLayout()
 	mShaders["compositePS"] = d3dUtil::CompileShader(L"Shaders\\Composite.hlsl", nullptr, "PS", "ps_5_0");
 
 	mShaders["sobelCS"] = d3dUtil::CompileShader(L"Shaders\\Sobel.hlsl", nullptr, "SobelCS", "cs_5_1");
+	mShaders["DrawTextureCS"] = d3dUtil::CompileShader(L"Shaders\\DrawTexture.hlsl", nullptr, "DrawTextureCS", "cs_5_1");
 
 	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
@@ -2577,6 +2850,31 @@ void BoxApp::BuildShadersAndInputLayout()
 	};
 }
 
+void BoxApp::RecursionFrameResource(
+	RenderItem* obj, 
+	int& InstanceNum,
+	int& SubmeshNum,
+	int& BoneNum
+)
+{
+	InstanceNum += (2 * (obj->InstanceCount));
+	SubmeshNum += obj->SubmeshCount;
+
+	if (obj->mFormat == "PMX")
+		BoneNum = mGameObjectDatas[obj->mName]->mModel.bone_count;
+
+	auto& objIDX = obj->mChilds.begin();
+	auto& objEnd = obj->mChilds.end();
+	for (; objIDX != objEnd; objIDX++) {
+		RecursionFrameResource(
+			(*objIDX).second, 
+			InstanceNum, 
+			SubmeshNum, 
+			BoneNum
+		);
+	}
+}
+
 void BoxApp::BuildFrameResource()
 {
 	// Calc Instance Size
@@ -2590,13 +2888,8 @@ void BoxApp::BuildFrameResource()
 	std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
 	std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
 	for (; objIDX != objEnd; objIDX++) {
-		obj = *objIDX;
-
-		InstanceNum += (2 * (obj->InstanceCount));
-		SubmeshNum += obj->SubmeshCount;
-
-		if (mGameObjectDatas[obj->mName]->mFormat == "PMX")
-			BoneNum = mGameObjectDatas[obj->mName]->mModel.bone_count;
+		obj = (*objIDX);
+		RecursionFrameResource(obj, InstanceNum, SubmeshNum, BoneNum);
 	}
 
 	PassCB = std::make_unique<UploadBuffer<PassConstants>>(md3dDevice.Get(), 1, true);
@@ -2646,13 +2939,13 @@ void BoxApp::BuildPSO()
 	psoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	psoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 	psoDesc.DSVFormat = mDepthStencilFormat;
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_OPAQUE_RENDER_TYPE])));
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_OPAQUE_RENDER_TYPE])));
 
 
 	//
 	// PSO for _POST_PROCESSING_PIPELINE
 	//
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_POST_PROCESSING_PIPELINE])));
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE])));
 
 	//
 	// PSO for Sky
@@ -2673,7 +2966,7 @@ void BoxApp::BuildPSO()
 		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()),
 		mShaders["skyPS"]->GetBufferSize()
 	};
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_SKY_FORMAT_RENDER_TYPE])));
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKY_FORMAT_RENDER_TYPE])));
 
 	//
 	// PSO for SkinnedOpaque
@@ -2689,7 +2982,7 @@ void BoxApp::BuildPSO()
 		reinterpret_cast<BYTE*>(mShaders["pix"]->GetBufferPointer()),
 		mShaders["pix"]->GetBufferSize()
 	};
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skinnedDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_OPAQUE_SKINNED_RENDER_TYPE])));
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skinnedDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_OPAQUE_SKINNED_RENDER_TYPE])));
 
 	//
 	// PSO for pmxFormatVS
@@ -2707,7 +3000,7 @@ void BoxApp::BuildPSO()
 		reinterpret_cast<BYTE*>(mShaders["pix"]->GetBufferPointer()),
 		mShaders["pix"]->GetBufferSize()
 	};
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&pmxFormatDesc, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_PMX_FORMAT_RENDER_TYPE])));
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&pmxFormatDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_PMX_FORMAT_RENDER_TYPE])));
 
 	//
 	// PSO for horizontal blur
@@ -2720,7 +3013,7 @@ void BoxApp::BuildPSO()
 		mShaders["horzBlurCS"]->GetBufferSize()
 	};
 	horzBlurPSO.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-	ThrowIfFailed(md3dDevice->CreateComputePipelineState(&horzBlurPSO, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_BLUR_HORZ_COMPUTE_TYPE])));
+	ThrowIfFailed(md3dDevice->CreateComputePipelineState(&horzBlurPSO, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_BLUR_HORZ_COMPUTE_TYPE])));
 
 	//
 	// PSO for vertical blur
@@ -2733,7 +3026,7 @@ void BoxApp::BuildPSO()
 		mShaders["vertBlurCS"]->GetBufferSize()
 	};
 	vertBlurPSO.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-	ThrowIfFailed(md3dDevice->CreateComputePipelineState(&vertBlurPSO, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_BLUR_VERT_COMPUTE_TYPE])));
+	ThrowIfFailed(md3dDevice->CreateComputePipelineState(&vertBlurPSO, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_BLUR_VERT_COMPUTE_TYPE])));
 
 	//
 	// PSO for sobel
@@ -2746,7 +3039,7 @@ void BoxApp::BuildPSO()
 		mShaders["sobelCS"]->GetBufferSize()
 	};
 	sobelPSO.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-	ThrowIfFailed(md3dDevice->CreateComputePipelineState(&sobelPSO, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_SOBEL_COMPUTE_TYPE])));
+	ThrowIfFailed(md3dDevice->CreateComputePipelineState(&sobelPSO, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SOBEL_COMPUTE_TYPE])));
 
 	//
 	// PSO for Composite
@@ -2768,36 +3061,79 @@ void BoxApp::BuildPSO()
 		reinterpret_cast<BYTE*>(mShaders["compositePS"]->GetBufferPointer()),
 		mShaders["compositePS"]->GetBufferSize()
 	};
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&compositePSO, IID_PPV_ARGS(&mPSOs[RenderItem::RenderType::_COMPOSITE_COMPUTE_TYPE])));
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&compositePSO, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_COMPOSITE_COMPUTE_TYPE])));
 
 	//
 	// PSO for shadow map pass.
 	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC smapPsoDesc = psoDesc;
-	smapPsoDesc.RasterizerState.DepthBias = 100000;
-	smapPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
-	smapPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
-	smapPsoDesc.pRootSignature = mRootSignature.Get();
-	smapPsoDesc.VS =
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC shadowMapPsoDesc = psoDesc;
+	shadowMapPsoDesc.RasterizerState.DepthBias = 100000;
+	shadowMapPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
+	shadowMapPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
+	shadowMapPsoDesc.pRootSignature = mRootSignature.Get();
+	shadowMapPsoDesc.VS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
 		mShaders["shadowVS"]->GetBufferSize()
 	};
-	smapPsoDesc.PS =
+	shadowMapPsoDesc.PS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["shadowOpaquePS"]->GetBufferPointer()),
 		mShaders["shadowOpaquePS"]->GetBufferSize()
 	};
 
 	// Shadow map pass does not have a render target.
-	smapPsoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
-	smapPsoDesc.NumRenderTargets = 0;
+	shadowMapPsoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+	shadowMapPsoDesc.NumRenderTargets = 0;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
-		&smapPsoDesc, 
+		&shadowMapPsoDesc,
 		IID_PPV_ARGS(
-			&mPSOs[RenderItem::RenderType::_OPAQUE_SHADOW_MAP_RENDER_TYPE]
+			&mPSOs[ObjectData::RenderType::_OPAQUE_SHADOW_MAP_RENDER_TYPE]
 		)
 	));
+
+	//
+	// PSO for DebugBox
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugBoxDesc = psoDesc;
+	debugBoxDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	shadowMapPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["debugPS"]->GetBufferPointer()),
+		mShaders["debugPS"]->GetBufferSize()
+	};
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugBoxDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_DEBUG_BOX_TYPE])));
+
+	//
+	// PSO for DebugBox
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC drawMapDesc = psoDesc;
+	drawMapDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["drawTexPS"]->GetBufferPointer()),
+		mShaders["drawTexPS"]->GetBufferSize()
+	};
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&drawMapDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_DRAW_MAP_RENDER_TYPE])));
+
+	//
+	// PSO for Draw Map CS
+	// 
+	D3D12_COMPUTE_PIPELINE_STATE_DESC drawMapPSO = {};
+	drawMapPSO.pRootSignature = mDrawMapSignature.Get();
+	drawMapPSO.CS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["DrawTextureCS"]->GetBufferPointer()),
+		mShaders["DrawTextureCS"]->GetBufferSize()
+	};
+	drawMapPSO.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+	ThrowIfFailed(
+		md3dDevice->CreateComputePipelineState(
+			&drawMapPSO,
+			IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_DRAW_MAP_TYPE])
+		)
+	);
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxApp::GetStaticSamplers()
@@ -2873,71 +3209,72 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxApp::GetStaticSamplers()
 	};
 }
 
-void BoxApp::BuildRenderItem()
+void BoxApp::RecursionChildItem(RenderItem* go)
 {
-	for (RenderItem* go : mGameObjects)
+	ObjectData* obj = mGameObjectDatas[go->mName];
+
+	// 비어있는 객체일 시 패스
+	if (obj->SubmeshCount > 0)
 	{
-		if (go->mFormat != "PMX")
+		if (obj->mFormat != "PMX")
 		{
-			ObjectData* v = mGameObjectDatas[go->mName];
 			// CPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
 			ThrowIfFailed(D3DCreateBlob(
-				go->mGeometry.VertexBufferByteSize,
-				&go->mGeometry.VertexBufferCPU
+				obj->mGeometry.VertexBufferByteSize,
+				&obj->mGeometry.VertexBufferCPU
 			));
 			CopyMemory(
-				go->mGeometry.VertexBufferCPU->GetBufferPointer(),
-				mGameObjectDatas[go->mName]->vertices.data(),
-				go->mGeometry.VertexBufferByteSize
+				obj->mGeometry.VertexBufferCPU->GetBufferPointer(),
+				obj->vertices.data(),
+				obj->mGeometry.VertexBufferByteSize
 			);
 
 			// CPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
 			ThrowIfFailed(D3DCreateBlob(
-				go->mGeometry.IndexBufferByteSize,
-				&go->mGeometry.IndexBufferCPU
+				obj->mGeometry.IndexBufferByteSize,
+				&obj->mGeometry.IndexBufferCPU
 			));
 			CopyMemory(
-				go->mGeometry.IndexBufferCPU->GetBufferPointer(),
-				mGameObjectDatas[go->mName]->indices.data(),
-				go->mGeometry.IndexBufferByteSize
+				obj->mGeometry.IndexBufferCPU->GetBufferPointer(),
+				obj->indices.data(),
+				obj->mGeometry.IndexBufferByteSize
 			);
 
 			// GPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
-			go->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
+			obj->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
-				mGameObjectDatas[go->mName]->vertices.data(),
-				go->mGeometry.VertexBufferByteSize,
-				go->mGeometry.VertexBufferUploader);
+				obj->vertices.data(),
+				obj->mGeometry.VertexBufferByteSize,
+				obj->mGeometry.VertexBufferUploader);
 
 			// GPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
-			go->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
+			obj->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
-				mGameObjectDatas[go->mName]->indices.data(),
-				go->mGeometry.IndexBufferByteSize,
-				go->mGeometry.IndexBufferUploader);
+				obj->indices.data(),
+				obj->mGeometry.IndexBufferByteSize,
+				obj->mGeometry.IndexBufferUploader);
 
-			go->mGeometry.VertexByteStride = sizeof(Vertex);
-			go->mGeometry.IndexFormat = DXGI_FORMAT_R32_UINT;
-		}
-		else if (go->mFormat == "PMX")
+			obj->mGeometry.VertexByteStride = sizeof(Vertex);
+			obj->mGeometry.IndexFormat = DXGI_FORMAT_R32_UINT;
+		} // (go->mFormat != "PMX")
+
+		else if (obj->mFormat == "PMX")
 		{
 			pmx::PmxVertexSkinningBDEF1* BDEF1 = NULL;
 			pmx::PmxVertexSkinningBDEF2* BDEF2 = NULL;
 			pmx::PmxVertexSkinningBDEF4* BDEF4 = NULL;
 
-			ObjectData* v = mGameObjectDatas[go->mName];
-
-			pmx::PmxVertex* mFromVert = v->mModel.vertices.get();
+			pmx::PmxVertex* mFromVert = obj->mModel.vertices.get();
 			Vertex* mToVert;
 
-			int vSize = v->mModel.vertex_count;
-			v->vertices.resize(vSize);
+			int vSize = obj->mModel.vertex_count;
+			obj->vertices.resize(vSize);
 
 			for (int vLoop = 0; vLoop < vSize; vLoop++)
 			{
-				mToVert = &v->vertices[vLoop];
+				mToVert = &obj->vertices[vLoop];
 
 				mToVert->Pos.x = mFromVert[vLoop].position[0];
 				mToVert->Pos.y = mFromVert[vLoop].position[1];
@@ -2954,9 +3291,9 @@ void BoxApp::BuildRenderItem()
 				mToVert->TexC.x = mFromVert[vLoop].uv[0];
 				mToVert->TexC.y = mFromVert[vLoop].uv[1];
 
-				if (v->mModel.vertices[vLoop].skinning_type == pmx::PmxVertexSkinningType::BDEF1)
+				if (obj->mModel.vertices[vLoop].skinning_type == pmx::PmxVertexSkinningType::BDEF1)
 				{
-					BDEF1 = (pmx::PmxVertexSkinningBDEF1*)v->mModel.vertices[vLoop].skinning.get();
+					BDEF1 = (pmx::PmxVertexSkinningBDEF1*)obj->mModel.vertices[vLoop].skinning.get();
 
 					mToVert->BoneIndices.x = BDEF1->bone_index;
 					mToVert->BoneWeights.x = 1.0f;
@@ -2971,9 +3308,9 @@ void BoxApp::BuildRenderItem()
 					mToVert->BoneWeights.w = 0.0f;
 
 				}
-				else if (v->mModel.vertices[vLoop].skinning_type == pmx::PmxVertexSkinningType::BDEF2)
+				else if (obj->mModel.vertices[vLoop].skinning_type == pmx::PmxVertexSkinningType::BDEF2)
 				{
-					BDEF2 = (pmx::PmxVertexSkinningBDEF2*)v->mModel.vertices[vLoop].skinning.get();
+					BDEF2 = (pmx::PmxVertexSkinningBDEF2*)obj->mModel.vertices[vLoop].skinning.get();
 
 					mToVert->BoneIndices.x = BDEF2->bone_index1;
 					mToVert->BoneWeights.x = BDEF2->bone_weight;
@@ -2989,7 +3326,7 @@ void BoxApp::BuildRenderItem()
 				}
 				else
 				{
-					BDEF4 = (pmx::PmxVertexSkinningBDEF4*)v->mModel.vertices[vLoop].skinning.get();
+					BDEF4 = (pmx::PmxVertexSkinningBDEF4*)obj->mModel.vertices[vLoop].skinning.get();
 
 					mToVert->BoneIndices.x = BDEF4->bone_index1;
 					mToVert->BoneWeights.x = BDEF4->bone_weight1;
@@ -3008,48 +3345,116 @@ void BoxApp::BuildRenderItem()
 
 			// CPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
 			ThrowIfFailed(D3DCreateBlob(
-				go->mGeometry.VertexBufferByteSize,
-				&go->mGeometry.VertexBufferCPU
+				obj->mGeometry.VertexBufferByteSize,
+				&obj->mGeometry.VertexBufferCPU
 			));
 			CopyMemory(
-				go->mGeometry.VertexBufferCPU->GetBufferPointer(),
-				v->vertices.data(),
-				go->mGeometry.VertexBufferByteSize
+				obj->mGeometry.VertexBufferCPU->GetBufferPointer(),
+				obj->vertices.data(),
+				obj->mGeometry.VertexBufferByteSize
 			);
 
 			// CPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
 			ThrowIfFailed(D3DCreateBlob(
-				go->mGeometry.IndexBufferByteSize,
-				&go->mGeometry.IndexBufferCPU
+				obj->mGeometry.IndexBufferByteSize,
+				&obj->mGeometry.IndexBufferCPU
 			));
 			CopyMemory(
-				go->mGeometry.IndexBufferCPU->GetBufferPointer(),
-				v->mModel.indices.get(),
-				go->mGeometry.IndexBufferByteSize
+				obj->mGeometry.IndexBufferCPU->GetBufferPointer(),
+				obj->mModel.indices.get(),
+				obj->mGeometry.IndexBufferByteSize
 			);
 
 			// GPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
-			go->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
+			obj->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
-				v->vertices.data(),
-				go->mGeometry.VertexBufferByteSize,
-				go->mGeometry.VertexBufferUploader);
+				obj->vertices.data(),
+				obj->mGeometry.VertexBufferByteSize,
+				obj->mGeometry.VertexBufferUploader);
 
 			// GPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
-			go->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
+			obj->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
-				v->mModel.indices.get(),
-				go->mGeometry.IndexBufferByteSize,
-				go->mGeometry.IndexBufferUploader);
+				obj->mModel.indices.get(),
+				obj->mGeometry.IndexBufferByteSize,
+				obj->mGeometry.IndexBufferUploader);
 
-			go->mGeometry.VertexByteStride = sizeof(Vertex);
-			go->mGeometry.IndexFormat = DXGI_FORMAT_R32_UINT;
+			obj->mGeometry.VertexByteStride = sizeof(Vertex);
+			obj->mGeometry.IndexFormat = DXGI_FORMAT_R32_UINT;
 
 			//mGameObjectDatas[go->mName]->vertices.clear();
 			//mGameObjectDatas[go->mName]->vertices.resize(0);
+		} // (go->mFormat == "PMX")
+
+		if (obj->isDebugBox)
+		{
+			ObjectData* debugBoxData = obj->mDebugBoxData.get();
+
+			// CPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			ThrowIfFailed(D3DCreateBlob(
+				debugBoxData->mGeometry.VertexBufferByteSize,
+				&debugBoxData->mGeometry.VertexBufferCPU
+			));
+			CopyMemory(
+				debugBoxData->mGeometry.VertexBufferCPU->GetBufferPointer(),
+				debugBoxData->vertices.data(),
+				debugBoxData->mGeometry.VertexBufferByteSize
+			);
+
+			// CPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			ThrowIfFailed(D3DCreateBlob(
+				debugBoxData->mGeometry.IndexBufferByteSize,
+				&debugBoxData->mGeometry.IndexBufferCPU
+			));
+			CopyMemory(
+				debugBoxData->mGeometry.IndexBufferCPU->GetBufferPointer(),
+				debugBoxData->indices.data(),
+				debugBoxData->mGeometry.IndexBufferByteSize
+			);
+
+			// GPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			debugBoxData->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
+				md3dDevice.Get(),
+				mCommandList.Get(),
+				debugBoxData->vertices.data(),
+				debugBoxData->mGeometry.VertexBufferByteSize,
+				debugBoxData->mGeometry.VertexBufferUploader
+			);
+
+			// GPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			debugBoxData->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
+				md3dDevice.Get(),
+				mCommandList.Get(),
+				debugBoxData->indices.data(),
+				debugBoxData->mGeometry.IndexBufferByteSize,
+				debugBoxData->mGeometry.IndexBufferUploader
+			);
+
+			debugBoxData->mGeometry.VertexByteStride = sizeof(Vertex);
+			debugBoxData->mGeometry.IndexFormat = DXGI_FORMAT_R32_UINT;
 		}
+	}
+
+	auto& iter = go->mChilds.begin();
+	auto& endPtr = go->mChilds.end();
+
+	while (iter != endPtr)
+	{
+		// 자식 노드를 렌더 업데이트
+		if (go->mChilds.size() > 0)
+			RecursionChildItem((*iter).second);
+
+		iter++;
+	}
+}
+
+void BoxApp::BuildRenderItem()
+{
+	for (RenderItem* go : mGameObjects)
+	{
+		RecursionChildItem(go);
 	}
 }
 
@@ -3068,17 +3473,6 @@ RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance)
 	// Allocated RenderItem ID
 	newGameObjects->mName = Name;
 
-	// Bind Phy
-	newGameObjects->mPhyxResources.resize(instance);
-	for (int i = 0; i < instance; i++) {
-		staticObj = mPhys.CreateStatic(PxTransform(PxVec3(0, 0, 0)), sphere);
-
-		mPhys.BindObjColliber(
-			staticObj,
-			&newGameObjects->mPhyxResources[i]
-		);
-	}
-
 	// Create Collider Body
 	//phys.CreateBox(1, 1, 1);
 
@@ -3087,7 +3481,12 @@ RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance)
 
 	newGameObjects->InstanceCount = instance;
 
-	// Push Instance
+	newGameObjects->isDirty.resize(instance);
+
+	ObjectData* obj = new ObjectData();
+
+	obj->mName = Name;
+	obj->mPhyxResources.resize(instance);
 	for (UINT i = 0; i < newGameObjects->InstanceCount; i++)
 	{
 		InstanceData id;
@@ -3095,14 +3494,26 @@ RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance)
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		newGameObjects->mInstances.push_back(id);
+		obj->mInstances.push_back(id);
+
+		BoundingBox bb;
+		bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+		bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+		obj->Bounds.push_back(bb);
+
+		staticObj = mPhys.CreateStatic(PxTransform(PxVec3(0, 0, 0)), sphere);
+
+		mPhys.BindObjColliber(
+			staticObj,
+			&obj->mPhyxResources[i]
+		);
 	}
 
 	mGameObjects.push_back(newGameObjects);
-	mGameObjectDatas[Name] = new ObjectData();
-	mGameObjectDatas[Name]->mName = Name;
+	mGameObjectDatas[Name] = obj;
 
-	return mGameObjects.back();
+	return newGameObjects;
 }
 
 
@@ -3117,18 +3528,6 @@ RenderItem* BoxApp::CreateKinematicGameObject(std::string Name, int instance)
 	// Allocated RenderItem ID
 	newGameObjects->mName = Name;
 
-	// Bind Phy
-	newGameObjects->mPhyxResources.resize(instance);
-	for (int i = 0; i < instance; i++) {
-		dynamicObj = mPhys.CreateKinematic(PxTransform(PxVec3(0, 0, 0)), sphere, 1, PxVec3(0, 0, 0));
-		newGameObjects->mPhyxRigidBody.push_back(dynamicObj);
-
-		mPhys.BindObjColliber(
-			dynamicObj,
-			&newGameObjects->mPhyxResources[i]
-		);
-	}
-
 	// Create Collider Body
 	//phys.CreateBox(1, 1, 1);
 
@@ -3137,22 +3536,40 @@ RenderItem* BoxApp::CreateKinematicGameObject(std::string Name, int instance)
 
 	newGameObjects->InstanceCount = instance;
 
-	// Push Instance
-	for (UINT i = 0; i < newGameObjects->InstanceCount; i++)
+	newGameObjects->isDirty.resize(instance);
+
+	ObjectData* obj = new ObjectData();
+
+	obj->mName = Name;
+	obj->mPhyxResources.resize(instance);
+	for (UINT i = 0; i < obj->InstanceCount; i++)
 	{
 		InstanceData id;
 		id.World = MathHelper::Identity4x4();
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		newGameObjects->mInstances.push_back(id);
+		obj->mInstances.push_back(id);
+
+		BoundingBox bb;
+		bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+		bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+		obj->Bounds.push_back(bb);
+
+		dynamicObj = mPhys.CreateKinematic(PxTransform(PxVec3(0, 0, 0)), sphere, 1, PxVec3(0, 0, 0));
+		obj->mPhyxRigidBody.push_back(dynamicObj);
+
+		mPhys.BindObjColliber(
+			dynamicObj,
+			&obj->mPhyxResources[i]
+		);
 	}
 
 	mGameObjects.push_back(newGameObjects);
-	mGameObjectDatas[Name] = new ObjectData();
-	mGameObjectDatas[Name]->mName = Name;
+	mGameObjectDatas[Name] = obj;
 
-	return mGameObjects.back();
+	return newGameObjects;
 }
 
 RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance)
@@ -3163,24 +3580,17 @@ RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance)
 	// Allocated RenderItem ID
 	newGameObjects->mName = Name;
 
-	// Bind Phy
-	newGameObjects->mPhyxResources.resize(instance);
-	for (int i = 0; i < instance; i++) {
-		dynamicObj = mPhys.CreateDynamic(PxTransform(PxVec3(0, 0, 0)), PxSphereGeometry(3), PxVec3(0, 0, 0));
-		newGameObjects->mPhyxRigidBody.push_back(dynamicObj);
-
-		mPhys.BindObjColliber(
-			dynamicObj,
-			&newGameObjects->mPhyxResources[i]
-		);
-	}
-
 	newGameObjects->ObjCBIndex = 0;
 	newGameObjects->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	newGameObjects->InstanceCount = instance;
 
-	// Push Instance
+	newGameObjects->isDirty.resize(instance);
+
+	ObjectData* obj = new ObjectData();
+
+	obj->mName = Name;
+	obj->mPhyxResources.resize(instance);
 	for (UINT i = 0; i < newGameObjects->InstanceCount; i++)
 	{
 		InstanceData id;
@@ -3188,14 +3598,30 @@ RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance)
 		id.TexTransform = MathHelper::Identity4x4();
 		id.MaterialIndex = 0;
 
-		newGameObjects->mInstances.push_back(id);
+		obj->mInstances.push_back(id);
+
+		BoundingBox bb;
+		bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+		bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+		// Bind Phy
+		obj->Bounds.push_back(bb);
+
+		dynamicObj = mPhys.CreateDynamic(PxTransform(PxVec3(0, 0, 0)), PxSphereGeometry(3), PxVec3(0, 0, 0));
+		obj->mPhyxRigidBody.push_back(dynamicObj);
+
+		mPhys.BindObjColliber(
+			dynamicObj,
+			&obj->mPhyxResources[i]
+		);
 	}
 
 	mGameObjects.push_back(newGameObjects);
-	mGameObjectDatas[Name] = new ObjectData();
-	mGameObjectDatas[Name]->mName = Name;
+	mGameObjectDatas[Name] = obj;
 
-	return mGameObjects.back();
+	mGameObjectDatas[Name]->InstanceCount = instance;
+
+	return newGameObjects;
 }
 
 void BoxApp::CreateBoxObject(
@@ -3209,84 +3635,141 @@ void BoxApp::CreateBoxObject(
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
 	int subDividNum,
-	RenderItem::RenderType renderType,
-	bool isDrawShadow
+	ObjectData::RenderType renderType,
+	bool isDrawShadow,
+	bool isDrawTexture
 )
 {
 	GeometryGenerator Geom;
-	{
-		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
-		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
-		DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
-		DirectX::XMVECTOR mOrientationVec;
+	rotation.x = DirectX::XMConvertToRadians(rotation.x);
+	rotation.y = DirectX::XMConvertToRadians(rotation.y);
+	rotation.z = DirectX::XMConvertToRadians(rotation.z);
 
-		mOrientationVec.m128_f32[0] = 0.0f;
-		mOrientationVec.m128_f32[1] = 0.0f;
-		mOrientationVec.m128_f32[2] = 0.0f;
-		mOrientationVec.m128_f32[3] = 1.0f;
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
-			mScaleVec,
-			mOrientationVec,
-			mQuaternionVec,
-			mPositionVec
-		);
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
 
-		InstanceData id;
-		DirectX::XMStoreFloat4x4(&id.World, mWorldMat);
-		id.TexTransform = MathHelper::Identity4x4();
-		id.MaterialIndex = 0;
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
 
-		if (r->mInstances.size() == 0)
-			throw std::runtime_error("Instance Size must bigger than 0.");
-
-		r->mInstances.at(0) = id;
-	}
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
 
 	r->mFormat = "";
-	r->mRenderType = renderType;
 	r->isDrawShadow = isDrawShadow;
+	r->isDrawTexture = isDrawTexture;
+
+	// init Boundary(Collider) Box
+	DirectX::XMMATRIX mBoundScaleMat = {};
+	mBoundScaleMat.r[0].m128_f32[0] = x;
+	mBoundScaleMat.r[1].m128_f32[1] = y;
+	mBoundScaleMat.r[2].m128_f32[2] = z;
+	mBoundScaleMat.r[3].m128_f32[3] = 1.0f;
+
+	mWorldMat *= mBoundScaleMat;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
 	Box = Geom.CreateBox(x, y, z, subDividNum);
-	mGameObjectDatas[r->mName]->SubmeshCount += 1;
-	mGameObjectDatas[r->mName]->mDesc.resize(mGameObjectDatas[r->mName]->SubmeshCount);
 
-	mGameObjectDatas[r->mName]->isCloth.push_back(false);
-	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+	ObjectData* obj = mGameObjectDatas[r->mName];
+	if (!obj)
+	{
+		obj = new ObjectData();
+
+		for (UINT i = 0; i < r->InstanceCount; i++)
+		{
+			InstanceData id;
+			id.World = MathHelper::Identity4x4();
+			id.TexTransform = MathHelper::Identity4x4();
+			id.MaterialIndex = 0;
+
+			obj->mInstances.push_back(id);
+
+			BoundingBox bb;
+			bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+			bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+			// Bind Phy
+			obj->Bounds.push_back(bb);
+		}
+
+		obj->mPhyxResources.resize(r->InstanceCount);
+
+		mGameObjectDatas[r->mName] = obj;
+		obj = mGameObjectDatas[r->mName];
+	}
+
+	if (obj->mInstances.size() == 0)
+		throw std::runtime_error("Instance Size must bigger than 0.");
+
+	for (UINT inst = 0; inst < r->InstanceCount; inst++)
+	{
+		obj->Bounds[inst].Transform(obj->Bounds[inst], mWorldMat);
+
+		obj->mPhyxResources[inst].Position[0]	= position.x;
+		obj->mPhyxResources[inst].Position[1]	= position.y;
+		obj->mPhyxResources[inst].Position[2]	= position.z;
+		obj->mPhyxResources[inst].Rotation[0]	= rotation.x;
+		obj->mPhyxResources[inst].Rotation[1]	= rotation.y;
+		obj->mPhyxResources[inst].Rotation[2]	= rotation.z;
+		obj->mPhyxResources[inst].Scale[0]		= scale.x;
+		obj->mPhyxResources[inst].Scale[1]		= scale.y;
+		obj->mPhyxResources[inst].Scale[2]		= scale.z;
+
+		//memcpy(obj->mPhyxResources[inst].Position, &position, sizeof(float) * 3);
+	}
+
+	obj->mName = r->mName;
+	obj->mFormat = r->mFormat;
+	obj->mRenderType = renderType;
+
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount += 1;
+	obj->mDesc.resize(obj->SubmeshCount);
+
+	obj->isCloth.push_back(false);
+	obj->isRigidBody.push_back(false);
 
 	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
 	SubmeshGeometry boxSubmesh;
-	boxSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
-	boxSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
+	boxSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
+	boxSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
 
 	boxSubmesh.IndexSize = (UINT)Box.Indices32.size();
 	boxSubmesh.VertexSize = (UINT)Box.Vertices.size();
 
-	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation = boxSubmesh.StartIndexLocation;
-	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
+	obj->mDesc[0].StartIndexLocation = boxSubmesh.StartIndexLocation;
+	obj->mDesc[0].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
 
-	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = boxSubmesh.IndexSize;
-	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = boxSubmesh.VertexSize;
+	obj->mDesc[0].IndexSize = boxSubmesh.IndexSize;
+	obj->mDesc[0].VertexSize = boxSubmesh.VertexSize;
 
 	// Submesh ����
 	r->SubmeshCount += 1;
 
-	r->mGeometry.subMeshCount += 1;
-	r->mGeometry.DrawArgs[Name.c_str()] = boxSubmesh;
-	r->mGeometry.DrawArgs[Name.c_str()].textureName = (textuerName.c_str());
-	r->mGeometry.meshNames.push_back(Name.c_str());
+	obj->mGeometry.subMeshCount += 1;
+	obj->mGeometry.DrawArgs[Name.c_str()] = boxSubmesh;
+	obj->mGeometry.DrawArgs[Name.c_str()].textureName = (textuerName.c_str());
+	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 
-	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
+	size_t startV = obj->vertices.size();
 	XMVECTOR posV;
 
-	mGameObjectDatas[r->mName]->vertices.resize(startV + Box.Vertices.size());
+	obj->vertices.resize(startV + Box.Vertices.size());
 
-	Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
+	Vertex* v = obj->vertices.data();
 	for (size_t i = 0; i < (Box.Vertices.size()); ++i)
 	{
 		posV = XMLoadFloat3(&Box.Vertices[i].Position);
@@ -3297,15 +3780,17 @@ void BoxApp::CreateBoxObject(
 		XMStoreFloat3(&v[i + startV].Pos, posV);
 	}
 
-	mGameObjectDatas[r->mName]->indices.insert(
-		mGameObjectDatas[r->mName]->indices.end(),
+	obj->indices.insert(
+		obj->indices.end(),
 		std::begin(Box.Indices32),
 		std::end(Box.Indices32)
 	);
 
 	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
-	r->mGeometry.VertexBufferByteSize += (UINT)Box.Vertices.size() * sizeof(Vertex);
-	r->mGeometry.IndexBufferByteSize += (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
+	obj->mGeometry.IndexSize			+= (UINT)Box.Indices32.size();
+
+	obj->mGeometry.VertexBufferByteSize	+= (UINT)Box.Vertices.size() * sizeof(Vertex);
+	obj->mGeometry.IndexBufferByteSize	+= (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
 }
 
 void BoxApp::CreateSphereObject(
@@ -3318,84 +3803,132 @@ void BoxApp::CreateSphereObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	RenderItem::RenderType renderType,
-	bool isDrawShadow
+	ObjectData::RenderType renderType,
+	bool isDrawShadow,
+	bool isDrawTexture
 )
 {
 	GeometryGenerator Geom;
-	{
-		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
-		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
-		DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
-		DirectX::XMVECTOR mOrientationVec;
+	rotation.x = DirectX::XMConvertToRadians(rotation.x);
+	rotation.y = DirectX::XMConvertToRadians(rotation.y);
+	rotation.z = DirectX::XMConvertToRadians(rotation.z);
 
-		mOrientationVec.m128_f32[0] = 0.0f;
-		mOrientationVec.m128_f32[1] = 0.0f;
-		mOrientationVec.m128_f32[2] = 0.0f;
-		mOrientationVec.m128_f32[3] = 1.0f;
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
-			mScaleVec,
-			mOrientationVec,
-			mQuaternionVec,
-			mPositionVec
-		);
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
 
-		InstanceData id;
-		DirectX::XMStoreFloat4x4(&id.World, mWorldMat);
-		id.TexTransform = MathHelper::Identity4x4();
-		id.MaterialIndex = 0;
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
 
-		if (r->mInstances.size() == 0)
-			throw std::runtime_error("Instance Size must bigger than 0.");
-
-		r->mInstances.at(0) = id;
-	}
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
 
 	r->mFormat = "";
-	r->mRenderType = renderType;
 	r->isDrawShadow = isDrawShadow;
+	r->isDrawTexture = isDrawTexture;
 
 	// input subGeom
 	GeometryGenerator::MeshData Sphere;
 	Sphere = Geom.CreateSphere(rad, sliceCount, stackCount);
-	mGameObjectDatas[r->mName]->SubmeshCount = 1;
-	mGameObjectDatas[r->mName]->mDesc.resize(1);
 
-	mGameObjectDatas[r->mName]->isCloth.push_back(false);
-	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+	ObjectData* obj = mGameObjectDatas[r->mName];
+	if (!obj)
+	{
+		obj = new ObjectData();
+
+		for (UINT i = 0; i < r->InstanceCount; i++)
+		{
+			InstanceData id;
+			id.World = MathHelper::Identity4x4();
+			id.TexTransform = MathHelper::Identity4x4();
+			id.MaterialIndex = 0;
+
+			obj->mInstances.push_back(id);
+
+			BoundingBox bb;
+			bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+			bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+			// Bind Phy
+			obj->Bounds.push_back(bb);
+		}
+
+		obj->mPhyxResources.resize(r->InstanceCount);
+
+		mGameObjectDatas[r->mName] = obj;
+		obj = mGameObjectDatas[r->mName];
+	}
+
+	if (obj->mInstances.size() == 0)
+		throw std::runtime_error("Instance Size must bigger than 0.");
+
+	for (UINT inst = 0; inst < r->InstanceCount; inst++)
+	{
+		obj->Bounds[inst].Transform(obj->Bounds[inst], mWorldMat);
+
+		obj->mPhyxResources[inst].Position[0]	= position.x;
+		obj->mPhyxResources[inst].Position[1]	= position.y;
+		obj->mPhyxResources[inst].Position[2]	= position.z;
+		obj->mPhyxResources[inst].Rotation[0]	= rotation.x;
+		obj->mPhyxResources[inst].Rotation[1]	= rotation.y;
+		obj->mPhyxResources[inst].Rotation[2]	= rotation.z;
+		obj->mPhyxResources[inst].Scale[0]		= scale.x;
+		obj->mPhyxResources[inst].Scale[1]		= scale.y;
+		obj->mPhyxResources[inst].Scale[2]		= scale.z;
+
+		//memcpy(obj->mPhyxResources[inst].Position, &position, sizeof(float) * 3);
+	}
+
+	obj->mName = r->mName;
+	obj->mFormat = r->mFormat;
+	obj->mRenderType = renderType;
+
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount = 1;
+	obj->mDesc.resize(1);
+
+	obj->isCloth.push_back(false);
+	obj->isRigidBody.push_back(false);
 
 	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
 	SubmeshGeometry sphereSubmesh;
-	sphereSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
-	sphereSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
+	sphereSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
+	sphereSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
 
 	sphereSubmesh.IndexSize = (UINT)Sphere.Indices32.size();
 	sphereSubmesh.VertexSize = (UINT)Sphere.Vertices.size();
 
-	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation = sphereSubmesh.StartIndexLocation;
-	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation = sphereSubmesh.BaseVertexLocation;
+	obj->mDesc[0].StartIndexLocation = sphereSubmesh.StartIndexLocation;
+	obj->mDesc[0].BaseVertexLocation = sphereSubmesh.BaseVertexLocation;
 
-	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = sphereSubmesh.IndexSize;
-	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = sphereSubmesh.VertexSize;
+	obj->mDesc[0].IndexSize = sphereSubmesh.IndexSize;
+	obj->mDesc[0].VertexSize = sphereSubmesh.VertexSize;
 
 	// Submesh ����
 	r->SubmeshCount += 1;
 
-	r->mGeometry.subMeshCount += 1;
-	r->mGeometry.DrawArgs[Name.c_str()] = sphereSubmesh;
-	r->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
-	r->mGeometry.meshNames.push_back(Name.c_str());
+	obj->mGeometry.subMeshCount += 1;
+	obj->mGeometry.DrawArgs[Name.c_str()] = sphereSubmesh;
+	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 
-	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
+	size_t startV = obj->vertices.size();
 	XMVECTOR posV;
 
-	mGameObjectDatas[r->mName]->vertices.resize(startV + Sphere.Vertices.size());
+	obj->vertices.resize(startV + Sphere.Vertices.size());
 
-	Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
+	Vertex* v = obj->vertices.data();
 	for (size_t i = 0; i < (Sphere.Vertices.size()); ++i)
 	{
 		posV = XMLoadFloat3(&Sphere.Vertices[i].Position);
@@ -3406,14 +3939,17 @@ void BoxApp::CreateSphereObject(
 		XMStoreFloat3(&v[i + startV].Pos, posV);
 	}
 
-	mGameObjectDatas[r->mName]->indices.insert(mGameObjectDatas[r->mName]->indices.end(), std::begin(
-		Sphere.Indices32),
+	obj->indices.insert(
+		obj->indices.end(), 
+		std::begin(Sphere.Indices32),
 		std::end(Sphere.Indices32)
 	);
 
 	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
-	r->mGeometry.VertexBufferByteSize += (UINT)Sphere.Vertices.size() * sizeof(Vertex);
-	r->mGeometry.IndexBufferByteSize += (UINT)Sphere.Indices32.size() * sizeof(std::uint32_t);
+	obj->mGeometry.IndexSize			+= (UINT)Sphere.Indices32.size();
+
+	obj->mGeometry.VertexBufferByteSize	+= (UINT)Sphere.Vertices.size() * sizeof(Vertex);
+	obj->mGeometry.IndexBufferByteSize	+= (UINT)Sphere.Indices32.size() * sizeof(std::uint32_t);
 }
 
 void BoxApp::CreateGeoSphereObject(
@@ -3425,84 +3961,132 @@ void BoxApp::CreateGeoSphereObject(
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
 	int subdivid,
-	RenderItem::RenderType renderType,
-	bool isDrawShadow
+	ObjectData::RenderType renderType,
+	bool isDrawShadow,
+	bool isDrawTexture
 )
 {
 	GeometryGenerator Geom;
-	{
-		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
-		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
-		DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
-		DirectX::XMVECTOR mOrientationVec;
+	rotation.x = DirectX::XMConvertToRadians(rotation.x);
+	rotation.y = DirectX::XMConvertToRadians(rotation.y);
+	rotation.z = DirectX::XMConvertToRadians(rotation.z);
 
-		mOrientationVec.m128_f32[0] = 0.0f;
-		mOrientationVec.m128_f32[1] = 0.0f;
-		mOrientationVec.m128_f32[2] = 0.0f;
-		mOrientationVec.m128_f32[3] = 1.0f;
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
-			mScaleVec,
-			mOrientationVec,
-			mQuaternionVec,
-			mPositionVec
-		);
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
 
-		InstanceData id;
-		DirectX::XMStoreFloat4x4(&id.World, mWorldMat);
-		id.TexTransform = MathHelper::Identity4x4();
-		id.MaterialIndex = 0;
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
 
-		if (r->mInstances.size() == 0)
-			throw std::runtime_error("Instance Size must bigger than 0.");
-
-		r->mInstances.at(0) = id;
-	}
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
 
 	r->mFormat = "";
-	r->mRenderType = renderType;
 	r->isDrawShadow = isDrawShadow;
+	r->isDrawTexture = isDrawTexture;
 
 	// input subGeom
 	GeometryGenerator::MeshData Sphere;
 	Sphere = Geom.CreateGeosphere(rad, subdivid);
-	mGameObjectDatas[r->mName]->SubmeshCount = 1;
-	mGameObjectDatas[r->mName]->mDesc.resize(1);
 
-	mGameObjectDatas[r->mName]->isCloth.push_back(false);
-	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+	ObjectData* obj = mGameObjectDatas[r->mName];
+	if (!obj)
+	{
+		obj = new ObjectData();
+
+		for (UINT i = 0; i < r->InstanceCount; i++)
+		{
+			InstanceData id;
+			id.World = MathHelper::Identity4x4();
+			id.TexTransform = MathHelper::Identity4x4();
+			id.MaterialIndex = 0;
+
+			obj->mInstances.push_back(id);
+
+			BoundingBox bb;
+			bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+			bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+			// Bind Phy
+			obj->Bounds.push_back(bb);
+		}
+
+		obj->mPhyxResources.resize(r->InstanceCount);
+
+		mGameObjectDatas[r->mName] = obj;
+		obj = mGameObjectDatas[r->mName];
+	}
+
+	if (obj->mInstances.size() == 0)
+		throw std::runtime_error("Instance Size must bigger than 0.");
+
+	for (UINT inst = 0; inst < obj->InstanceCount; inst++)
+	{
+		obj->Bounds[inst].Transform(obj->Bounds[inst], mWorldMat);
+
+		obj->mPhyxResources[inst].Position[0]	= position.x;
+		obj->mPhyxResources[inst].Position[1]	= position.y;
+		obj->mPhyxResources[inst].Position[2]	= position.z;
+		obj->mPhyxResources[inst].Rotation[0]	= rotation.x;
+		obj->mPhyxResources[inst].Rotation[1]	= rotation.y;
+		obj->mPhyxResources[inst].Rotation[2]	= rotation.z;
+		obj->mPhyxResources[inst].Scale[0]		= scale.x;
+		obj->mPhyxResources[inst].Scale[1]		= scale.y;
+		obj->mPhyxResources[inst].Scale[2]		= scale.z;
+
+		//memcpy(obj->mPhyxResources[inst].Position, &position, sizeof(float) * 3);
+	}
+
+	obj->mName = r->mName;
+	obj->mFormat = r->mFormat;
+	obj->mRenderType = renderType;
+
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount = 1;
+	obj->mDesc.resize(1);
+
+	obj->isCloth.push_back(false);
+	obj->isRigidBody.push_back(false);
 
 	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
 	SubmeshGeometry sphereSubmesh;
-	sphereSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
-	sphereSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
+	sphereSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
+	sphereSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
 
 	sphereSubmesh.IndexSize = (UINT)Sphere.Indices32.size();
 	sphereSubmesh.VertexSize = (UINT)Sphere.Vertices.size();
 
-	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation = sphereSubmesh.StartIndexLocation;
-	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation = sphereSubmesh.BaseVertexLocation;
+	obj->mDesc[0].StartIndexLocation = sphereSubmesh.StartIndexLocation;
+	obj->mDesc[0].BaseVertexLocation = sphereSubmesh.BaseVertexLocation;
 
-	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = sphereSubmesh.IndexSize;
-	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = sphereSubmesh.VertexSize;
+	obj->mDesc[0].IndexSize = sphereSubmesh.IndexSize;
+	obj->mDesc[0].VertexSize = sphereSubmesh.VertexSize;
 
 	// Submesh ����
 	r->SubmeshCount += 1;
 
-	r->mGeometry.subMeshCount += 1;
-	r->mGeometry.DrawArgs[Name.c_str()] = sphereSubmesh;
-	r->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
-	r->mGeometry.meshNames.push_back(Name.c_str());
+	obj->mGeometry.subMeshCount += 1;
+	obj->mGeometry.DrawArgs[Name.c_str()] = sphereSubmesh;
+	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 
-	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
+	size_t startV = obj->vertices.size();
 	XMVECTOR posV;
 
-	mGameObjectDatas[r->mName]->vertices.resize(startV + Sphere.Vertices.size());
+	obj->vertices.resize(startV + Sphere.Vertices.size());
 
-	Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
+	Vertex* v = obj->vertices.data();
 	for (size_t i = 0; i < (Sphere.Vertices.size()); ++i)
 	{
 		posV = XMLoadFloat3(&Sphere.Vertices[i].Position);
@@ -3513,15 +4097,17 @@ void BoxApp::CreateGeoSphereObject(
 		XMStoreFloat3(&v[i + startV].Pos, posV);
 	}
 
-	mGameObjectDatas[r->mName]->indices.insert(
-		mGameObjectDatas[r->mName]->indices.end(),
+	obj->indices.insert(
+		obj->indices.end(),
 		std::begin(Sphere.Indices32),
 		std::end(Sphere.Indices32)
 	);
 
 	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
-	r->mGeometry.VertexBufferByteSize += (UINT)Sphere.Vertices.size() * sizeof(Vertex);
-	r->mGeometry.IndexBufferByteSize += (UINT)Sphere.Indices32.size() * sizeof(std::uint32_t);
+	obj->mGeometry.IndexSize			+= (UINT)Sphere.Indices32.size();
+
+	obj->mGeometry.VertexBufferByteSize	+= (UINT)Sphere.Vertices.size() * sizeof(Vertex);
+	obj->mGeometry.IndexBufferByteSize	+= (UINT)Sphere.Indices32.size() * sizeof(std::uint32_t);
 }
 
 void BoxApp::CreateCylinberObject(
@@ -3536,84 +4122,133 @@ void BoxApp::CreateCylinberObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	RenderItem::RenderType renderType,
-	bool isDrawShadow
+	ObjectData::RenderType renderType,
+	bool isDrawShadow,
+	bool isDrawTexture
 )
 {
 	GeometryGenerator Geom;
-	{
-		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
-		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
-		DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
-		DirectX::XMVECTOR mOrientationVec;
+	rotation.x = DirectX::XMConvertToRadians(rotation.x);
+	rotation.y = DirectX::XMConvertToRadians(rotation.y);
+	rotation.z = DirectX::XMConvertToRadians(rotation.z);
 
-		mOrientationVec.m128_f32[0] = 0.0f;
-		mOrientationVec.m128_f32[1] = 0.0f;
-		mOrientationVec.m128_f32[2] = 0.0f;
-		mOrientationVec.m128_f32[3] = 1.0f;
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
-			mScaleVec,
-			mOrientationVec,
-			mQuaternionVec,
-			mPositionVec
-		);
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
 
-		InstanceData id;
-		DirectX::XMStoreFloat4x4(&id.World, mWorldMat);
-		id.TexTransform = MathHelper::Identity4x4();
-		id.MaterialIndex = 0;
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
 
-		if (r->mInstances.size() == 0)
-			throw std::runtime_error("Instance Size must bigger than 0.");
-
-		r->mInstances.at(0) = id;
-	}
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
 
 	r->mFormat = "";
-	r->mRenderType = renderType;
 	r->isDrawShadow = isDrawShadow;
+	r->isDrawTexture = isDrawTexture;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
 	Box = Geom.CreateCylinder(bottomRad, topRad, height, sliceCount, stackCount);
-	mGameObjectDatas[r->mName]->SubmeshCount = 1;
-	mGameObjectDatas[r->mName]->mDesc.resize(1);
 
-	mGameObjectDatas[r->mName]->isCloth.push_back(false);
-	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+	ObjectData* obj = mGameObjectDatas[r->mName];
+	if (!obj)
+	{
+		obj = new ObjectData();
+
+		for (UINT i = 0; i < r->InstanceCount; i++)
+		{
+			InstanceData id;
+			id.World = MathHelper::Identity4x4();
+			id.TexTransform = MathHelper::Identity4x4();
+			id.MaterialIndex = 0;
+
+			obj->mInstances.push_back(id);
+
+			BoundingBox bb;
+			bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+			bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+			// Bind Phy
+			obj->Bounds.push_back(bb);
+		}
+
+		obj->mPhyxResources.resize(r->InstanceCount);
+
+		mGameObjectDatas[r->mName] = obj;
+		obj = mGameObjectDatas[r->mName];
+	}
+
+	if (obj->mInstances.size() == 0)
+		throw std::runtime_error("Instance Size must bigger than 0.");
+	
+	for (UINT inst = 0; inst < obj->InstanceCount; inst++)
+	{
+		obj->Bounds[inst].Transform(obj->Bounds[inst], mWorldMat);
+
+		obj->mPhyxResources[inst].Position[0]	= position.x;
+		obj->mPhyxResources[inst].Position[1]	= position.y;
+		obj->mPhyxResources[inst].Position[2]	= position.z;
+		obj->mPhyxResources[inst].Rotation[0]	= rotation.x;
+		obj->mPhyxResources[inst].Rotation[1]	= rotation.y;
+		obj->mPhyxResources[inst].Rotation[2]	= rotation.z;
+		obj->mPhyxResources[inst].Scale[0]		= scale.x;
+		obj->mPhyxResources[inst].Scale[1]		= scale.y;
+		obj->mPhyxResources[inst].Scale[2]		= scale.z;
+
+		//memcpy(obj->mPhyxResources[inst].Position, &position, sizeof(float) * 3);
+	}
+
+	obj->mName = r->mName;
+	obj->mFormat = r->mFormat;
+	obj->mRenderType = renderType;
+
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount = 1;
+	obj->mDesc.resize(1);
+
+	obj->isCloth.push_back(false);
+	obj->isRigidBody.push_back(false);
+
 
 	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
 	SubmeshGeometry boxSubmesh;
-	boxSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
-	boxSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
+	boxSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
+	boxSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
 
 	boxSubmesh.IndexSize = (UINT)Box.Indices32.size();
 	boxSubmesh.VertexSize = (UINT)Box.Vertices.size();
 
-	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation = boxSubmesh.StartIndexLocation;
-	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
+	obj->mDesc[0].StartIndexLocation = boxSubmesh.StartIndexLocation;
+	obj->mDesc[0].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
 
-	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = boxSubmesh.IndexSize;
-	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = boxSubmesh.VertexSize;
+	obj->mDesc[0].IndexSize = boxSubmesh.IndexSize;
+	obj->mDesc[0].VertexSize = boxSubmesh.VertexSize;
 
 	// Submesh ����
 	r->SubmeshCount += 1;
 
-	r->mGeometry.subMeshCount += 1;
-	r->mGeometry.DrawArgs[Name.c_str()] = boxSubmesh;
-	r->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
-	r->mGeometry.meshNames.push_back(Name.c_str());
+	obj->mGeometry.subMeshCount += 1;
+	obj->mGeometry.DrawArgs[Name.c_str()] = boxSubmesh;
+	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 
-	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
+	size_t startV = obj->vertices.size();
 	XMVECTOR posV;
 
-	mGameObjectDatas[r->mName]->vertices.resize(startV + Box.Vertices.size());
+	obj->vertices.resize(startV + Box.Vertices.size());
 
-	Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
+	Vertex* v = obj->vertices.data();
 	for (size_t i = 0; i < (Box.Vertices.size()); ++i)
 	{
 		posV = XMLoadFloat3(&Box.Vertices[i].Position);
@@ -3624,15 +4259,17 @@ void BoxApp::CreateCylinberObject(
 		XMStoreFloat3(&v[i + startV].Pos, posV);
 	}
 
-	mGameObjectDatas[r->mName]->indices.insert(
-		mGameObjectDatas[r->mName]->indices.end(),
+	obj->indices.insert(
+		obj->indices.end(),
 		std::begin(Box.Indices32),
 		std::end(Box.Indices32)
 	);
 
 	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
-	r->mGeometry.VertexBufferByteSize += (UINT)Box.Vertices.size() * sizeof(Vertex);
-	r->mGeometry.IndexBufferByteSize += (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
+	obj->mGeometry.IndexSize			+= (UINT)Box.Indices32.size();
+
+	obj->mGeometry.VertexBufferByteSize	+= (UINT)Box.Vertices.size() * sizeof(Vertex);
+	obj->mGeometry.IndexBufferByteSize	+= (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
 }
 
 void BoxApp::CreateGridObject(
@@ -3644,83 +4281,153 @@ void BoxApp::CreateGridObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	RenderItem::RenderType renderType,
-	bool isDrawShadow
+	ObjectData::RenderType renderType,
+	bool isDrawShadow,
+	bool isDrawTexture
 )
 {
 	GeometryGenerator Geom;
+
+	DirectX::XMMATRIX mWorldMat;
+	InstanceData id;
+
+	DirectX::XMVECTOR mPositionVec;
+	DirectX::XMVECTOR mRotationVec;
+	DirectX::XMVECTOR mScaleVec;
+
+	DirectX::XMVECTOR mQuaternionVec;
+	DirectX::XMVECTOR mOrientationVec;
+
 	{
-		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
-		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
-		DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
-
-		DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
-		DirectX::XMVECTOR mOrientationVec;
-
 		mOrientationVec.m128_f32[0] = 0.0f;
 		mOrientationVec.m128_f32[1] = 0.0f;
 		mOrientationVec.m128_f32[2] = 0.0f;
 		mOrientationVec.m128_f32[3] = 1.0f;
 
-		DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		rotation.x = DirectX::XMConvertToRadians(rotation.x);
+		rotation.y = DirectX::XMConvertToRadians(rotation.y);
+		rotation.z = DirectX::XMConvertToRadians(rotation.z);
+
+		mPositionVec	= DirectX::XMLoadFloat3(&position);
+		mRotationVec	= DirectX::XMLoadFloat3(&rotation);
+		mScaleVec		= DirectX::XMLoadFloat3(&scale);
+
+		mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+
+		mWorldMat = DirectX::XMMatrixAffineTransformation(
 			mScaleVec,
 			mOrientationVec,
 			mQuaternionVec,
 			mPositionVec
 		);
 
-		InstanceData id;
-		DirectX::XMStoreFloat4x4(&id.World, mWorldMat);
-		id.TexTransform = MathHelper::Identity4x4();
-		id.MaterialIndex = 0;
-
-		if (r->mInstances.size() == 0)
+		if (r->InstanceCount == 0)
 			throw std::runtime_error("Instance Size must bigger than 0.");
-
-		r->mInstances.at(0) = id;
 	}
 
 	r->mFormat = "";
-	r->mRenderType = renderType;
 	r->isDrawShadow = isDrawShadow;
+	r->isDrawTexture = isDrawTexture;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
 	Box = Geom.CreateGrid(w, h, wc, hc);
-	mGameObjectDatas[r->mName]->SubmeshCount = 1;
-	mGameObjectDatas[r->mName]->mDesc.resize(1);
 
-	mGameObjectDatas[r->mName]->isCloth.push_back(false);
-	mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+	ObjectData* obj = mGameObjectDatas[r->mName];
+	if (!obj)
+	{
+		obj = new ObjectData();
+
+		for (UINT i = 0; i < r->InstanceCount; i++)
+		{
+			InstanceData id;
+			id.World = MathHelper::Identity4x4();
+			id.TexTransform = MathHelper::Identity4x4();
+			id.MaterialIndex = 0;
+
+			obj->mInstances.push_back(id);
+
+			BoundingBox bb;
+			bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+			bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+			// Bind Phy
+			obj->Bounds.push_back(bb);
+		}
+
+		obj->mPhyxResources.resize(r->InstanceCount);
+
+		mGameObjectDatas[r->mName] = obj;
+		obj = mGameObjectDatas[r->mName];
+	}
+
+	for (UINT i = 0; i < r->InstanceCount; i++)
+	{
+		DirectX::XMStoreFloat4x4(&obj->mInstances[i].World, mWorldMat);
+		
+		obj->mPhyxResources[i].Position[0]	= position.x;
+		obj->mPhyxResources[i].Position[1]	= position.y;
+		obj->mPhyxResources[i].Position[2]	= position.z;
+		obj->mPhyxResources[i].Rotation[0]	= rotation.x;
+		obj->mPhyxResources[i].Rotation[1]	= rotation.y;
+		obj->mPhyxResources[i].Rotation[2]	= rotation.z;
+		obj->mPhyxResources[i].Scale[0]		= scale.x;
+		obj->mPhyxResources[i].Scale[1]		= scale.y;
+		obj->mPhyxResources[i].Scale[2]		= scale.z;
+
+		memcpy(obj->mPhyxResources[i].Position, &position, sizeof(float) * 3);
+	}
+
+	obj->mName = r->mName;
+	obj->mFormat = r->mFormat;
+	obj->mRenderType = renderType;
+
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount = 1;
+	obj->mDesc.resize(1);
+
+	obj->isCloth.push_back(false);
+	obj->isRigidBody.push_back(false);
+
+	if (renderType == ObjectData::RenderType::_DRAW_MAP_RENDER_TYPE)
+		obj->isDrawTexture = true;
 
 	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
 	SubmeshGeometry boxSubmesh;
-	boxSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
-	boxSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
+	boxSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
+	boxSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
 
 	boxSubmesh.IndexSize = (UINT)Box.Indices32.size();
 	boxSubmesh.VertexSize = (UINT)Box.Vertices.size();
 
-	mGameObjectDatas[r->mName]->mDesc[0].StartIndexLocation = boxSubmesh.StartIndexLocation;
-	mGameObjectDatas[r->mName]->mDesc[0].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
+	// init Boundary(Collider) Box
+	if (obj->Bounds.size() > 0)
+	{
+		obj->Bounds[0].Extents.x = scale.x * w * 0.5f;
+		obj->Bounds[0].Extents.y = scale.y;
+		obj->Bounds[0].Extents.z = scale.z * h * 0.5f;
+	}
 
-	mGameObjectDatas[r->mName]->mDesc[0].IndexSize = boxSubmesh.IndexSize;
-	mGameObjectDatas[r->mName]->mDesc[0].VertexSize = boxSubmesh.VertexSize;
+	obj->mDesc[0].StartIndexLocation = boxSubmesh.StartIndexLocation;
+	obj->mDesc[0].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
+
+	obj->mDesc[0].IndexSize = boxSubmesh.IndexSize;
+	obj->mDesc[0].VertexSize = boxSubmesh.VertexSize;
 
 	// Submesh ����
 	r->SubmeshCount += 1;
 
-	r->mGeometry.subMeshCount += 1;
-	r->mGeometry.DrawArgs[Name.c_str()] = boxSubmesh;
-	r->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
-	r->mGeometry.meshNames.push_back(Name.c_str());
+	obj->mGeometry.subMeshCount += 1;
+	obj->mGeometry.DrawArgs[Name.c_str()] = boxSubmesh;
+	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.meshNames.push_back(Name.c_str());
 
-	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
+	size_t startV = obj->vertices.size();
 	XMVECTOR posV;
 
-	mGameObjectDatas[r->mName]->vertices.resize(startV + Box.Vertices.size());
+	obj->vertices.resize(startV + Box.Vertices.size());
 
-	Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
+	Vertex* v = obj->vertices.data();
 	for (size_t i = 0; i < (Box.Vertices.size()); ++i)
 	{
 		posV = XMLoadFloat3(&Box.Vertices[i].Position);
@@ -3731,15 +4438,17 @@ void BoxApp::CreateGridObject(
 		XMStoreFloat3(&v[i + startV].Pos, posV);
 	}
 
-	mGameObjectDatas[r->mName]->indices.insert(
-		mGameObjectDatas[r->mName]->indices.end(),
+	obj->indices.insert(
+		obj->indices.end(),
 		std::begin(Box.Indices32),
 		std::end(Box.Indices32)
 	);
 
 	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
-	r->mGeometry.VertexBufferByteSize += (UINT)Box.Vertices.size() * sizeof(Vertex);
-	r->mGeometry.IndexBufferByteSize += (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
+	obj->mGeometry.IndexSize			+= (UINT)Box.Indices32.size();
+
+	obj->mGeometry.VertexBufferByteSize	+= (UINT)Box.Vertices.size() * sizeof(Vertex);
+	obj->mGeometry.IndexBufferByteSize	+= (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
 }
 
 // Load Non-Skinned Object
@@ -3753,46 +4462,91 @@ void BoxApp::CreateFBXObject(
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
 	bool uvMode,
-	bool isDrawShadow
+	bool isDrawShadow,
+	bool isDrawTexture
 )
 {
 	GeometryGenerator Geom;
-	mGameObjectDatas[r->mName]->mFormat = "FBX";
 
+	ObjectData* obj = mGameObjectDatas[r->mName];
+	if (!obj)
 	{
-		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
-		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
-		DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
+		obj = new ObjectData();
 
-		DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
-		DirectX::XMVECTOR mOrientationVec;
+		for (UINT i = 0; i < r->InstanceCount; i++)
+		{
+			InstanceData id;
+			id.World = MathHelper::Identity4x4();
+			id.TexTransform = MathHelper::Identity4x4();
+			id.MaterialIndex = 0;
 
-		mOrientationVec.m128_f32[0] = 0.0f;
-		mOrientationVec.m128_f32[1] = 0.0f;
-		mOrientationVec.m128_f32[2] = 0.0f;
-		mOrientationVec.m128_f32[3] = 1.0f;
+			obj->mInstances.push_back(id);
 
-		DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
-			mScaleVec,
-			mOrientationVec,
-			mQuaternionVec,
-			mPositionVec
-		);
+			BoundingBox bb;
+			bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+			bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
 
-		InstanceData id;
-		DirectX::XMStoreFloat4x4(&id.World, mWorldMat);
-		id.TexTransform = MathHelper::Identity4x4();
-		id.MaterialIndex = 0;
+			// Bind Phy
+			obj->Bounds.push_back(bb);
+		}
 
-		for (int i = 0; i < r->mInstances.size(); i++)
-			r->mInstances.at(i) = id;
+		obj->mPhyxResources.resize(r->InstanceCount);
+
+		mGameObjectDatas[r->mName] = obj;
+		obj = mGameObjectDatas[r->mName];
 	}
 
-	r->mFormat = "FBX";
-	r->mRenderType = RenderItem::RenderType::_OPAQUE_RENDER_TYPE;
-	r->isDrawShadow = isDrawShadow;
+	obj->mName = r->mName;
+	obj->mFormat = "FBX";
+	obj->mRenderType = ObjectData::RenderType::_OPAQUE_RENDER_TYPE;
 
-	mRenderTypeCount[r->mRenderType] += 1;
+	rotation.x = DirectX::XMConvertToRadians(rotation.x);
+	rotation.y = DirectX::XMConvertToRadians(rotation.y);
+	rotation.z = DirectX::XMConvertToRadians(rotation.z);
+
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
+
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
+
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
+
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
+
+	r->mFormat = "FBX";
+	r->isDrawShadow = isDrawShadow;
+	r->isDrawTexture = isDrawTexture;
+
+	// init Boundary(Collider) Box
+	obj->Bounds[0].Center = position;
+	obj->Bounds[0].Extents = scale;
+
+	for (UINT inst = 0; inst < r->InstanceCount; inst++)
+	{
+		DirectX::XMStoreFloat4x4(&obj->mInstances[inst].World, mWorldMat);
+
+		obj->mPhyxResources[inst].Position[0]	= position.x;
+		obj->mPhyxResources[inst].Position[1]	= position.y;
+		obj->mPhyxResources[inst].Position[2]	= position.z;
+		obj->mPhyxResources[inst].Rotation[0]	= rotation.x;
+		obj->mPhyxResources[inst].Rotation[1]	= rotation.y;
+		obj->mPhyxResources[inst].Rotation[2]	= rotation.z;
+		obj->mPhyxResources[inst].Scale[0]		= scale.x;
+		obj->mPhyxResources[inst].Scale[1]		= scale.y;
+		obj->mPhyxResources[inst].Scale[2]		= scale.z;
+
+		// memcpy(obj->mPhyxResources[inst].Position, &position, sizeof(float) * 3);
+	}
 
 	// input subGeom
 	std::vector<GeometryGenerator::MeshData> meshData;
@@ -3802,10 +4556,11 @@ void BoxApp::CreateFBXObject(
 		uvMode
 	);
 
-	mGameObjectDatas[r->mName]->SubmeshCount = (UINT)meshData.size();
-	mGameObjectDatas[r->mName]->mDesc.resize(meshData.size());
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount = (UINT)meshData.size();
+	obj->mDesc.resize(meshData.size());
 
-	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
+	size_t startV = obj->vertices.size();
 
 	UINT indexOffset = 0;
 	UINT vertexOffset = 0;
@@ -3819,36 +4574,36 @@ void BoxApp::CreateFBXObject(
 		boxSubmesh.IndexSize = (UINT)meshData[subMeshCount].Indices32.size();
 		boxSubmesh.VertexSize = (UINT)meshData[subMeshCount].Vertices.size();
 
-		mGameObjectDatas[r->mName]->mDesc[subMeshCount].BaseVertexLocation = vertexOffset;
-		mGameObjectDatas[r->mName]->mDesc[subMeshCount].StartIndexLocation = indexOffset;
+		obj->mDesc[subMeshCount].BaseVertexLocation = vertexOffset;
+		obj->mDesc[subMeshCount].StartIndexLocation = indexOffset;
 
-		mGameObjectDatas[r->mName]->mDesc[subMeshCount].IndexSize = boxSubmesh.IndexSize;
-		mGameObjectDatas[r->mName]->mDesc[subMeshCount].VertexSize = boxSubmesh.VertexSize;
+		obj->mDesc[subMeshCount].IndexSize = boxSubmesh.IndexSize;
+		obj->mDesc[subMeshCount].VertexSize = boxSubmesh.VertexSize;
 
 		// �� ����޽��� Cloth physix �ε����� �ʱ�ȭ
-		mGameObjectDatas[r->mName]->isCloth.push_back(false);
-		mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+		obj->isCloth.push_back(false);
+		obj->isRigidBody.push_back(false);
 
 		// Submesh ����
 		r->SubmeshCount += 1;
 
-		r->mGeometry.subMeshCount += 1;
-		r->mGeometry.DrawArgs[submeshName] = boxSubmesh;
-		r->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(meshData[subMeshCount].texPath);
-		r->mGeometry.DrawArgs[submeshName].textureName = meshData[subMeshCount].texPath;
+		obj->mGeometry.subMeshCount += 1;
+		obj->mGeometry.DrawArgs[submeshName] = boxSubmesh;
+		obj->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(meshData[subMeshCount].texPath);
+		obj->mGeometry.DrawArgs[submeshName].textureName = meshData[subMeshCount].texPath;
 
-		r->mGeometry.DrawArgs[submeshName].BaseVertexLocation = vertexOffset;
-		r->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
+		obj->mGeometry.DrawArgs[submeshName].BaseVertexLocation = vertexOffset;
+		obj->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
 
 		// �ش� �̸��� �Ž��� ����Ǿ� ������ �˸��� ���� �̸��� ����
-		r->mGeometry.meshNames.push_back(submeshName);
-		texturePath.push_back(r->mGeometry.DrawArgs[submeshName].textureName);
+		obj->mGeometry.meshNames.push_back(submeshName);
+		texturePath.push_back(obj->mGeometry.DrawArgs[submeshName].textureName);
 
 		// _Geom ������ �����ϱ⿡ ���ؽ� ������ �������� �̸� ���صд�.
-		startV = mGameObjectDatas[r->mName]->vertices.size();
+		startV = obj->vertices.size();
 		// ���ο� Submesh�� �� ������ �����Ѵ�.
-		mGameObjectDatas[r->mName]->vertices.resize(startV + meshData[subMeshCount].Vertices.size());
-		Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
+		obj->vertices.resize(startV + meshData[subMeshCount].Vertices.size());
+		Vertex* v = obj->vertices.data();
 		// _Geometry�� �ϳ��� ������ ���� ���� ������ ������Ʈ���� �� �� ���� ���ؽ� ���� �ֱ��Ѵ�.
 		// �̴� ���Ŀ� Deprecated �� ��.
 		for (size_t i = 0; i < (meshData[subMeshCount].Vertices.size()); ++i)
@@ -3859,8 +4614,8 @@ void BoxApp::CreateFBXObject(
 			v[i + startV].TexC = meshData[subMeshCount].Vertices[i].TexC;
 		}
 
-		mGameObjectDatas[r->mName]->indices.insert(
-			mGameObjectDatas[r->mName]->indices.end(),
+		obj->indices.insert(
+			obj->indices.end(),
 			std::begin(meshData[subMeshCount].Indices32),
 			std::end(meshData[subMeshCount].Indices32)
 		);
@@ -3868,7 +4623,7 @@ void BoxApp::CreateFBXObject(
 		// Texture, Material �ڵ� ����
 		{
 			// ���� �ؽ��İ� �����Ѵٸ�
-			if (r->mGeometry.DrawArgs[submeshName].textureName != "")
+			if (obj->mGeometry.DrawArgs[submeshName].textureName != "")
 			{
 				Texture charTex;
 				std::string TexPath;
@@ -3887,7 +4642,7 @@ void BoxApp::CreateFBXObject(
 			}
 			else
 			{
-				this->BindMaterial(r, "Default", "bricksTex");
+				this->BindMaterial(r, "Default", "", "", "bricksTex");
 			}
 
 		}
@@ -3898,8 +4653,10 @@ void BoxApp::CreateFBXObject(
 		vertexOffset += boxSubmesh.VertexSize;
 		indexOffset += boxSubmesh.IndexSize;
 
-		r->mGeometry.VertexBufferByteSize += boxSubmesh.VertexSize * sizeof(Vertex);
-		r->mGeometry.IndexBufferByteSize += boxSubmesh.IndexSize * sizeof(std::uint32_t);
+		obj->mGeometry.IndexSize += (UINT)boxSubmesh.IndexSize;
+
+		obj->mGeometry.VertexBufferByteSize += boxSubmesh.VertexSize * sizeof(Vertex);
+		obj->mGeometry.IndexBufferByteSize += boxSubmesh.IndexSize * sizeof(std::uint32_t);
 	}
 }
 
@@ -3914,88 +4671,133 @@ void BoxApp::CreateFBXSkinnedObject(
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
 	bool uvMode,
-	bool isDrawShadow
+	bool isDrawShadow,
+	bool isDrawTexture
 )
 {
 	// input subGeom
 	std::vector<GeometryGenerator::MeshData> meshData;
 
 	GeometryGenerator Geom;
-	mGameObjectDatas[r->mName]->mFormat = "FBX";
 
+	ObjectData* obj = mGameObjectDatas[r->mName];
+	if (!obj)
 	{
-		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
-		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
-		DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
+		obj = new ObjectData();
 
-		DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
-		DirectX::XMVECTOR mOrientationVec;
+		for (UINT i = 0; i < r->InstanceCount; i++)
+		{
+			InstanceData id;
+			id.World = MathHelper::Identity4x4();
+			id.TexTransform = MathHelper::Identity4x4();
+			id.MaterialIndex = 0;
 
-		mOrientationVec.m128_f32[0] = 0.0f;
-		mOrientationVec.m128_f32[1] = 0.0f;
-		mOrientationVec.m128_f32[2] = 0.0f;
-		mOrientationVec.m128_f32[3] = 1.0f;
+			obj->mInstances.push_back(id);
 
-		DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
-			mScaleVec,
-			mOrientationVec,
-			mQuaternionVec,
-			mPositionVec
-		);
+			BoundingBox bb;
+			bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+			bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
 
-		InstanceData id;
-		DirectX::XMStoreFloat4x4(&id.World, mWorldMat);
-		id.TexTransform = MathHelper::Identity4x4();
-		id.MaterialIndex = 0;
+			// Bind Phy
+			obj->Bounds.push_back(bb);
+		}
 
-		for (int i = 0; i < r->mInstances.size(); i++)
-			r->mInstances.at(i) = id;
+		obj->mPhyxResources.resize(r->InstanceCount);
+
+		mGameObjectDatas[r->mName] = obj;
+		obj = mGameObjectDatas[r->mName];
 	}
 
+	obj->mName = r->mName;
+	obj->mFormat = "FBX";
+	obj->mRenderType = ObjectData::RenderType::_OPAQUE_SKINNED_RENDER_TYPE;
+
+	rotation.x = DirectX::XMConvertToRadians(rotation.x);
+	rotation.y = DirectX::XMConvertToRadians(rotation.y);
+	rotation.z = DirectX::XMConvertToRadians(rotation.z);
+
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
+
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
+
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
+
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
 
 	r->mFormat = "FBX";
-	r->mRenderType = RenderItem::RenderType::_OPAQUE_SKINNED_RENDER_TYPE;
 	r->isDrawShadow = isDrawShadow;
+	r->isDrawTexture = isDrawTexture;
 
-	mRenderTypeCount[r->mRenderType] += 1;
+	// init Boundary(Collider) Box
+	obj->Bounds[0].Center = position;
+	obj->Bounds[0].Extents = scale;
+
+	for (UINT inst = 0; inst < r->InstanceCount; inst++)
+	{
+		DirectX::XMStoreFloat4x4(&obj->mInstances[inst].World, mWorldMat);
+
+		obj->mPhyxResources[inst].Position[0] = position.x;
+		obj->mPhyxResources[inst].Position[1] = position.y;
+		obj->mPhyxResources[inst].Position[2] = position.z;
+		obj->mPhyxResources[inst].Rotation[0] = rotation.x;
+		obj->mPhyxResources[inst].Rotation[1] = rotation.y;
+		obj->mPhyxResources[inst].Rotation[2] = rotation.z;
+		obj->mPhyxResources[inst].Scale[0] = scale.x;
+		obj->mPhyxResources[inst].Scale[1] = scale.y;
+		obj->mPhyxResources[inst].Scale[2] = scale.z;
+
+		// memcpy(obj->mPhyxResources[inst].Position, &position, sizeof(float) * 3);
+	}
 
 	int res = Geom.CreateFBXSkinnedModel(
 		meshData,
 		(Path + "\\" + FileName),
-		mGameObjectDatas[r->mName]->animNameLists,
-		mGameObjectDatas[r->mName]->mStart,
-		mGameObjectDatas[r->mName]->mStop,
-		mGameObjectDatas[r->mName]->countOfFrame,
-		mGameObjectDatas[r->mName]->mAnimVertex,
-		mGameObjectDatas[r->mName]->mAnimVertexSize,
+		obj->animNameLists,
+		obj->mStart,
+		obj->mStop,
+		obj->countOfFrame,
+		obj->mAnimVertex,
+		obj->mAnimVertexSize,
 		uvMode
 	);
 
 	assert(!res && "(CreateFBXObject)Failed to create FBX Model on CreateFBXObject.");
 
 	// �� �ִϸ��̼��� �ϳ��� ������ �� �ð�(�� ����)�� �ִϸ��̼��� ��ü �෹�̼� (�� ����)�� ���ɴϴ�.
-	for (int animCount = 0; animCount < mGameObjectDatas[r->mName]->countOfFrame.size(); animCount++)
+	for (int animCount = 0; animCount < obj->countOfFrame.size(); animCount++)
 	{
-		mGameObjectDatas[r->mName]->durationPerSec.push_back((float)mGameObjectDatas[r->mName]->mStop[animCount].GetSecondDouble());
-		mGameObjectDatas[r->mName]->durationOfFrame.push_back(mGameObjectDatas[r->mName]->durationPerSec[animCount] / mGameObjectDatas[r->mName]->countOfFrame[animCount]);
+		obj->durationPerSec.push_back((float)obj->mStop[animCount].GetSecondDouble());
+		obj->durationOfFrame.push_back(obj->durationPerSec[animCount] / obj->countOfFrame[animCount]);
 	}
 
-	mGameObjectDatas[r->mName]->beginAnimIndex = 0;
-	mGameObjectDatas[r->mName]->currentFrame = 0;
-	mGameObjectDatas[r->mName]->currentDelayPerSec = 0;
+	obj->beginAnimIndex = 0;
+	obj->currentFrame = 0;
+	obj->currentDelayPerSec = 0;
 
-	mGameObjectDatas[r->mName]->endAnimIndex =
-		(float)mGameObjectDatas[r->mName]->durationPerSec[0] /
-		mGameObjectDatas[r->mName]->durationOfFrame[0];
+	obj->endAnimIndex =
+		(float)obj->durationPerSec[0] /
+		obj->durationOfFrame[0];
 
 	std::vector<PxClothParticle> vertices;
 	std::vector<PxU32> primitives;
 
-	mGameObjectDatas[r->mName]->SubmeshCount = (UINT)meshData.size();
-	mGameObjectDatas[r->mName]->mDesc.resize(meshData.size());
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount = (UINT)meshData.size();
+	obj->mDesc.resize(meshData.size());
 
 	// �� Submesh�� Offset�� �����ϴ� �뵵
-	size_t startV = mGameObjectDatas[r->mName]->vertices.size();
+	size_t startV = obj->vertices.size();
 
 	UINT indexOffset = 0;
 	UINT vertexOffset = 0;
@@ -4006,44 +4808,46 @@ void BoxApp::CreateFBXSkinnedObject(
 		std::string submeshName = Name + std::to_string(subMeshCount);
 
 		// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
-		boxSubmesh.StartIndexLocation = (UINT)r->mGeometry.IndexBufferByteSize;
-		boxSubmesh.BaseVertexLocation = (UINT)r->mGeometry.VertexBufferByteSize;
+		boxSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
+		boxSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
 
 		boxSubmesh.IndexSize = (UINT)meshData[subMeshCount].Indices32.size();
 		boxSubmesh.VertexSize = (UINT)meshData[subMeshCount].Vertices.size();
 
-		mGameObjectDatas[r->mName]->mDesc[subMeshCount].BaseVertexLocation = vertexOffset;
-		mGameObjectDatas[r->mName]->mDesc[subMeshCount].StartIndexLocation = indexOffset;
+		obj->mDesc[subMeshCount].BaseVertexLocation = vertexOffset;
+		obj->mDesc[subMeshCount].StartIndexLocation = indexOffset;
 
-		mGameObjectDatas[r->mName]->mDesc[subMeshCount].IndexSize = boxSubmesh.IndexSize;
-		mGameObjectDatas[r->mName]->mDesc[subMeshCount].VertexSize = boxSubmesh.VertexSize;
+		obj->mDesc[subMeshCount].IndexSize = boxSubmesh.IndexSize;
+		obj->mDesc[subMeshCount].VertexSize = boxSubmesh.VertexSize;
 
 		// �� ����޽��� Cloth physix �ε����� �ʱ�ȭ
-		mGameObjectDatas[r->mName]->isCloth.push_back(false);
-		mGameObjectDatas[r->mName]->isRigidBody.push_back(false);
+		obj->isCloth.push_back(false);
+		obj->isRigidBody.push_back(false);
 
 		// Submesh ����
 		r->SubmeshCount += 1;
 
-		r->mGeometry.subMeshCount += 1;
-		r->mGeometry.DrawArgs[submeshName] = boxSubmesh;
-		r->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(meshData[subMeshCount].texPath);
-		r->mGeometry.DrawArgs[submeshName].textureName = meshData[subMeshCount].texPath;
+		obj->mGeometry.subMeshCount += 1;
+		obj->mGeometry.DrawArgs[submeshName] = boxSubmesh;
+		obj->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(meshData[subMeshCount].texPath);
+		obj->mGeometry.DrawArgs[submeshName].textureName = meshData[subMeshCount].texPath;
 
-		r->mGeometry.DrawArgs[submeshName].BaseVertexLocation = vertexOffset;
-		r->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
+		obj->mGeometry.DrawArgs[submeshName].BaseVertexLocation = vertexOffset;
+		obj->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
 
 		////////////////
 
 		// �ش� �̸��� �Ž��� ����Ǿ� ������ �˸��� ���� �̸��� ����
-		r->mGeometry.meshNames.push_back(submeshName);
-		texturePath.push_back(r->mGeometry.DrawArgs[submeshName].textureName);
+		obj->mGeometry.meshNames.push_back(submeshName);
+		texturePath.push_back(obj->mGeometry.DrawArgs[submeshName].textureName);
+
+		//memcpy(r->mPhyxResources[subMeshCount].Position, &position, sizeof(float) * 3);
 
 		// _Geom ������ �����ϱ⿡ ���ؽ� ������ �������� �̸� ���صд�.
-		startV = (UINT)mGameObjectDatas[r->mName]->vertices.size();
+		startV = (UINT)obj->vertices.size();
 		// ���ο� Submesh�� �� ������ �����Ѵ�.
-		mGameObjectDatas[r->mName]->vertices.resize(startV + meshData[subMeshCount].Vertices.size());
-		Vertex* v = mGameObjectDatas[r->mName]->vertices.data();
+		obj->vertices.resize(startV + meshData[subMeshCount].Vertices.size());
+		Vertex* v = obj->vertices.data();
 
 		// _Geometry�� �ϳ��� ������ ���� ���� ������ ������Ʈ���� �� �� ���� ���ؽ� ���� �ֱ��Ѵ�.
 		// �̴� ���Ŀ� Deprecated �� ��.
@@ -4066,8 +4870,8 @@ void BoxApp::CreateFBXSkinnedObject(
 			v[i + startV].BoneIndices.w = 0;
 		}
 
-		mGameObjectDatas[r->mName]->indices.insert(
-			mGameObjectDatas[r->mName]->indices.end(),
+		obj->indices.insert(
+			obj->indices.end(),
 			std::begin(meshData[subMeshCount].Indices32),
 			std::end(meshData[subMeshCount].Indices32)
 		);
@@ -4075,7 +4879,7 @@ void BoxApp::CreateFBXSkinnedObject(
 		// Texture, Material �ڵ� ����
 		{
 			// ���� �ؽ��İ� �����Ѵٸ�
-			if (r->mGeometry.DrawArgs[submeshName].textureName != "")
+			if (obj->mGeometry.DrawArgs[submeshName].textureName != "")
 			{
 				Texture charTex;
 				std::string TexPath;
@@ -4104,8 +4908,10 @@ void BoxApp::CreateFBXSkinnedObject(
 		vertexOffset += boxSubmesh.VertexSize;
 		indexOffset += boxSubmesh.IndexSize;
 
-		r->mGeometry.VertexBufferByteSize += (UINT)meshData[subMeshCount].Vertices.size() * sizeof(Vertex);
-		r->mGeometry.IndexBufferByteSize += (UINT)meshData[subMeshCount].Indices32.size() * sizeof(std::uint32_t);
+		obj->mGeometry.IndexSize += (UINT)meshData[subMeshCount].Indices32.size();
+
+		obj->mGeometry.VertexBufferByteSize += (UINT)meshData[subMeshCount].Vertices.size() * sizeof(Vertex);
+		obj->mGeometry.IndexBufferByteSize += (UINT)meshData[subMeshCount].Indices32.size() * sizeof(std::uint32_t);
 	}
 }
 
@@ -4118,7 +4924,8 @@ void BoxApp::CreatePMXObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
-	bool isDrawShadow
+	bool isDrawShadow,
+	bool isDrawTexture
 )
 {
 	// meshData�� 0������ Vertices �迭
@@ -4126,36 +4933,36 @@ void BoxApp::CreatePMXObject(
 	std::vector<PxClothParticle> vertices;
 	std::vector<PxU32> primitives;
 
-	pmx::PmxModel* model = &mGameObjectDatas[r->mName]->mModel;
-	{
-		DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
-		DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
-		DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
+	ObjectData* obj = mGameObjectDatas[r->mName];
 
-		DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
-		DirectX::XMVECTOR mOrientationVec;
+	obj->mName = r->mName;
+	obj->mFormat = "PMX";
+	obj->mRenderType = ObjectData::RenderType::_PMX_FORMAT_RENDER_TYPE;
 
-		mOrientationVec.m128_f32[0] = 0.0f;
-		mOrientationVec.m128_f32[1] = 0.0f;
-		mOrientationVec.m128_f32[2] = 0.0f;
-		mOrientationVec.m128_f32[3] = 1.0f;
+	pmx::PmxModel* model = &obj->mModel;
 
-		DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
-			mScaleVec,
-			mOrientationVec,
-			mQuaternionVec,
-			mPositionVec
-		);
+	rotation.x = DirectX::XMConvertToRadians(rotation.x);
+	rotation.y = DirectX::XMConvertToRadians(rotation.y);
+	rotation.z = DirectX::XMConvertToRadians(rotation.z);
 
-		InstanceData id;
-		DirectX::XMStoreFloat4x4(&id.World, mWorldMat);
-		id.TexTransform = MathHelper::Identity4x4();
-		id.MaterialIndex = 0;
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
 
-		for (int i = 0; i < r->mInstances.size(); i++)
-			r->mInstances.at(i) = id;
-	}
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
 
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
+
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
 
 	// Read PMX
 	model->Init();
@@ -4165,18 +4972,38 @@ void BoxApp::CreatePMXObject(
 	model->Read(&stream);
 
 	r->mFormat = "PMX";
-	mGameObjectDatas[r->mName]->mFormat = "PMX";
-	r->mRenderType = RenderItem::RenderType::_PMX_FORMAT_RENDER_TYPE;
 	r->isDrawShadow = isDrawShadow;
+	r->isDrawTexture = isDrawTexture;
 
-	mRenderTypeCount[r->mRenderType] += 1;
+	// init Boundary(Collider) Box
+	obj->Bounds[0].Center = position;
+	//obj->Bounds[0].Extents = scale;
+	obj->Bounds[0].Extents = { 3.0f, 10.0f, 3.0f };
+
+	for (UINT inst = 0; inst < r->InstanceCount; inst++)
+	{
+		DirectX::XMStoreFloat4x4(&obj->mInstances[inst].World, mWorldMat);
+
+		obj->mPhyxResources[inst].Position[0]	= position.x;
+		obj->mPhyxResources[inst].Position[1]	= position.y;
+		obj->mPhyxResources[inst].Position[2]	= position.z;
+		obj->mPhyxResources[inst].Rotation[0]	= rotation.x;
+		obj->mPhyxResources[inst].Rotation[1]	= rotation.y;
+		obj->mPhyxResources[inst].Rotation[2]	= rotation.z;
+		obj->mPhyxResources[inst].Scale[0]		= scale.x;
+		obj->mPhyxResources[inst].Scale[1]		= scale.y;
+		obj->mPhyxResources[inst].Scale[2]		= scale.z;
+
+		// memcpy(obj->mPhyxResources[inst].Position, &position, sizeof(float) * 3);
+	}
 
 	// Load Submesh Count
 	int _SubMeshCount = model->material_count;
 
 	// GameObjects Data�� ���� ���� ����
-	mGameObjectDatas[r->mName]->SubmeshCount = _SubMeshCount;
-	mGameObjectDatas[r->mName]->mDesc.resize(_SubMeshCount);
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount = _SubMeshCount;
+	obj->mDesc.resize(_SubMeshCount);
 
 	//////////////////////////////////////////////////////////////
 	// �ܺ� �ִϸ��̼� ���� �о� Vertex�� ������Ʈ
@@ -4188,12 +5015,12 @@ void BoxApp::CreatePMXObject(
 
 	std::vector<std::vector<float*>> AssistCalcVar(mAnimFrameCount + 1);
 
-	mGameObjectDatas[r->mName]->mBoneMatrix.resize(mAnimFrameCount + 1);
+	obj->mBoneMatrix.resize(mAnimFrameCount + 1);
 
 	for (int i = 0; i < mAnimFrameCount; i++)
 	{
 		AssistCalcVar[i].resize(model->bone_count);
-		mGameObjectDatas[r->mName]->mBoneMatrix[i].resize(model->bone_count);
+		obj->mBoneMatrix[i].resize(model->bone_count);
 		for (int j = 0; j < model->bone_count; j++)
 		{
 			// Mat
@@ -4201,14 +5028,14 @@ void BoxApp::CreatePMXObject(
 		}
 	}
 
-	mGameObjectDatas[r->mName]->beginAnimIndex = 0;
-	mGameObjectDatas[r->mName]->currentFrame = 0;
-	mGameObjectDatas[r->mName]->currentDelayPerSec = 0;
+	obj->beginAnimIndex = 0;
+	obj->currentFrame = 0;
+	obj->currentDelayPerSec = 0;
 
-	mGameObjectDatas[r->mName]->endAnimIndex = (float)mAnimFrameCount;
+	obj->endAnimIndex = (float)mAnimFrameCount;
 
 	// Base Origin Bone SRT Matrix
-	mGameObjectDatas[r->mName]->mOriginRevMatrix.resize(model->bone_count);
+	obj->mOriginRevMatrix.resize(model->bone_count);
 
 	float* mBoneOriginPositionBuffer = NULL;
 	float* mBonePositionBuffer = NULL;
@@ -4220,6 +5047,56 @@ void BoxApp::CreatePMXObject(
 			animBuffer.read((char*)AssistCalcVar[i][j], sizeof(float) * 8);
 		}
 	}
+
+	obj->mAnimationClip.appendClip("IDLE2", 15.0f, 90.0f);
+	obj->mAnimationClip.appendClip("IDLE2toIDLE1", 91.0f, 131.0f);
+	obj->mAnimationClip.appendClip("IDLE1", 132.0f, 232.0f);
+	obj->mAnimationClip.appendClip("IDLE1toIDLE2", 233.0f, 273.0f);
+
+	obj->mAnimationClip.appendClip("JUMP_BACK", 274.0f, 299.0f);
+	obj->mAnimationClip.appendClip("JUMP_LEFT", 300.0f, 325.0f);
+	obj->mAnimationClip.appendClip("JUMP_RIGHT", 326.0f, 351.0f);
+
+	obj->mAnimationClip.appendClip("KNOCKED_BACKWARD", 352.0f, 393.0f);
+	obj->mAnimationClip.appendClip("DOWN_BACK", 394.0f, 434.0f);
+	obj->mAnimationClip.appendClip("RECOVER_FROM_KNOCKED_BACKWARD", 435.0f, 475.0f);
+
+	obj->mAnimationClip.appendClip("KNOCKED_FORWARD", 476.0f, 504.0f);
+	obj->mAnimationClip.appendClip("DOWN_FORWARD", 505.0f, 545.0f);
+	obj->mAnimationClip.appendClip("RECOVER_FROM_KNOCKED_FORWARD", 546.0f, 578.0f);
+
+	obj->mAnimationClip.appendClip("MAGIC_SHOT_STRIGHT", 666.0f, 701.0f);
+
+	obj->mAnimationClip.appendClip("DODGE_BACKWARD", 885.0f, 920.0f);
+	obj->mAnimationClip.appendClip("DODGE_TO_LEFT", 921.0f, 956.0f);
+	obj->mAnimationClip.appendClip("DODGE_TO_RIGHT", 957.0f, 992.0f);
+	obj->mAnimationClip.appendClip("DODGE_TO_BACK", 993.0f, 1028.0f);
+	obj->mAnimationClip.appendClip("DODGE_TO_FRONT", 1029.0f, 1064.0f);
+
+	obj->mAnimationClip.appendClip("EARTHQUAKE_SPELL", 1172.0f, 1207.0f);
+	obj->mAnimationClip.appendClip("HIT_STRIGHT_DOWN", 1208.0f, 1243.0f);
+	obj->mAnimationClip.appendClip("HIT_SWING_RIGHT", 1244.0f, 1279.0f);
+
+	obj->mAnimationClip.appendClip("DYING_A", 2220.0f, 2260.0f);
+	obj->mAnimationClip.appendClip("DYING_B", 1280.0f, 1345.0f);
+
+	obj->mAnimationClip.appendClip("DRINKING_POTION", 1568.0f, 1623.0f);
+
+	obj->mAnimationClip.appendClip("SPELL_CAST_1", 2082.0f, 2117.0f);
+	obj->mAnimationClip.appendClip("SPELL_CAST_2", 2118.0f, 2178.0f);
+
+	obj->mAnimationClip.appendClip("WALK", 2309.0f, 2344.0f);
+	obj->mAnimationClip.appendClip("RUN", 2796.0f, 2831.0f);
+	obj->mAnimationClip.appendClip("RUN_A", 2492.0f, 2536.0f);
+	obj->mAnimationClip.appendClip("RUN_B", 2537.0f, 2581.0f);
+	obj->mAnimationClip.appendClip("RUN_C", 2582.0f, 2626.0f);
+	obj->mAnimationClip.appendClip("RUN_D", 2627.0f, 2671.0f);
+
+	obj->mAnimationClip.appendClip("DIAGONAL_LEFT", 2677.0f, 2711.0f);
+	obj->mAnimationClip.appendClip("DIAGONAL_RIGHT", 2717.0f, 2751.0f);
+	obj->mAnimationClip.appendClip("STRIFE_LEFT", 3239.0f, 3273.0f);
+	obj->mAnimationClip.appendClip("STRIFE_RIGHT", 3279.0f, 3313.0f);
+
 
 	//////////////////////////////////////
 	// Morph
@@ -4257,26 +5134,26 @@ void BoxApp::CreatePMXObject(
 				mMorph.mVertOffset[j][2] = vertOff[j].position_offset[2];
 			}
 
-			mGameObjectDatas[r->mName]->mMorph.push_back(mMorph);
+			obj->mMorph.push_back(mMorph);
 		}
 	}
 
-	std::vector<struct ObjectData::_VERTEX_MORPH_DESCRIPTOR> test = mGameObjectDatas[r->mName]->mMorph;
+	std::vector<struct ObjectData::_VERTEX_MORPH_DESCRIPTOR> test = obj->mMorph;
 
-	mGameObjectDatas[r->mName]->mMorph[19].mVertWeight = 1.0f;
-	mGameObjectDatas[r->mName]->mMorphDirty.push_back(9);
+	obj->mMorph[9].mVertWeight = 1.0f;
+	obj->mMorphDirty.push_back(9);
 
-	mGameObjectDatas[r->mName]->mMorph[19].mVertWeight = 1.0f;
-	mGameObjectDatas[r->mName]->mMorphDirty.push_back(19);
+	obj->mMorph[19].mVertWeight = 1.0f;
+	obj->mMorphDirty.push_back(19);
 
-	mGameObjectDatas[r->mName]->mMorph[27].mVertWeight = 1.0f;
-	mGameObjectDatas[r->mName]->mMorphDirty.push_back(27);
+	obj->mMorph[27].mVertWeight = 1.0f;
+	obj->mMorphDirty.push_back(27);
 
-	mGameObjectDatas[r->mName]->mMorph[41].mVertWeight = 1.0f;
-	mGameObjectDatas[r->mName]->mMorphDirty.push_back(41);
+	obj->mMorph[41].mVertWeight = 1.0f;
+	obj->mMorphDirty.push_back(41);
 
-	mGameObjectDatas[r->mName]->mMorph[52].mVertWeight = 1.0f;
-	mGameObjectDatas[r->mName]->mMorphDirty.push_back(41);
+	obj->mMorph[52].mVertWeight = 1.0f;
+	obj->mMorphDirty.push_back(52);
 
 	//////////////////////////////////////
 
@@ -4322,7 +5199,7 @@ void BoxApp::CreatePMXObject(
 		M = DirectX::XMMatrixInverse(&det, OM);
 		M = DirectX::XMMatrixTranspose(M);
 
-		DirectX::XMStoreFloat4x4(&mGameObjectDatas[r->mName]->mOriginRevMatrix[i], M);
+		DirectX::XMStoreFloat4x4(&obj->mOriginRevMatrix[i], M);
 	}
 
 	// �ִϸ��̼� ����
@@ -4351,7 +5228,7 @@ void BoxApp::CreatePMXObject(
 			M = XMMatrixAffineTransformation(S, O, Q, T);
 			M = DirectX::XMMatrixTranspose(M);
 
-			DirectX::XMStoreFloat4x4(&mGameObjectDatas[r->mName]->mBoneMatrix[i][j], M);
+			DirectX::XMStoreFloat4x4(&obj->mBoneMatrix[i][j], M);
 		}
 	}
 
@@ -4666,8 +5543,8 @@ void BoxApp::CreatePMXObject(
 	float vertWeight;
 	bool mIsCloth;
 
-	mGameObjectDatas[r->mName]->mClothWeights.resize(model->vertex_count);
-	mGameObjectDatas[r->mName]->isCloth.resize(model->material_count);
+	obj->mClothWeights.resize(model->vertex_count);
+	obj->isCloth.resize(model->material_count);
 	while (true)
 	{
 		inFile.read((char*)&vertIDX, sizeof(int));
@@ -4676,16 +5553,16 @@ void BoxApp::CreatePMXObject(
 
 		/*mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = vertWeight;*/
 		if (vertWeight > 0.6f)
-			mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = 0.1f;
+			obj->mClothWeights[vertIDX] = 0.1f;
 		else
-			mGameObjectDatas[r->mName]->mClothWeights[vertIDX] = vertWeight * 0.02f;
+			obj->mClothWeights[vertIDX] = vertWeight * 0.02f;
 	}
 
 	int count = 0;
 	while (count < model->material_count)
 	{
 		inFile.read((char*)&mIsCloth, sizeof(bool));
-		mGameObjectDatas[r->mName]->isCloth[count++] = mIsCloth;
+		obj->isCloth[count++] = mIsCloth;
 	}
 
 	inFile.close();
@@ -4730,27 +5607,27 @@ void BoxApp::CreatePMXObject(
 	pTime = FbxTime::GetFrameRate(FbxTime::EMode::eFrames30);
 	pTime = 1.0 / pTime;
 
-	mGameObjectDatas[r->mName]->durationPerSec.push_back(mAnimFrameCount);
-	mGameObjectDatas[r->mName]->durationOfFrame.push_back((float)pTime);
+	obj->durationPerSec.push_back(mAnimFrameCount);
+	obj->durationOfFrame.push_back((float)pTime);
 
 	////
 	UINT32 mCeil = 0;
 	UINT32 mIDXAcculation = 0;
 
-	mGameObjectDatas[r->mName]->vertBySubmesh.resize(model->material_count);
+	obj->vertBySubmesh.resize(model->material_count);
 	for (int i = 0; i < model->material_count; i++)
 	{
 		mCeil = mIDXAcculation + model->materials[i].index_count;
 		for (UINT j = mIDXAcculation; j < mCeil; j++)
 		{
-			mGameObjectDatas[r->mName]->vertBySubmesh[i].insert(model->indices[j]);
+			obj->vertBySubmesh[i].insert(model->indices[j]);
 		}
 
 		mIDXAcculation += model->materials[i].index_count;
 	}
 
 	////
-	mGameObjectDatas[r->mName]->isRigidBody.resize(_SubMeshCount);
+	obj->isRigidBody.resize(_SubMeshCount);
 	for (int subMeshIDX = 0; subMeshIDX < _SubMeshCount; ++subMeshIDX)
 	{
 		SubmeshGeometry boxSubmesh;
@@ -4767,7 +5644,7 @@ void BoxApp::CreatePMXObject(
 		boxSubmesh.StartIndexLocation = (UINT)indexOffset;
 
 		// �� submesh�� ���ε� �� ���ؽ�, �ε��� ����
-		boxSubmesh.VertexSize = (UINT)mGameObjectDatas[r->mName]->vertBySubmesh[subMeshIDX].size();
+		boxSubmesh.VertexSize = (UINT)obj->vertBySubmesh[subMeshIDX].size();
 		boxSubmesh.IndexSize = (UINT)model->materials[subMeshIDX].index_count;
 
 		std::string matName;
@@ -4776,43 +5653,43 @@ void BoxApp::CreatePMXObject(
 			model->materials[subMeshIDX].material_english_name.end()
 		);
 		if (matName.find("_Rigid_Body") != std::string::npos) {
-			mGameObjectDatas[r->mName]->isRigidBody[subMeshIDX] = true;
+			obj->isRigidBody[subMeshIDX] = true;
 		}
 		else {
-			mGameObjectDatas[r->mName]->isRigidBody[subMeshIDX] = false;
+			obj->isRigidBody[subMeshIDX] = false;
 		}
 
-		mGameObjectDatas[r->mName]->mDesc[subMeshIDX].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
-		mGameObjectDatas[r->mName]->mDesc[subMeshIDX].StartIndexLocation = boxSubmesh.StartIndexLocation;
+		obj->mDesc[subMeshIDX].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
+		obj->mDesc[subMeshIDX].StartIndexLocation = boxSubmesh.StartIndexLocation;
 
-		mGameObjectDatas[r->mName]->mDesc[subMeshIDX].VertexSize = boxSubmesh.VertexSize;
-		mGameObjectDatas[r->mName]->mDesc[subMeshIDX].IndexSize = boxSubmesh.IndexSize;
+		obj->mDesc[subMeshIDX].VertexSize = boxSubmesh.VertexSize;
+		obj->mDesc[subMeshIDX].IndexSize = boxSubmesh.IndexSize;
 
 		// Submesh ����
 		r->SubmeshCount += 1;
 
-		r->mGeometry.subMeshCount += 1;
-		r->mGeometry.DrawArgs[submeshName] = boxSubmesh;
+		obj->mGeometry.subMeshCount += 1;
+		obj->mGeometry.DrawArgs[submeshName] = boxSubmesh;
 		if (diffuseTextureIDX >= 0) {
-			r->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(texturePath[diffuseTextureIDX]);
-			r->mGeometry.DrawArgs[submeshName].textureName = texturePath[diffuseTextureIDX];
+			obj->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(texturePath[diffuseTextureIDX]);
+			obj->mGeometry.DrawArgs[submeshName].textureName = texturePath[diffuseTextureIDX];
 		}
 		else {
-			r->mGeometry.DrawArgs[submeshName].name = "";
-			r->mGeometry.DrawArgs[submeshName].textureName = "";
+			obj->mGeometry.DrawArgs[submeshName].name = "";
+			obj->mGeometry.DrawArgs[submeshName].textureName = "";
 		}
 
-		r->mGeometry.DrawArgs[submeshName].BaseVertexLocation = 0;
-		r->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
+		obj->mGeometry.DrawArgs[submeshName].BaseVertexLocation = 0;
+		obj->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
 
 		// �ش� �̸��� �Ž��� ����Ǿ� ������ �˸��� ���� �̸��� ����
 		// DrawArgs���� �ٽ� �ش� Submesh�� �ε��� �� �ֵ��� �̸��� ����
-		r->mGeometry.meshNames.push_back(submeshName);
+		obj->mGeometry.meshNames.push_back(submeshName);
 
 		// Texture, Material �ڵ� ����
 		{
 			// ���� �ؽ��İ� �����Ѵٸ�
-			if (r->mGeometry.DrawArgs[submeshName].textureName != "")
+			if (obj->mGeometry.DrawArgs[submeshName].textureName != "")
 			{
 				std::string texName = d3dUtil::getName(texturePath[diffuseTextureIDX]);
 				this->BindMaterial(r, texName, false);
@@ -4829,9 +5706,100 @@ void BoxApp::CreatePMXObject(
 		indexOffset += boxSubmesh.IndexSize;
 	}
 
+	//memcpy(r->mPhyxResources[0].Position, &position, sizeof(float) * 3);
+
 	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
-	r->mGeometry.VertexBufferByteSize = model->vertex_count * sizeof(Vertex);
-	r->mGeometry.IndexBufferByteSize = model->index_count * sizeof(uint32_t);
+	obj->mGeometry.IndexSize += (UINT)model->index_count;
+
+	obj->mGeometry.VertexBufferByteSize = model->vertex_count * sizeof(Vertex);
+	obj->mGeometry.IndexBufferByteSize = model->index_count * sizeof(uint32_t);
+}
+
+void BoxApp::CreateDebugBoxObject (
+	_In_ RenderItem* r
+	) 
+{
+	ObjectData* obj = mGameObjectDatas[r->mName];
+
+	obj->isDebugBox = true;
+
+	obj->mDebugBoxData = std::make_unique<ObjectData>();
+
+	obj->mDebugBoxData->mFormat = "Debug";
+	obj->mDebugBoxData->mRenderType = ObjectData::RenderType::_DEBUG_BOX_TYPE;
+	obj->mDebugBoxData->isDrawShadow = false;
+	obj->mDebugBoxData->isDrawTexture = false;
+
+	// input subGeom
+	GeometryGenerator Geom;
+	GeometryGenerator::MeshData Box;
+	Box = Geom.CreateBox(
+		obj->Bounds[0].Extents.x * 2.0f, 
+		obj->Bounds[0].Extents.y,
+		obj->Bounds[0].Extents.z * 2.0f,
+		0
+	);
+
+	obj->mDebugBoxData->InstanceCount += 1;
+
+	obj->mDebugBoxData->SubmeshCount += 1;
+	obj->mDebugBoxData->mDesc.resize(obj->mDebugBoxData->SubmeshCount);
+
+	obj->mDebugBoxData->isCloth.push_back(false);
+	obj->mDebugBoxData->isRigidBody.push_back(false);
+
+	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
+	SubmeshGeometry boxSubmesh;
+	boxSubmesh.StartIndexLocation = (UINT)obj->mDebugBoxData->mGeometry.IndexBufferByteSize;
+	boxSubmesh.BaseVertexLocation = (UINT)obj->mDebugBoxData->mGeometry.VertexBufferByteSize;
+
+	boxSubmesh.IndexSize = (UINT)Box.Indices32.size();
+	boxSubmesh.VertexSize = (UINT)Box.Vertices.size();
+
+	obj->mDebugBoxData->mDesc[0].StartIndexLocation = boxSubmesh.StartIndexLocation;
+	obj->mDebugBoxData->mDesc[0].BaseVertexLocation = boxSubmesh.BaseVertexLocation;
+
+	obj->mDebugBoxData->mDesc[0].IndexSize = boxSubmesh.IndexSize;
+	obj->mDebugBoxData->mDesc[0].VertexSize = boxSubmesh.VertexSize;
+
+	// Submesh ����
+	std::string submeshName = "_DEBUG_" + r->mName;
+
+	obj->mDebugBoxData->mGeometry.subMeshCount							+= 1;
+	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].StartIndexLocation	= boxSubmesh.StartIndexLocation;
+	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].BaseVertexLocation	= boxSubmesh.BaseVertexLocation;
+	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].IndexSize				= boxSubmesh.IndexSize;
+	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].VertexSize			= boxSubmesh.VertexSize;
+	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].textureName			= "";
+	obj->mDebugBoxData->mGeometry.meshNames.push_back(submeshName);
+
+	size_t startV = obj->mDebugBoxData->vertices.size();
+	XMVECTOR posV;
+
+	obj->mDebugBoxData->vertices.resize(startV + Box.Vertices.size());
+
+	Vertex* v = obj->mDebugBoxData->vertices.data();
+	for (size_t i = 0; i < (Box.Vertices.size()); ++i)
+	{
+		posV = XMLoadFloat3(&Box.Vertices[i].Position);
+
+		v[i + startV].Normal = Box.Vertices[i].Normal;
+		v[i + startV].TexC = Box.Vertices[i].TexC;
+
+		XMStoreFloat3(&v[i + startV].Pos, posV);
+	}
+
+	obj->mDebugBoxData->indices.insert(
+		obj->mDebugBoxData->indices.end(),
+		std::begin(Box.Indices32),
+		std::end(Box.Indices32)
+	);
+
+	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
+	obj->mDebugBoxData->mGeometry.IndexSize += (UINT)Box.Indices32.size();
+
+	obj->mDebugBoxData->mGeometry.VertexBufferByteSize += (UINT)Box.Vertices.size() * sizeof(Vertex);
+	obj->mDebugBoxData->mGeometry.IndexBufferByteSize += (UINT)Box.Indices32.size() * sizeof(std::uint32_t);
 }
 
 // Load Skinned Object
@@ -4846,7 +5814,6 @@ void BoxApp::ExtractAnimBones(
 	GeometryGenerator Geom;
 
 	r->mFormat = "FBX";
-	r->mRenderType = RenderItem::RenderType::_OPAQUE_SKINNED_RENDER_TYPE;
 
 	// SRT
 	DirectX::XMFLOAT4X4 SRT = MathHelper::Identity4x4();
@@ -4868,6 +5835,18 @@ void BoxApp::ExtractAnimBones(
 	assert(!res &&  "(CreateFBXObject)Failed to extract FBX Data on ExtractedAnimationBone.");
 }
 
+// Load Skinned Object
+void BoxApp::SetBoundBoxScale(
+	_Out_ RenderItem* r,
+	_In_ XMFLOAT3	scale
+)
+{
+	for (UINT inst = 0; inst < r->InstanceCount; inst++)
+	{
+		mGameObjectDatas[r->mName]->Bounds[inst].Extents = scale;
+	}
+}
+
 void BoxApp::uploadTexture(_In_ Texture& tex, _In_ bool isSky) {
 	try {
 		for (int i = 0; i < mTextureList.size(); i++)
@@ -4878,6 +5857,8 @@ void BoxApp::uploadTexture(_In_ Texture& tex, _In_ bool isSky) {
 			}
 		}
 
+		int width, height;
+
 		// Define Texture
 		{
 			ThrowIfFailed(
@@ -4886,7 +5867,9 @@ void BoxApp::uploadTexture(_In_ Texture& tex, _In_ bool isSky) {
 					mCommandList.Get(),
 					tex.Filename.c_str(),
 					tex.Resource,
-					tex.UploadHeap
+					tex.UploadHeap,
+					&width, 
+					&height
 				)
 			);
 
@@ -4929,7 +5912,11 @@ void BoxApp::uploadMaterial(_In_ std::string name, _In_ bool isSkyTexture) {
 	}
 }
 
-void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName, _In_ bool isSkyTexture)
+void BoxApp::uploadMaterial(
+	_In_ std::string matName, 
+	_In_ std::string texName, 
+	_In_ bool isSkyTexture
+)
 {
 	std::vector<std::pair<std::string, Material>>::iterator it = mMaterials.begin();
 	std::vector<std::pair<std::string, Material>>::iterator itEnd = mMaterials.end();
@@ -4967,7 +5954,70 @@ void BoxApp::uploadMaterial(_In_ std::string matName, _In_ std::string texName, 
 
 	// DiffuseSrvHeapIndex�� ������ ���� �Ҵ��� �ް� �Ǹ�, �������� �ִ� mTexture�� Ư������ ���Ͽ� ���� �ؽ��ĸ� ĳ���� �ϰ� �˴ϴ�.
 	mat.DiffuseSrvHeapIndex = diffuseIDX;
-	mat.NormalSrvHeapIndex = diffuseIDX;
+	mat.NormalSrvHeapIndex	= diffuseIDX;
+	mat.MaskSrvHeapIndex	= 0;
+	mat.NoiseSrvHeapIndex	= 0;
+
+	std::pair<std::string, Material> res(matName, mat);
+	mMaterials.push_back(res);
+}
+
+void BoxApp::uploadMaterial(
+	_In_ std::string matName, 
+	_In_ std::string tex_Diffuse_Name, 
+	_In_ std::string tex_Mask_Name,
+	_In_ std::string tex_Noise_Name,
+	_In_ bool isSkyTexture
+)
+{
+	std::vector<std::pair<std::string, Material>>::iterator it = mMaterials.begin();
+	std::vector<std::pair<std::string, Material>>::iterator itEnd = mMaterials.end();
+	for (; it != itEnd; it++)
+	{
+		if (it->second.Name == matName)
+			return;
+	}
+
+	// Define Material
+
+	Material mat;
+	mat.Name = matName.c_str();
+	mat.MatCBIndex = (int)mMaterials.size();
+	mat.DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	mat.FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	mat.Roughness = 0.1f;
+	mat.isSkyTexture = isSkyTexture;
+
+	// Define Texture
+
+	bool isFound	= false;
+	int diffuseIDX	= -1;
+	int MaskIDX		= -1;
+	int NoiseIDX	= -1;
+
+	for (int idx = 0; idx < mTextureList.size(); idx++) {
+		if (mTextureList[idx] == tex_Diffuse_Name)
+			diffuseIDX	= idx;
+		if (mTextureList[idx] == tex_Mask_Name)
+			MaskIDX		= idx;
+		if (mTextureList[idx] == tex_Noise_Name)
+			NoiseIDX	= idx;
+	}
+
+	if (
+		diffuseIDX	== -1 ||
+		MaskIDX		== -1 ||
+		NoiseIDX	== -1
+		)
+	{
+		throw std::runtime_error("이미지 파일을 찾지 못하였습니다.");
+	}
+
+	// DiffuseSrvHeapIndex�� ������ ���� �Ҵ��� �ް� �Ǹ�, �������� �ִ� mTexture�� Ư������ ���Ͽ� ���� �ؽ��ĸ� ĳ���� �ϰ� �˴ϴ�.
+	mat.DiffuseSrvHeapIndex = diffuseIDX;
+	mat.NormalSrvHeapIndex	= diffuseIDX;
+	mat.MaskSrvHeapIndex	= MaskIDX;
+	mat.NoiseSrvHeapIndex	= NoiseIDX;
 
 	std::pair<std::string, Material> res(matName, mat);
 	mMaterials.push_back(res);
@@ -4982,9 +6032,11 @@ void BoxApp::uploadLight(Light light)
 void BoxApp::BindTexture(RenderItem* r, std::string name, int idx, bool isCubeMap) {
 	assert(r  && "The RenderItem is NULL!");
 
+	ObjectData* obj = mGameObjectDatas[r->mName];
+
 	if (!isCubeMap)
 	{
-		if (r->Mat.size() <= idx)
+		if (obj->Mat.size() <= idx)
 			throw std::runtime_error("Index is equal or over than r->Mat size.");
 
 		bool isFound = false;
@@ -5000,12 +6052,12 @@ void BoxApp::BindTexture(RenderItem* r, std::string name, int idx, bool isCubeMa
 
 		assert(isFound && "Can't find Texture which same with NAME!!");
 
-		r->Mat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
-		r->Mat[idx]->NormalSrvHeapIndex = diffuseIDX;
+		obj->Mat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
+		obj->Mat[idx]->NormalSrvHeapIndex = diffuseIDX;
 	}
 	else
 	{
-		if (r->SkyMat.size() <= idx)
+		if (obj->SkyMat.size() <= idx)
 			throw std::runtime_error("Index is equal or over than r->SkyMat size.");
 
 		bool isFound = false;
@@ -5021,13 +6073,19 @@ void BoxApp::BindTexture(RenderItem* r, std::string name, int idx, bool isCubeMa
 
 		assert(isFound && "Can't find Texture which same with NAME!!");
 
-		r->SkyMat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
-		r->SkyMat[idx]->NormalSrvHeapIndex = diffuseIDX;
+		obj->SkyMat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
+		obj->SkyMat[idx]->NormalSrvHeapIndex = diffuseIDX;
 	}
 }
 
-void BoxApp::BindMaterial(RenderItem* r, std::string name, bool isCubeMap) {
+void BoxApp::BindMaterial(
+	RenderItem* r,
+	std::string name,
+	bool isCubeMap
+) {
 	assert(r && "The RenderItem is NULL");
+
+	ObjectData* obj = mGameObjectDatas[r->mName];
 
 	Material* m = new Material;
 	r->isSky = isCubeMap;
@@ -5057,15 +6115,67 @@ void BoxApp::BindMaterial(RenderItem* r, std::string name, bool isCubeMap) {
 
 	if (!isCubeMap)
 	{
-		r->Mat.push_back(m);
+		obj->Mat.push_back(m);
 	}
 	else
 	{
-		r->SkyMat.push_back(m);
+		obj->SkyMat.push_back(m);
 	}
 }
 
-void BoxApp::BindMaterial(RenderItem* r, std::string matName, std::string texName, bool isCubeMap) {
+void BoxApp::BindMaterial(
+	RenderItem* r, 
+	std::string name,
+	std::string maskTexName,
+	std::string noiseTexName,
+	bool isCubeMap
+) {
+	assert(r && "The RenderItem is NULL");
+
+	ObjectData* obj = mGameObjectDatas[r->mName];
+
+	Material* m = new Material;
+	r->isSky = isCubeMap;
+	m->isSkyTexture = isCubeMap;
+
+	for (auto& i = mMaterials.begin(); i != mMaterials.end(); i++) {
+		if (i->second.Name == name) {
+			//m = &i->second;
+
+			m->Name = i->second.Name;
+			m->DiffuseAlbedo = i->second.DiffuseAlbedo;
+			m->DiffuseSrvHeapIndex = i->second.DiffuseSrvHeapIndex;
+			m->FresnelR0 = i->second.FresnelR0;
+			m->isSkyTexture = i->second.isSkyTexture;
+			m->MatCBIndex = i->second.MatCBIndex;
+			m->MatInstIndex = i->second.MatInstIndex;
+			m->MatTransform = i->second.MatTransform;
+			m->NormalSrvHeapIndex = i->second.NormalSrvHeapIndex;
+			m->NumFramesDirty = i->second.NumFramesDirty;
+			m->Roughness = i->second.Roughness;
+
+			break;
+		}
+	}
+
+	assert(m && "Can't find Material which same with NAME!!");
+
+	if (!isCubeMap)
+	{
+		obj->Mat.push_back(m);
+	}
+	else
+	{
+		obj->SkyMat.push_back(m);
+	}
+}
+
+void BoxApp::BindMaterial(
+	RenderItem* r,
+	std::string matName,
+	std::string texName,
+	bool isCubeMap
+) {
 	assert(r && "The RenderItem is NULL");
 
 	r->isSky = isCubeMap;
@@ -5099,7 +6209,263 @@ void BoxApp::BindMaterial(RenderItem* r, std::string matName, std::string texNam
 	m->DiffuseSrvHeapIndex = diffuseIDX;
 	m->NormalSrvHeapIndex = diffuseIDX;
 
-	r->Mat.push_back(m);
+	mGameObjectDatas[r->mName]->Mat.push_back(m);
+}
+
+void BoxApp::BindMaterial(
+	RenderItem* r, 
+	std::string matName, 
+	std::string texName, 
+	std::string maskTexName,
+	std::string noiseTexName,
+	bool isCubeMap
+) {
+	assert(r && "The RenderItem is NULL");
+
+	r->isSky = isCubeMap;
+
+	// Define of Material
+	Material* m = NULL;
+	for (auto& i = mMaterials.begin(); i != mMaterials.end(); i++) {
+		if (i->second.Name == matName) {
+			m = &i->second;
+			break;
+		}
+	}
+
+	assert(m && "Can't find Material which same with NAME!!");
+
+	// Define of Texture
+	int diffuseIDX	= -1;
+	int maskIDX		= -1;
+	int noiseIDX	= -1;
+
+	for (int idx = 0; idx < mTextureList.size(); idx++) {
+		if (mTextureList[idx] == texName)
+			diffuseIDX	= idx;
+		else if (mTextureList[idx] == maskTexName)
+			maskIDX		= idx;
+		else if (mTextureList[idx] == noiseTexName)
+			noiseIDX	= idx;
+	}
+
+	if (
+		diffuseIDX	== -1 ||
+		maskIDX		== -1 ||
+		noiseIDX	== -1
+		) 
+	{
+		throw std::runtime_error("텍스쳐를 찾지 못하였습니다.");
+	}
+
+	m->isSkyTexture			= isCubeMap;
+	m->DiffuseSrvHeapIndex	= diffuseIDX;
+	m->NormalSrvHeapIndex	= diffuseIDX;
+	m->MaskSrvHeapIndex		= maskIDX;
+	m->NoiseSrvHeapIndex	= noiseIDX;
+
+	mGameObjectDatas[r->mName]->Mat.push_back(m);
+}
+
+
+void BoxApp::Pick(int sx, int sy)
+{
+	XMFLOAT4X4 P = mCamera.GetProj4x4f();
+
+	// Compute picking ray in view space.
+	// [0, 600] -> [-1, 1] [0, 800] -> [-1, 1]
+	float vx = (+2.0f * sx / mClientWidth - 1.0f);
+	float vy = (-2.0f * sy / mClientHeight + 1.0f);
+
+	// z축을 노말라이즈
+	vx = vx / P(0, 0);
+	vy = vy / P(1, 1);
+
+	// Ray definition in view space.
+	XMVECTOR rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+	XMVECTOR rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
+
+	XMMATRIX V = mCamera.GetView();
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(V), V);
+
+	// Check if we picked an opaque render item.  A real app might keep a separate "picking list"
+	// of objects that can be selected.   
+
+	std::unordered_map<std::string, ObjectData*>::iterator iter = mGameObjectDatas.begin();
+	std::unordered_map<std::string, ObjectData*>::iterator end = mGameObjectDatas.end();
+
+	ObjectData* obj = nullptr;
+
+	//XMMATRIX W;
+	//XMMATRIX invWorld;
+
+	/*XMMATRIX toLocal;*/
+	//float tmin = 0.0f;
+
+	while (iter != end)
+	{
+		obj = (*iter).second;
+
+		if (
+				obj->mRenderType	== ObjectData::RenderType::_SKY_FORMAT_RENDER_TYPE	||
+				obj->mRenderType	== ObjectData::RenderType::_DEBUG_BOX_TYPE			||
+				obj->mName			== "BottomGeo"
+			)
+		{
+			iter++;
+
+			continue;
+		}
+
+		for (UINT inst = 0; inst < obj->InstanceCount; inst++)
+		{
+			XMMATRIX W = XMLoadFloat4x4(&obj->mInstances[inst].World);
+			XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
+
+			// Tranform ray to vi space of Mesh.
+			// inv ViewWorld
+			XMMATRIX toLocal = XMMatrixMultiply(invView, invWorld);
+
+			// Camera View World에서 Origin View World로 변경하는
+			rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+			rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
+
+			rayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
+			rayDir = XMVector3TransformNormal(rayDir, toLocal);
+
+			//rayOrigin = XMVector3TransformCoord(rayOrigin, invView);
+			//rayDir = XMVector3TransformNormal(rayDir, invView);
+
+			// Make the ray direction unit length for the intersection tests.
+			rayDir = XMVector3Normalize(rayDir);
+
+			float tmin = 0.0f;
+			if (obj->Bounds[inst].Intersects(rayOrigin, rayDir, tmin))
+			{
+				// 경계 박스에 광선이 접촉한다면, 해당 오브젝트를 선택한다.
+				// tmin는 접촉한 경계 박스 중 가장 거리가 작은 박스의 거리를 저장한다.
+				// 만일 접촉한 박스가 하나도 없다면 tmin은 0.0이다.
+
+				printf("");
+			}
+		}
+
+		iter++;
+	}
+}
+
+void BoxApp::PickBrush(int sx, int sy)
+{
+	XMFLOAT4X4 P = mCamera.GetProj4x4f();
+
+	// Compute picking ray in view space.
+	// [0, 600] -> [-1, 1] [0, 800] -> [-1, 1]
+	float vx = (+2.0f * sx / mClientWidth - 1.0f);
+	float vy = (-2.0f * sy / mClientHeight + 1.0f);
+
+	// z축을 노말라이즈
+	vx = vx / P(0, 0);
+	vy = vy / P(1, 1);
+
+	// Ray definition in view space.
+	XMVECTOR rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+	XMVECTOR rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
+
+	XMMATRIX V = mCamera.GetView();
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(V), V);
+
+	// Check if we picked an opaque render item.  A real app might keep a separate "picking list"
+	// of objects that can be selected.   
+
+	std::unordered_map<std::string, ObjectData*>::iterator iter = mGameObjectDatas.begin();
+	std::unordered_map<std::string, ObjectData*>::iterator end = mGameObjectDatas.end();
+
+	ObjectData* obj = nullptr;
+
+	//XMMATRIX W;
+	//XMMATRIX invWorld;
+
+	/*XMMATRIX toLocal;*/
+	//float tmin = 0.0f;
+
+	while (iter != end)
+	{
+		obj = (*iter).second;
+
+		if (!obj->isDrawTexture)
+		{
+			iter++;
+
+			continue;
+		}
+
+		for (UINT inst = 0; inst < obj->InstanceCount; inst++)
+		{
+			XMMATRIX W = XMLoadFloat4x4(&obj->mInstances[inst].World);
+			XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
+
+			// Tranform ray to vi space of Mesh.
+			// inv ViewWorld
+			XMMATRIX toLocal = XMMatrixMultiply(invView, invWorld);
+
+			// Camera View World에서 Origin View World로 변경하는
+			rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+			rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
+
+			rayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
+			rayDir = XMVector3TransformNormal(rayDir, toLocal);
+
+			// Make the ray direction unit length for the intersection tests.
+			rayDir = XMVector3Normalize(rayDir);
+
+			float tmin = 0.0f;
+			if (obj->Bounds[inst].Intersects(rayOrigin, rayDir, tmin))
+			{
+				XMVECTOR hitPos = rayOrigin + rayDir * tmin;
+
+				XMVECTOR mBoundPos[2] = {};
+
+				mBoundPos[0].m128_f32[0] = obj->Bounds[inst].Center.x - obj->Bounds[inst].Extents.x;
+				mBoundPos[0].m128_f32[1] = 0.0;
+				mBoundPos[0].m128_f32[2] = obj->Bounds[inst].Center.z - obj->Bounds[inst].Extents.z;
+				mBoundPos[0].m128_f32[3] = 1.0f;
+
+				mBoundPos[1].m128_f32[0] = obj->Bounds[inst].Center.x + obj->Bounds[inst].Extents.x;
+				mBoundPos[1].m128_f32[1] = 0.0;
+				mBoundPos[1].m128_f32[2] = obj->Bounds[inst].Center.z + obj->Bounds[inst].Extents.z;
+				mBoundPos[1].m128_f32[3] = 1.0f;
+
+				float mTexCroodX, mTexCroodY;
+
+				mDrawTexture->leftTop		= { mBoundPos[0].m128_f32[0], mBoundPos[0].m128_f32[2] };
+				mDrawTexture->rightBottom	= { mBoundPos[1].m128_f32[0], mBoundPos[1].m128_f32[2] };
+
+				mTexCroodX = 
+					(hitPos.m128_f32[0] - mBoundPos[0].m128_f32[0]) / 
+					(mDrawTexture->rightBottom.x - mDrawTexture->leftTop.x);
+				mTexCroodY = 
+					(hitPos.m128_f32[2] - mBoundPos[0].m128_f32[2]) / 
+					(mDrawTexture->rightBottom.y - mDrawTexture->leftTop.y);
+
+				// Let's Draw!!
+				mDrawTexture->isDirty = true;
+
+				mDrawTexture->Color = { 1.0f, 0.0f, 0.0f, 1.0f };
+				mDrawTexture->Origin =
+				{
+					mTexCroodX,
+					1.0f - mTexCroodY
+				};
+				mDrawTexture->Position = 
+				{ 
+					mTexCroodX, 
+					1.0f - mTexCroodY 
+				};
+			}
+		}
+
+		iter++;
+	}
 }
 
 //////////////////////////////////
@@ -5114,9 +6480,9 @@ void RenderItem::setPosition(_In_ XMFLOAT3 pos) {
 		//mPhyxResources[i].Position[1] = pos.y;
 		//mPhyxResources[i].Position[2] = pos.z;
 
-		memcpy(mPhyxResources[i].Position, vec.m128_f32, sizeof(float) * 3);
+		memcpy(mGameObjectDatas[mName]->mPhyxResources[i].Position, vec.m128_f32, sizeof(float) * 3);
 
-		mPhys.setPosition(mPhyxRigidBody[i], pos.x, pos.y, pos.z);
+		mPhys.setPosition(mGameObjectDatas[mName]->mPhyxRigidBody[i], pos.x, pos.y, pos.z);
 	}
 }
 void RenderItem::setRotation(_In_ XMFLOAT3 rot) {
@@ -5127,19 +6493,19 @@ void RenderItem::setRotation(_In_ XMFLOAT3 rot) {
 		//mPhyxResources[i].Rotation[1] = rot.y;
 		//mPhyxResources[i].Rotation[2] = rot.z;
 
-		memcpy(mPhyxResources[i].Rotation, vec.m128_f32, sizeof(float) * 3);
+		memcpy(mGameObjectDatas[mName]->mPhyxResources[i].Rotation, vec.m128_f32, sizeof(float) * 3);
 
-		mPhys.setRotation(mPhyxRigidBody[i], rot.x, rot.y, rot.z);
+		mPhys.setRotation(mGameObjectDatas[mName]->mPhyxRigidBody[i], rot.x, rot.y, rot.z);
 	}
 }
 
 void RenderItem::setVelocity(_In_ XMFLOAT3 vel) {
 	for (UINT i = 0; i < InstanceCount; i++)
-		mPhys.setVelocity(mPhyxRigidBody[i], vel.x, vel.y, vel.z);
+		mPhys.setVelocity(mGameObjectDatas[mName]->mPhyxRigidBody[i], vel.x, vel.y, vel.z);
 }
 void RenderItem::setTorque(_In_ XMFLOAT3 torq) {
 	for (UINT i = 0; i < InstanceCount; i++)
-		mPhys.setTorque(mPhyxRigidBody[i], torq.x, torq.y, torq.z);
+		mPhys.setTorque(mGameObjectDatas[mName]->mPhyxRigidBody[i], torq.x, torq.y, torq.z);
 }
 
 void RenderItem::setInstancePosition(_In_ XMFLOAT3 pos, _In_ UINT idx) {
@@ -5196,4 +6562,25 @@ void RenderItem::setAnimIsLoop(_In_ bool animLoop) {
 
 int RenderItem::getAnimIsLoop() {
 	return mGameObjectDatas[mName]->isLoop;
+}
+
+void RenderItem::setAnimClip(_In_ std::string mClipName) {
+	int res = mGameObjectDatas[mName]->mAnimationClip.setCurrentClip(mClipName);
+
+	// 애니메이션 클립 정보를 업데이트
+	if (!res)
+	{
+		mGameObjectDatas[mName]->mAnimationClip.getCurrentClip(
+			mGameObjectDatas[mName]->beginAnimIndex,
+			mGameObjectDatas[mName]->endAnimIndex
+		);
+
+		mGameObjectDatas[mName]->currentDelayPerSec =
+			mGameObjectDatas[mName]->beginAnimIndex;
+	}
+}
+
+const std::string RenderItem::getAnimClip() const 
+{
+	return mGameObjectDatas[mName]->mAnimationClip.getCurrentClipName();
 }

@@ -2139,8 +2139,11 @@ HRESULT DirectX::CreateDDSTextureFromFile12(_In_ ID3D12Device* device,
 	_In_z_ const wchar_t* szFileName,
 	_Out_ ComPtr<ID3D12Resource>& texture,
 	_Out_ ComPtr<ID3D12Resource>& textureUploadHeap,
+	_Out_ int* width,
+	_Out_ int* height,
 	_In_ size_t maxsize,
-	_Out_opt_ DDS_ALPHA_MODE* alphaMode)
+	_Out_opt_ DDS_ALPHA_MODE* alphaMode
+)
 {
 	if (texture)
 	{
@@ -2171,8 +2174,22 @@ HRESULT DirectX::CreateDDSTextureFromFile12(_In_ ID3D12Device* device,
 		return hr;
 	}
 
-	hr = CreateTextureFromDDS12(device, cmdList, header,
-		bitData, bitSize, maxsize, false, texture, textureUploadHeap);
+	hr = CreateTextureFromDDS12(
+		device, 
+		cmdList, 
+		header,
+		bitData, 
+		bitSize, 
+		maxsize, 
+		false, 
+		texture, 
+		textureUploadHeap
+	);
+
+	if (width != nullptr)
+		*width = header->width;
+	if (height != nullptr)
+		*height = header->height;
 
 	if (SUCCEEDED(hr))
 	{

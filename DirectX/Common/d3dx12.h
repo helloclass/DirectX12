@@ -1399,8 +1399,19 @@ inline UINT64 UpdateSubresources(
     for (UINT i = 0; i < NumSubresources; ++i)
     {
         if (pRowSizesInBytes[i] > (SIZE_T)-1) return 0;
-        D3D12_MEMCPY_DEST DestData = { pData + pLayouts[i].Offset, pLayouts[i].Footprint.RowPitch, pLayouts[i].Footprint.RowPitch * pNumRows[i] };
-        MemcpySubresource(&DestData, &pSrcData[i], (SIZE_T)pRowSizesInBytes[i], pNumRows[i], pLayouts[i].Footprint.Depth);
+        D3D12_MEMCPY_DEST DestData = { 
+			pData + pLayouts[i].Offset, 
+			pLayouts[i].Footprint.RowPitch, 
+			pLayouts[i].Footprint.RowPitch * pNumRows[i] 
+		};
+
+        MemcpySubresource(
+			&DestData, 
+			&pSrcData[i], 
+			(SIZE_T)pRowSizesInBytes[i], 
+			pNumRows[i], 
+			pLayouts[i].Footprint.Depth
+		);
     }
     pIntermediate->Unmap(0, NULL);
     
@@ -1414,8 +1425,15 @@ inline UINT64 UpdateSubresources(
     {
         for (UINT i = 0; i < NumSubresources; ++i)
         {
-            CD3DX12_TEXTURE_COPY_LOCATION Dst(pDestinationResource, i + FirstSubresource);
-            CD3DX12_TEXTURE_COPY_LOCATION Src(pIntermediate, pLayouts[i]);
+            CD3DX12_TEXTURE_COPY_LOCATION Dst(
+				pDestinationResource, 
+				i + FirstSubresource
+			);
+            CD3DX12_TEXTURE_COPY_LOCATION Src(
+				pIntermediate, 
+				pLayouts[i]
+			);
+
             pCmdList->CopyTextureRegion(&Dst, 0, 0, 0, &Src, nullptr);
         }
     }
@@ -1479,10 +1497,31 @@ inline UINT64 UpdateSubresources(
     D3D12_RESOURCE_DESC Desc = pDestinationResource->GetDesc();
     ID3D12Device* pDevice;
     pDestinationResource->GetDevice(__uuidof(*pDevice), reinterpret_cast<void**>(&pDevice));
-    pDevice->GetCopyableFootprints(&Desc, FirstSubresource, NumSubresources, IntermediateOffset, Layouts, NumRows, RowSizesInBytes, &RequiredSize);
+
+    pDevice->GetCopyableFootprints(
+		&Desc, 
+		FirstSubresource, 
+		NumSubresources, 
+		IntermediateOffset, 
+		Layouts, 
+		NumRows, 
+		RowSizesInBytes, 
+		&RequiredSize
+	);
     pDevice->Release();
     
-    return UpdateSubresources(pCmdList, pDestinationResource, pIntermediate, FirstSubresource, NumSubresources, RequiredSize, Layouts, NumRows, RowSizesInBytes, pSrcData);
+    return UpdateSubresources(
+		pCmdList, 
+		pDestinationResource, 
+		pIntermediate, 
+		FirstSubresource, 
+		NumSubresources, 
+		RequiredSize, 
+		Layouts, 
+		NumRows, 
+		RowSizesInBytes, 
+		pSrcData
+	);
 }
 
 //------------------------------------------------------------------------------------------------

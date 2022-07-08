@@ -38,6 +38,7 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 	InstanceData instData	= gInstanceData[instanceID];
 
 	float4x4 world = instData.World;
+
     float4x4 texTransform = instData.TexTransform;
     uint matIndex = instData.MaterialIndex;
     vout.MatIndex = matIndex;
@@ -111,12 +112,19 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 
 float4 PS(VertexOut pin) : SV_Target
 { 
+#ifdef DEBUG
+	return float4(0.0f, 1.0f, 0.0f, 1.0f);
+#endif
+
     MaterialData matData = gMaterialData[pin.MatIndex];
 
     float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
+	float4 drawTextureMap = gDrawTexMap.Sample(gsamAnisotropicWrap, pin.TexC);
 	float3 bumpedNormalW = NormalSampleToWorldSpace(diffuseAlbedo.rgb, pin.NormalW, pin.TangentW);
     
-    clip(diffuseAlbedo.a - 0.2f);
+#ifndef  DRAW_TEX
+	clip(diffuseAlbedo.a - 0.2f);
+#endif // ! DRAW_TEX
 
 	diffuseAlbedo = diffuseAlbedo * matData.DiffuseAlbedo;
     
@@ -138,7 +146,16 @@ float4 PS(VertexOut pin) : SV_Target
 		shadowFactor
 	);
 
-	float4 litColor = directLight;
+float4 litColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+#ifdef  DRAW_TEX
+	float4 red = float4(0.0f, -1.0f, -1.0f, 1.0f);
+	litColor = diffuseAlbedo + (drawTextureMap * red);
+
+	clip(litColor.a - 0.2f);
+#else
+	litColor = diffuseAlbedo + directLight;
+#endif
 
 	//// Add in specular reflection
 	//float3 r = reflect(-toEyeW, pin.NormalW);

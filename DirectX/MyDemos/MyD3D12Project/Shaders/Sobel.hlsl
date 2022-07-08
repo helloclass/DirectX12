@@ -5,6 +5,7 @@
 Texture2D gInput            : register(t0);
 RWTexture2D<float4> gOutput : register(u0);
 
+
 // 이후 여기에도 가중치를 넣어주면 좋을 것 같다.
 // Constant Buffer로
 

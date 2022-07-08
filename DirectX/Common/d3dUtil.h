@@ -20,11 +20,20 @@
 #include <algorithm>
 #include <vector>
 #include <array>
+#include <list>
 #include <unordered_map>
 #include <cstdint>
 #include <fstream>
 #include <sstream>
 #include <cassert>
+#include <memory>
+#include <algorithm>
+#include <crtdbg.h>
+
+#include <thread>
+
+#include <random>
+
 #include "d3dx12.h"
 #include "DDSTextureLoader.h"
 #include "MathHelper.h"
@@ -63,34 +72,6 @@ inline std::wstring AnsiToWString(const std::string& str)
     MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, buffer, 512);
     return std::wstring(buffer);
 }
-
-/*
-#if defined(_DEBUG)
-    #ifndef Assert
-    #define Assert(x, description)                                  \
-    {                                                               \
-        static bool ignoreAssert = false;                           \
-        if(!ignoreAssert && !(x))                                   \
-        {                                                           \
-            Debug::AssertResult result = Debug::ShowAssertDialog(   \
-            (L#x), description, AnsiToWString(__FILE__), __LINE__); \
-        if(result == Debug::AssertIgnore)                           \
-        {                                                           \
-            ignoreAssert = true;                                    \
-        }                                                           \
-                    else if(result == Debug::AssertBreak)           \
-        {                                                           \
-            __debugbreak();                                         \
-        }                                                           \
-        }                                                           \
-    }
-    #endif
-#else
-    #ifndef Assert
-    #define Assert(x, description) 
-    #endif
-#endif 		
-    */
 
 class d3dUtil
 {
@@ -159,8 +140,13 @@ public:
 		std::string path, 
 		std::string name, 
 		std::string format,
-		int& width,
-		int& height
+		_Out_ int& width,
+		_Out_ int& height
+	);
+	static FIBITMAP* loadImage(
+		std::string name,
+		_Out_ int& width,
+		_Out_ int& height
 	);
 
 };
@@ -208,6 +194,8 @@ struct MeshGeometry
 public:
 	// Give it a name so we can look it up by name.
 	std::string Name;
+
+	UINT IndexSize = 0;
 
 	UINT VertexBufferByteSize = 0;
 	UINT IndexBufferByteSize = 0;
@@ -351,9 +339,12 @@ public:
 
 	// Index into SRV heap for diffuse texture.
 	int DiffuseSrvHeapIndex = -1;
-
 	// Index into SRV heap for normal texture.
 	int NormalSrvHeapIndex = -1;
+	// Index into SRV heap for normal texture.
+	int MaskSrvHeapIndex = -1;
+	// Index into SRV heap for normal texture.
+	int NoiseSrvHeapIndex = -1;
 
 	// Dirty flag indicating the material has changed and we need to update the constant buffer.
 	// Because we have a material constant buffer for each FrameResource, we have to apply the
