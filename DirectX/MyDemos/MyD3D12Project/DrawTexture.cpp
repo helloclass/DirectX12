@@ -11,8 +11,12 @@ DrawTexture::DrawTexture(	ID3D12Device* device,
 	mHeight		= height;
 	mFormat		= format;
 
-	Position	= DirectX::XMFLOAT2(0.0f, 0.0f);
-	Color		= DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+	for (int i = 0; i < mBrushThreadNum; i++) 
+	{
+		Position[i] = DirectX::XMFLOAT2(0.0f, 0.0f);
+	}
+
+	Color = DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
 
 	BuildResource();
 }
@@ -24,7 +28,7 @@ CD3DX12_GPU_DESCRIPTOR_HANDLE DrawTexture::OutputSrv()
 
 UINT DrawTexture::DescriptorCount()const
 {
-	return 2;
+	return 4;
 }
 
 void DrawTexture::BuildDescriptors(
@@ -33,10 +37,12 @@ void DrawTexture::BuildDescriptors(
 	UINT descriptorSize
 )
 {
-	mhCpuSrv = hCpuDescriptor;
-	mhCpuUav = hCpuDescriptor.Offset(1, descriptorSize);
-	mhGpuSrv = hGpuDescriptor;
-	mhGpuUav = hGpuDescriptor.Offset(1, descriptorSize);
+	mhCpuSrv			= hCpuDescriptor;
+	mhCpuUav			= hCpuDescriptor.Offset(1, descriptorSize);
+	mBrushShapeCpuSrv	= hCpuDescriptor.Offset(2, descriptorSize);
+	mhGpuSrv			= hGpuDescriptor;
+	mhGpuUav			= hGpuDescriptor.Offset(1, descriptorSize);
+	mBrushShapeGpuSrv	= hGpuDescriptor.Offset(2, descriptorSize);
 
 	BuildDescriptors();
 }
@@ -60,33 +66,32 @@ void DrawTexture::Execute(
 	ID3D12PipelineState* pso
 )
 {
-	/*std::vector<DirectX::XMFLOAT4> test(2);*/
-	std::vector<float> test(8);
+	std::vector<float> test(6);
+
+	UINT numGroupsX = (UINT)ceilf(mWidth / 16.0f);
+	UINT numGroupsY = (UINT)ceilf(mHeight / 16.0f);
 
 	// PASS
-	test[0] = Position.x;
-	test[1] = Position.y;
-	test[2] = 0.0f;
-	test[3] = 0.0f;
-
-	test[4] = Color.x;
-	test[5] = Color.y;
-	test[6] = Color.z;
-	test[7] = Color.w;
+	test[0] = Position[0].x;
+	test[1] = Position[0].y;
+	test[2] = Position[1].x;
+	test[3] = Position[1].y;
+	test[4] = Position[2].x;
+	test[5] = Position[2].y;
 
 	cmdList->SetComputeRootSignature(rootSig);
 	cmdList->SetPipelineState(pso);
 
 	cmdList->SetComputeRoot32BitConstants(
-		0, 
-		12, 
-		test.data(), 
+		0,
+		sizeof(float) * 6,
+		test.data(),
 		1
 	);
 
 	// Sobel Signature의 2번째 디스크립터에 RW가 가능한 UAV를 삽입.
 	cmdList->SetComputeRootDescriptorTable(
-		2, 
+		2,
 		mhGpuUav
 	);
 
@@ -98,9 +103,6 @@ void DrawTexture::Execute(
 			D3D12_RESOURCE_STATE_UNORDERED_ACCESS
 		)
 	);
-
-	UINT numGroupsX = (UINT)ceilf(mWidth / 16.0f);
-	UINT numGroupsY = (UINT)ceilf(mHeight / 16.0f);
 
 	cmdList->Dispatch(numGroupsX, numGroupsY, 1);
 
@@ -124,13 +126,13 @@ void DrawTexture::BuildDescriptors()
 	srvDesc.Texture2D.MipLevels = 1;
 
 	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-
 	uavDesc.Format = mFormat;
 	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 	uavDesc.Texture2D.MipSlice = 0;
 
 	md3dDevice->CreateShaderResourceView(mOutput.Get(), &srvDesc, mhCpuSrv);
 	md3dDevice->CreateUnorderedAccessView(mOutput.Get(), nullptr, &uavDesc, mhCpuUav);
+	md3dDevice->CreateShaderResourceView(mOutput.Get(), &srvDesc, mBrushShapeCpuSrv);
 }
 
 void DrawTexture::BuildResource()

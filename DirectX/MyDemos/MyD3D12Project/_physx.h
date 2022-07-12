@@ -27,7 +27,7 @@ static PxClothFlag::Enum gGpuFlag = PxClothFlag::eCUDA;
 static PxClothFlag::Enum gGpuFlag = PxClothFlag::eDEFAULT;
 #endif
 
-struct PhyxResource {
+struct PhysResource {
 public:
 	float Position[3]	= {0.0f, 0.0f, 0.0f};
 	float Rotation[3]	= { 0.0f, 0.0f, 0.0f };
@@ -49,7 +49,7 @@ private:
 	PxPvd*					gPvd = NULL;
 
 public:
-	std::vector<struct PhyxResource*> bindObj;
+	std::vector<struct PhysResource*> bindObj;
 	std::vector<PxRigidStatic*>  StaticColliders;
 	std::vector<PxRigidDynamic*> DynamicColliders;
 
@@ -59,8 +59,8 @@ public:
 
 	void Update();
 
-	void BindObjColliber(_In_ PxRigidStatic*, _In_  struct PhyxResource*);
-	void BindObjColliber(_In_ PxRigidDynamic*, _In_  struct PhyxResource*);
+	void BindObjColliber(_In_ PxRigidStatic*, _In_  struct PhysResource*);
+	void BindObjColliber(_In_ PxRigidDynamic*, _In_  struct PhysResource*);
 
 	PxShape* CreateBox(_In_ float x, _In_  float y, _In_  float z);
 	PxShape* CreateSphere(_In_ float r);

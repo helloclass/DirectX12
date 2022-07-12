@@ -34,14 +34,14 @@ public:
 
 		// Create Init Objects
 		{
-			SkyBox		= app->CreateStaticGameObject("SkyBoxGeo", 1);
-			Bottom		= app->CreateStaticGameObject("BottomGeo", 1);
+			SkyBox		= app->CreateGameObject("SkyBoxGeo", 1);
+			Bottom		= app->CreateGameObject("BottomGeo", 1);
 
 			Charactor	= app->CreateDynamicGameObject("CharactorGeo", 1);
 			//Pinix		= app->CreateDynamicGameObject("PinixGeo", 1);
 			TestBox		= app->CreateDynamicGameObject("TestGeo", 1);
 
-			Tonado		= app->CreateDynamicGameObject("TonadoGeo", 1);
+			Tonado		= app->CreateGameObject("TonadoGeo", 1);
 
 			//app->ExtractAnimBones (
 			//	std::string("D:\\Animation\\ImportAnimation\\Assets\\m\\Wisard"),
@@ -57,6 +57,7 @@ public:
 			app->CreateSphereObject(
 				"SkyBox",
 				"",
+				"",
 				SkyBox,
 				500.0f,
 				30,
@@ -70,9 +71,9 @@ public:
 
 			renderType = ObjectData::RenderType::_OPAQUE_RENDER_TYPE;
 
-			app->BindMaterial(Bottom, "BottomMat", false);
 			app->CreateGridObject(
 				"Bottom",
+				"",
 				"",
 				Bottom,
 				500.0f, 
@@ -85,6 +86,7 @@ public:
 				renderType,
 				false
 			);
+			app->BindMaterial(Bottom, "BottomMat", false);
 
 			app->CreatePMXObject
 			(
@@ -105,6 +107,7 @@ public:
 			app->BindMaterial(TestBox, "SketchMat");
 			app->CreateGridObject(
 				"TestGeo",
+				"",
 				"",
 				TestBox,
 				30.0f,
@@ -164,68 +167,144 @@ public:
 
 		// 스킬 이펙트
 		{
-			RenderItem* StartSplash = new RenderItem("StartSplash", 50);
+			{
+				RenderItem* StartSplash = new RenderItem("StartSplash", 1);
 
-			app->CreateGridObject(
-				"StartSplashGeo",
+				app->CreateBillBoardObject(
+					"StartSplashGeo",
+					"",
+					"SKILL",
+					StartSplash,
+					50,
+					{ 0.0f, 1.0f, 0.0f },
+					{ 10, 10 },
+					ObjectData::RenderType::_SKILL_TONADO_SPLASH_TYPE,
+					false
+				);
+
+				StartSplash->InitParticleSystem(
+					10.0f,
+					DirectX::XMFLOAT3(0.0f, -20.0f, 0.0f),
+					DirectX::XMFLOAT3(0.0f, -20.0f, 0.0f),
+					DirectX::XMFLOAT3(-7.5f, 25.0f, -7.5f),
+					DirectX::XMFLOAT3(7.5f, 40.0f, 7.5f),
+					true
+				);
+
+				StartSplash->ParticleGene();
+
+				Tonado->appendChildRenderItem(StartSplash);
+
+				Texture StartSplash_Diffuse_Tex;
+				StartSplash_Diffuse_Tex.Name = "StartSplash_Diffuse_Tex";
+				StartSplash_Diffuse_Tex.Filename = L"../../Textures/White.dds";
+
+				Texture StartSplash_Mask_Tex;
+				StartSplash_Mask_Tex.Name = "StartSplash_Mask_Tex";
+				StartSplash_Mask_Tex.Filename = L"../../Textures/Skill/ToonProject2/MaskForShader.dds";
+
+				Texture StartSplash_Noise_Tex;
+				StartSplash_Noise_Tex.Name = "StartSplash_Noise_Tex";
+				StartSplash_Noise_Tex.Filename = L"../../Textures/Skill/ToonProject2/Noise34.dds";
+
+				app->uploadTexture(StartSplash_Diffuse_Tex, false);
+				app->uploadTexture(StartSplash_Mask_Tex, false);
+				app->uploadTexture(StartSplash_Noise_Tex, false);
+
+				app->uploadMaterial(
+					"SKILL_TONADO_SPLASH_MATERIAL",
+					"StartSplash_Diffuse_Tex",
+					"StartSplash_Mask_Tex",
+					"StartSplash_Noise_Tex",
+					false
+				);
+
+				app->BindMaterial(
+					Tonado->getChildRenderItem("StartSplash"),
+					"SKILL_TONADO_SPLASH_MATERIAL"
+				);
+			}
+		}
+
+		{
+			RenderItem* StartSplash2 = new RenderItem("StartSplash2", 1);
+
+			app->CreateBillBoardObject(
+				"StartSplash2Geo",
 				"",
-				StartSplash,
-				10.0f,
-				10.0f,
-				2,
-				2,
+				"SKILL",
+				StartSplash2,
+				30,
 				{ 0.0f, 1.0f, 0.0f },
-				{ 0.0f, 0.0f, 0.0f },
-				{ 1, 1, 1 },
-				ObjectData::RenderType::_OPAQUE_RENDER_TYPE,
-				false,
+				{ 10, 10 },
+				ObjectData::RenderType::_SKILL_TONADO_SPLASH_TYPE,
+				false
+			);
+
+			StartSplash2->InitParticleSystem(
+				10.0f,
+				DirectX::XMFLOAT3(0.0f, -20.0f, 0.0f),
+				DirectX::XMFLOAT3(0.0f, -20.0f, 0.0f),
+				DirectX::XMFLOAT3(-20.0f, 15.0f, -20.0f),
+				DirectX::XMFLOAT3(20.0f, 20.0f, 20.0f),
 				true
 			);
 
-			app->BindMaterial(StartSplash, "BottomMat");
+			StartSplash2->ParticleGene();
 
-			Tonado->appendChildRenderItem(StartSplash);
+			Tonado->appendChildRenderItem(StartSplash2);
+
+			app->BindMaterial(
+				Tonado->getChildRenderItem("StartSplash2"),
+				"SKILL_TONADO_SPLASH_MATERIAL"
+			);
+		}
+
+		{
+			RenderItem* StartSplash3 = new RenderItem("StartSplash3", 1);
+
+			app->CreateBillBoardObject(
+				"StartSplash3Geo",
+				"",
+				"SKILL",
+				StartSplash3,
+				16,
+				{ 0.0f, 1.0f, 0.0f },
+				{ 10, 10 },
+				ObjectData::RenderType::_SKILL_TONADO_SPLASH_TYPE,
+				false
+			);
+
+			StartSplash3->setIsFilled(false);
+			StartSplash3->InitParticleSystem(
+				10.0f,
+				DirectX::XMFLOAT3(0.0f, -10.0f, 0.0f),
+				DirectX::XMFLOAT3(0.0f, -10.0f, 0.0f),
+				DirectX::XMFLOAT3(-15.0f, 30.0f, -15.0f),
+				DirectX::XMFLOAT3(15.0f, 30.0f, 15.0f),
+				true
+			);
+
+			StartSplash3->ParticleGene();
+
+			Tonado->appendChildRenderItem(StartSplash3);
 
 			Texture StartSplash_Diffuse_Tex;
-			StartSplash_Diffuse_Tex.Name = "StartSplash_Diffuse_Tex";
-			StartSplash_Diffuse_Tex.Filename = L"../../Textures/White.dds";
-
-			Texture StartSplash_Mask_Tex;
-			StartSplash_Mask_Tex.Name = "StartSplash_Mask_Tex";
-			StartSplash_Mask_Tex.Filename = L"../../Textures/Skill/ToonProject2/MaskForShader.dds";
-
-			Texture StartSplash_Noise_Tex;
-			StartSplash_Noise_Tex.Name = "StartSplash_Noise_Tex";
-			StartSplash_Noise_Tex.Filename = L"../../Textures/Skill/ToonProject2/Noise34.dds";
+			StartSplash_Diffuse_Tex.Name = "StartSplash3_Diffuse_Tex";
+			StartSplash_Diffuse_Tex.Filename = L"../../Textures/Skill/ToonProject2/HPwater2.dds";
 
 			app->uploadTexture(StartSplash_Diffuse_Tex, false);
-			app->uploadTexture(StartSplash_Mask_Tex, false);
-			app->uploadTexture(StartSplash_Noise_Tex, false);
-			
+
 			app->uploadMaterial(
-				"SketchMat", 
-				"StartSplash_Diffuse_Tex",
-				"StartSplash_Mask_Tex", 
-				"StartSplash_Noise_Tex",
+				"SKILL_TONADO_SPLASH_3_MATERIAL",
+				"StartSplash3_Diffuse_Tex",
 				false
 			);
 
 			app->BindMaterial(
-				Tonado->getChildRenderItem("StartSplash"),
-				"SketchMat"
+				Tonado->getChildRenderItem("StartSplash3"),
+				"SKILL_TONADO_SPLASH_3_MATERIAL"
 			);
-
-			// 여기에 Velocity, 사라지는 시간 설정 필요.
-			Particle mStartSplashParticles(StartSplash->InstanceCount);
-
-			mStartSplashParticles.setDurationTime(3.0f);
-
-			mStartSplashParticles.setMinVelo(DirectX::XMFLOAT3(-3.0f, 3.0f, -3.0f));
-			mStartSplashParticles.setMaxVelo(DirectX::XMFLOAT3(3.0f, 10.0f, 3.0f));
-
-			mStartSplashParticles.setOnPlayAwake(true);
-
-			mStartSplashParticles.Generator();
 		}
 	}
 
@@ -234,9 +313,28 @@ public:
 		
 	}
 
+	float testestest = 0.0f;
+
 	void _Update(const GameTimer& gt)
 	{
+		RenderItem* particle = Tonado->getChildRenderItem("StartSplash");
+		RenderItem* particle2 = Tonado->getChildRenderItem("StartSplash2");
+		RenderItem* particle3 = Tonado->getChildRenderItem("StartSplash3");
 
+		float endTime = particle->getAnimEndIndex();
+		if (testestest > 3.0f)
+		{
+			testestest = 0.0f;
+			particle->ParticleReset();
+			particle2->ParticleReset();
+			particle3->ParticleReset();
+		}
+
+		particle->ParticleUpdate(gt.DeltaTime());
+		particle2->ParticleUpdate(gt.DeltaTime());
+		particle3->ParticleUpdate(gt.DeltaTime());
+
+		testestest += gt.DeltaTime();
 	}
 
 	void _End()

@@ -34,12 +34,18 @@ typedef struct Vertex
 	XMINT4 BoneIndices;
 }Vertex;
 
+typedef struct BillBoardSpriteVertex
+{
+	XMFLOAT3 Pos;
+	XMFLOAT2 Size;
+}BillBoardSpriteVertex;
+
 
 struct InstanceData
 {
 	DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
 	DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-	UINT MaterialIndex;
+	UINT MaterialIndex=0;
 };
 
 struct MaterialData
@@ -71,14 +77,21 @@ public:
 		isDebugBox(false)
 	{}
 	~ObjectData() {
-		for (int i = 0; i < Mat.size(); i++)
-			delete(Mat[i]);
+		try {
+			Mat.clear();
 
-		vertices.resize(0);
-		indices.resize(0);
+			mVertices.resize(0);
+			mBillBoardVertices.resize(0);
+			mIndices.resize(0);
 
-		vertices.clear();
-		indices.clear();
+			mVertices.clear();
+			mBillBoardVertices.clear();
+			mIndices.clear();
+		}
+		catch (std::exception&)
+		{
+			throw std::runtime_error("");
+		}
 	}
 
 	typedef enum RenderType {
@@ -96,15 +109,18 @@ public:
 		_SOBEL_COMPUTE_TYPE,
 		_COMPOSITE_COMPUTE_TYPE,
 		_DEBUG_BOX_TYPE,
-		_DRAW_MAP_TYPE
+		_DRAW_MAP_TYPE,
+
+		_SKILL_TONADO_SPLASH_TYPE
 	}RenderType;
 
 	std::string		mName;
 	std::string		mFormat;
 	RenderType		mRenderType;
 
-	std::vector<struct Vertex> vertices;
-	std::vector<std::uint32_t> indices;
+	std::vector<struct Vertex> mVertices;
+	std::vector<struct BillBoardSpriteVertex> mBillBoardVertices;
+	std::vector<std::uint32_t> mIndices;
 
 	// 하나의 게임 오브젝트 내, 서브매쉬들을 해당 지오메트리에서 같이 공유한다.
 	MeshGeometry mGeometry;
@@ -130,10 +146,11 @@ public:
 	UINT InstanceCount = 0;
 	std::vector<InstanceData>		mInstances;
 
-	std::vector<PhyxResource>		mPhyxResources;
+	std::vector<PhysResource>		mPhysResources;
 	std::vector<PxRigidDynamic*>	mPhyxRigidBody;
 
-	AnimationClip mAnimationClip;
+	AnimationClip	mAnimationClip;
+	Particle			mParticle;
 
 	struct _OBJECT_DATA_DESCRIPTOR {
 		// Offset of Vertex
@@ -167,11 +184,13 @@ public:
 	std::vector<int>								mMorphDirty;
 	std::vector<struct _VERTEX_MORPH_DESCRIPTOR>	mMorph;
 
-	bool isDirty;
+	bool isDirty = false;
+	bool isBillBoardDirty = false;
 
-	bool isSky = false;
-	bool isDrawShadow = false;
-	bool isDrawTexture = false;
+	bool isSky			= false;
+	bool isDrawShadow	= false;
+	bool isDrawTexture	= false;
+	bool isBillBoard	= false;
 
 // Debug Box
 public:
@@ -258,7 +277,7 @@ public:
 	// Physx와 동기화가 되어야함.
 	// Instance 당 하나의 PhtxResource를 부여받을 수 있음.
 	//std::vector<int>				physxIdx;
-	//std::vector<PhyxResource*>	physx;
+	//std::vector<PhysResource*>	physx;
 
 	XMFLOAT4X4 mTexTransform = MathHelper::Identity4x4();
 
@@ -336,6 +355,56 @@ public:
 
 	void setAnimClip(_In_ std::string mClipName);
 	const std::string getAnimClip() const;
+
+	public:
+		void InitParticleSystem(
+			_In_ float mDurationTime,
+			_In_ bool mOnPlayAwake = true
+		);
+
+		void InitParticleSystem(
+			_In_ float mDurationTime,
+			_In_ DirectX::XMFLOAT3 mMinAcc,
+			_In_ DirectX::XMFLOAT3 mMaxAcc,
+			_In_ DirectX::XMFLOAT3 mMinVelo,
+			_In_ DirectX::XMFLOAT3 mMaxVelo,
+			_In_ bool mOnPlayAwake = true
+		);
+
+		void ParticleGene();
+		void ParticleUpdate(float delta);
+		void ParticleReset();
+
+		void setDurationTime(
+			_In_ float duration
+		);
+		void setIsLoop(
+			_In_ bool isLoop
+		);
+		void setIsFilled(
+			_In_ bool isFilled
+		);
+		void setStartDelay(
+			_In_ float startDelay
+		);
+		void setStartLifeTime(
+			_In_ float startLifeTime
+		);
+		void setOnPlayAwake(
+			_In_ bool onPlayAwake
+		);
+		void setMinAcc(
+			_In_ DirectX::XMFLOAT3 minAcc
+		);
+		void setMaxAcc(
+			_In_ DirectX::XMFLOAT3 maxAcc
+		);
+		void setMinVelo(
+			_In_ DirectX::XMFLOAT3 minVelo
+		);
+		void setMaxVelo(
+			_In_ DirectX::XMFLOAT3 maxVelo
+		);
 };
 
 // GameObjects Resources
@@ -430,6 +499,7 @@ public:
 
 	// Manipulate GameObject Function
 public:
+	RenderItem* CreateGameObject(_In_ std::string Name, _In_ int instance=1);
 	RenderItem* CreateStaticGameObject(_In_ std::string Name, _In_ int instance=1);
 	RenderItem* CreateKinematicGameObject(_In_ std::string Name, _In_ int instance=1);
 	RenderItem* CreateDynamicGameObject(_In_ std::string Name, _In_ int instance=1);
@@ -437,6 +507,7 @@ public:
 	void CreateBoxObject(
 		_In_ std::string Name, 
 		_In_ std::string textuerName, 
+		_In_ std::string Format,
 		_Out_ RenderItem* r, 
 		_In_ float x, 
 		_In_ float y, 
@@ -452,6 +523,7 @@ public:
 	void CreateSphereObject(
 		_In_ std::string Name, 
 		_In_ std::string textuerName, 
+		_In_ std::string Format,
 		_Out_ RenderItem* r, 
 		_In_ float rad, 
 		_In_ int sliceCount, 
@@ -466,6 +538,7 @@ public:
 	void CreateGeoSphereObject(
 		_In_ std::string Name, 
 		_In_ std::string textuerName, 
+		_In_ std::string Format,
 		_Out_ RenderItem* r, 
 		_In_ float rad, 
 		_In_ DirectX::XMFLOAT3 position, 
@@ -479,6 +552,7 @@ public:
 	void CreateCylinberObject(
 		_In_ std::string Name, 
 		_In_ std::string textuerName, 
+		_In_ std::string Format,
 		_Out_ RenderItem* r, 
 		_In_ float bottomRad, 
 		_In_ float topRad, 
@@ -495,6 +569,7 @@ public:
 	void CreateGridObject(
 		_In_ std::string Name, 
 		_In_ std::string textuerName, 
+		_In_ std::string Format,
 		_Out_ RenderItem* r, 
 		_In_ float w, 
 		_In_ float h, 
@@ -506,6 +581,17 @@ public:
 		ObjectData::RenderType renderType,
 		bool isDrawShadow = true,
 		bool isDrawTexture = false
+	);
+	void BoxApp::CreateBillBoardObject(
+		_In_ std::string Name,
+		_In_ std::string textuerName,
+		_In_ std::string Format,
+		_Out_ RenderItem* r,
+		_In_ UINT particleCount,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT2 extends,
+		_In_ ObjectData::RenderType renderType,
+		_In_ bool isDrawShadow = false
 	);
 	void CreateFBXObject(
 		_In_ std::string Name, 
@@ -570,6 +656,7 @@ private:
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSkinnedInputLayout;
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mBillBoardInputLayout;
 
 	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
 	XMFLOAT4X4 mView = MathHelper::Identity4x4();
@@ -591,9 +678,6 @@ private:
 	BoundingFrustum				mCamFrustum;
 	PassConstants				mMainPassCB;
 	Camera						mCamera;
-
-	bool isMousePressed = false;
-	POINT mLastMousePos;
 
 	static UINT mFilterCount;
 

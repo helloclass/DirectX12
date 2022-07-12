@@ -2,6 +2,18 @@
 
 #include "../../Common/d3dUtil.h"
 
+// static Brush Param
+const UINT					mBrushThreadNum = 3;
+
+static UINT					mThreadIDX = 0;
+
+static float				mClickedPosX[mBrushThreadNum], mClickedPosY[mBrushThreadNum];
+static DirectX::XMFLOAT2	mBrushPosition[mBrushThreadNum];
+static DirectX::XMFLOAT2	mBrushOrigin[mBrushThreadNum];
+static float				mScreenWidth[mBrushThreadNum], mScreenHeight[mBrushThreadNum];
+
+static HANDLE				mBrushEvent[mBrushThreadNum];
+
 class DrawTexture
 {
 public:
@@ -32,12 +44,12 @@ public:
 		ID3D12PipelineState* pso
 	);
 
-	bool				isDirty = false;
-	DirectX::XMFLOAT2	leftTop;
-	DirectX::XMFLOAT2	rightBottom;
-	DirectX::XMFLOAT2	Origin;
-	DirectX::XMFLOAT2	Position;
-	DirectX::XMFLOAT4	Color;
+	bool								isDirty = false;
+	DirectX::XMFLOAT2					leftTop;
+	DirectX::XMFLOAT2					rightBottom;
+	DirectX::XMFLOAT2					Origin;
+	std::array<DirectX::XMFLOAT2, mBrushThreadNum>	Position;
+	DirectX::XMFLOAT4					Color;
 
 private:
 	void BuildDescriptors();
@@ -52,9 +64,11 @@ private:
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE mhCpuSrv;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE mhCpuUav;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE mBrushShapeCpuSrv;
 
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mhGpuSrv;
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mhGpuUav;
+	CD3DX12_GPU_DESCRIPTOR_HANDLE mBrushShapeGpuSrv;
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> mOutput = nullptr;
 };

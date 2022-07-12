@@ -55,7 +55,7 @@ void Physics::Init() {
 }
 
 void Physics::CleanUp() {
-	{
+	try {
 		gScene->release();
 		gFoundation->release();
 		gMaterial->release();
@@ -70,18 +70,22 @@ void Physics::CleanUp() {
 			transport->release();
 		}
 
-		for (int bindObjCnt = 0; bindObjCnt < bindObj.size(); bindObjCnt++)
-			delete(bindObj[bindObjCnt]);
+		//for (int bindObjCnt = 0; bindObjCnt < bindObj.size(); bindObjCnt++)
+		//	delete(bindObj[bindObjCnt]);
 
-		for (int colliderCnt = 0; colliderCnt < StaticColliders.size(); colliderCnt++)
-			StaticColliders[colliderCnt]->release();
+		//for (int colliderCnt = 0; colliderCnt < StaticColliders.size(); colliderCnt++)
+		//	StaticColliders[colliderCnt]->release();
 
-		for (int colliderCnt = 0; colliderCnt < DynamicColliders.size(); colliderCnt++)
-			DynamicColliders[colliderCnt]->release();
+		//for (int colliderCnt = 0; colliderCnt < DynamicColliders.size(); colliderCnt++)
+		//	DynamicColliders[colliderCnt]->release();
+	}
+	catch (std::exception&)
+	{
+		throw std::runtime_error("");
 	}
 }
 
-void Physics::BindObjColliber(PxRigidStatic* obj, struct PhyxResource* res) {
+void Physics::BindObjColliber(PxRigidStatic* obj, struct PhysResource* res) {
 	size_t colliderSize = (
 		StaticColliders.size() + 
 		DynamicColliders.size()
@@ -95,7 +99,7 @@ void Physics::BindObjColliber(PxRigidStatic* obj, struct PhyxResource* res) {
 	StaticColliders.push_back(obj);
 }
 
-void Physics::BindObjColliber(PxRigidDynamic* obj, struct PhyxResource* res) {
+void Physics::BindObjColliber(PxRigidDynamic* obj, struct PhysResource* res) {
 	size_t colliderSize = (
 		StaticColliders.size() + 
 		DynamicColliders.size()
@@ -339,7 +343,7 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 		physx::PxClothStretchConfig mStretchConf;
 		mStretchConf.stiffness = 1.0f;
 		mStretchConf.stiffnessMultiplier = 1.0f;
-		mStretchConf.compressionLimit = 0.0f;
+		mStretchConf.compressionLimit = 0.9f;
 		mStretchConf.stretchLimit = 1.0f;
 
 		cloth->setStretchConfig(PxClothFabricPhaseType::eVERTICAL, mStretchConf);
@@ -356,7 +360,6 @@ PxCloth* Physics::LoadCloth(PxClothParticle* vertices, PxClothMeshDesc& meshDesc
 		//physx::PxClothMotionConstraintConfig
 		//physx::PxClothStretchConfig
 
-		//
 		PxClothTetherConfig mTetherConf;
 		mTetherConf.stiffness = 1.0f;
 		mTetherConf.stretchLimit = 1.0f;
