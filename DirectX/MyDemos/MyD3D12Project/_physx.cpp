@@ -29,7 +29,7 @@ void Physics::Init() {
 	//PxCudaContextManager* gCudaContextManager = PxCreateCudaContextManager(*gFoundation, cudaContextManagerDesc);
 
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
-	sceneDesc.gravity = PxVec3(0.0f, 0.0f, 0.0f);
+	sceneDesc.gravity = PxVec3(0.0f, -80.0f, 100.0f);
 	gDispatcher = PxDefaultCpuDispatcherCreate(4);
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;

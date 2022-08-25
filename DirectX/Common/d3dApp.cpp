@@ -43,13 +43,15 @@ Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> D3DApp::mCommandList4;
 Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> D3DApp::mCommandList;
 #endif
 
-Microsoft::WRL::ComPtr<ID3D12CommandAllocator> D3DApp::mMultiCmdListAlloc[3];
+Microsoft::WRL::ComPtr<ID3D12CommandAllocator> D3DApp::mMultiCmdListAlloc[8];
+Microsoft::WRL::ComPtr<ID3D12CommandAllocator> D3DApp::mMultiShadowCmdListAlloc[8];
 #ifdef _USE_UBER_SHADER
 // Uber Shader CommandList
 Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> D3DApp::mMultiCommandList4[3];
 #else
 // Non-Uber Shader CommandList
-Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> D3DApp::mMultiCommandList[3];
+Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> D3DApp::mMultiCommandList[8];
+Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> D3DApp::mMultiShadowCommandList[8];
 #endif
 
 
@@ -262,9 +264,14 @@ void D3DApp::OnResize()
 
     mScissorRect = { 0, 0, mClientWidth, mClientHeight };
 }
- 
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
+		return true;
+
 	switch( msg )
 	{
 	// WM_ACTIVATE is sent when the window is activated or deactivated.  
@@ -518,42 +525,51 @@ void D3DApp::CreateCommandObjects()
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
 		IID_PPV_ARGS(mDirectCmdListAlloc.GetAddressOf())));
 
-#ifdef _USE_UBER_SHADER
-	ThrowIfFailed(md3dDevice->CreateCommandList(
-		0,
-		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		mDirectCmdListAlloc.Get(), // Associated command allocator
-		nullptr,                   // Initial PipelineStateObject
-		IID_PPV_ARGS(mCommandList4.GetAddressOf())));
-#else
+//#ifdef _USE_UBER_SHADER
+//	ThrowIfFailed(md3dDevice->CreateCommandList(
+//		0,
+//		D3D12_COMMAND_LIST_TYPE_DIRECT,
+//		mDirectCmdListAlloc.Get(), // Associated command allocator
+//		nullptr,                   // Initial PipelineStateObject
+//		IID_PPV_ARGS(mCommandList4.GetAddressOf())));
+//#else
 	ThrowIfFailed(md3dDevice->CreateCommandList(
 		0,
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
 		mDirectCmdListAlloc.Get(), // Associated command allocator
 		nullptr,                   // Initial PipelineStateObject
 		IID_PPV_ARGS(mCommandList.GetAddressOf())));
-#endif
+//#endif
 
-	for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < 8; i++) {
 		ThrowIfFailed(md3dDevice->CreateCommandAllocator(
 			D3D12_COMMAND_LIST_TYPE_DIRECT,
 			IID_PPV_ARGS(mMultiCmdListAlloc[i].GetAddressOf())));
-
-#ifdef _USE_UBER_SHADER
-		ThrowIfFailed(md3dDevice->CreateCommandList(
-			0,
+		ThrowIfFailed(md3dDevice->CreateCommandAllocator(
 			D3D12_COMMAND_LIST_TYPE_DIRECT,
-			mMultiCmdListAlloc[i].Get(), // Associated command allocator
-			nullptr,                   // Initial PipelineStateObject
-			IID_PPV_ARGS(mMultiCommandList4[i].GetAddressOf())));
-#else
+			IID_PPV_ARGS(mMultiShadowCmdListAlloc[i].GetAddressOf())));
+
+//#ifdef _USE_UBER_SHADER
+//		ThrowIfFailed(md3dDevice->CreateCommandList(
+//			0,
+//			D3D12_COMMAND_LIST_TYPE_DIRECT,
+//			mMultiCmdListAlloc[i].Get(), // Associated command allocator
+//			nullptr,                   // Initial PipelineStateObject
+//			IID_PPV_ARGS(mMultiCommandList4[i].GetAddressOf())));
+//#else
 		ThrowIfFailed(md3dDevice->CreateCommandList(
 			0,
 			D3D12_COMMAND_LIST_TYPE_DIRECT,
 			mMultiCmdListAlloc[i].Get(), // Associated command allocator
 			nullptr,                   // Initial PipelineStateObject
 			IID_PPV_ARGS(mMultiCommandList[i].GetAddressOf())));
-#endif
+		ThrowIfFailed(md3dDevice->CreateCommandList(
+			0,
+			D3D12_COMMAND_LIST_TYPE_DIRECT,
+			mMultiShadowCmdListAlloc[i].Get(), // Associated command allocator
+			nullptr,                   // Initial PipelineStateObject
+			IID_PPV_ARGS(mMultiShadowCommandList[i].GetAddressOf())));
+//#endif
 	}
 
 
@@ -569,6 +585,20 @@ void D3DApp::CreateCommandObjects()
 	mMultiCommandList[0]->Close();
 	mMultiCommandList[1]->Close();
 	mMultiCommandList[2]->Close();
+	mMultiCommandList[3]->Close();
+	mMultiCommandList[4]->Close();
+	mMultiCommandList[5]->Close();
+	mMultiCommandList[6]->Close();
+	mMultiCommandList[7]->Close();
+
+	mMultiShadowCommandList[0]->Close();
+	mMultiShadowCommandList[1]->Close();
+	mMultiShadowCommandList[2]->Close();
+	mMultiShadowCommandList[3]->Close();
+	mMultiShadowCommandList[4]->Close();
+	mMultiShadowCommandList[5]->Close();
+	mMultiShadowCommandList[6]->Close();
+	mMultiShadowCommandList[7]->Close();
 #endif
 }
 

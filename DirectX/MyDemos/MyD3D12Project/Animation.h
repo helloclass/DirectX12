@@ -2,7 +2,7 @@
 #include "../../Common/d3dUtil.h"
 
 class AnimationClip {
-private:
+public:
 	typedef struct Clip {
 		std::string mName;
 		float mStartTime;
@@ -11,21 +11,26 @@ private:
 		std::vector<std::pair<std::string, struct Clip*>> mChildNodes;
 	}Clip;
 
+	AnimationClip() {
+		mCurrentClip = new struct Clip();
+	}
+	~AnimationClip() {
+		delete(mCurrentClip);
+	}
+
 	// AnimNode의 mName이 key, AnimClip이 Value
 	std::vector<struct Clip> mClips;
 
 	struct Clip* mCurrentClip;
 
 public:
-	AnimationClip();
-	~AnimationClip() = default;
-
 	bool CurrentClipIsNULL();
 	const std::string getCurrentClipName() const;
 	// 현재 애니메이션 클립 반환
 	const int getCurrentClip(
 		_Out_ float& mBeginTime,
-		_Out_ float& mEndTime
+		_Out_ float& mEndTime,
+		_In_  bool isCompression
 	) const;
 	// 현재 애니메이션 클립을 설정
 	int setCurrentClip(

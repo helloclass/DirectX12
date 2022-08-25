@@ -16,6 +16,9 @@ HANDLE hClothPhysxThread;
 DWORD hTextureBrushThreadID;
 HANDLE hTextureBrushThread;
 
+std::list<InstanceData>::iterator	InstanceIterator;
+std::list<BoundingBox>::iterator	BoundsIterator;
+
 BoxApp::BoxApp(HINSTANCE hInstance)
 	: D3DApp(hInstance){}
 
@@ -30,30 +33,38 @@ UINT BoxApp::mFilterCount = 0;
 std::unique_ptr<BlurFilter>		BoxApp::mBlurFilter;
 std::unique_ptr<SobelFilter>	BoxApp::mSobelFilter;
 std::unique_ptr<ShadowMap>		BoxApp::mShadowMap;
+std::unique_ptr<Ssao>			BoxApp::mSsao;
 std::unique_ptr<DrawTexture>	BoxApp::mDrawTexture;
 
-DirectX::BoundingSphere mSceneBounds;				// 그림자가 그려지는 경계 구
-
 ComPtr<ID3D12DescriptorHeap> BoxApp::mSrvDescriptorHeap = nullptr;
+ComPtr<ID3D12DescriptorHeap> BoxApp::mGUIDescriptorHeap = nullptr;
 
 ComPtr<ID3D12RootSignature> BoxApp::mRootSignature = nullptr;
 ComPtr<ID3D12RootSignature> BoxApp::mBlurRootSignature = nullptr;
 ComPtr<ID3D12RootSignature> BoxApp::mSobelRootSignature = nullptr;
+ComPtr<ID3D12RootSignature> BoxApp::mSsaoRootSignature = nullptr;
 ComPtr<ID3D12RootSignature> BoxApp::mDrawMapSignature = nullptr;
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE BoxApp::mTextureHeapDescriptor;
 CD3DX12_GPU_DESCRIPTOR_HANDLE BoxApp::mTextureHeapGPUDescriptor;
 
 // Draw Thread Resource
-UINT BoxApp::numThread = 3;
+UINT BoxApp::numGlobalThread = 8;
 
 // Thread Trigger Event (Fence)
-HANDLE BoxApp::renderTargetEvent[3];
-HANDLE BoxApp::recordingDoneEvents[3];
-HANDLE BoxApp::drawThreads[3];
-LPDWORD BoxApp::ThreadIndex[3] = { 0 };
+HANDLE BoxApp::shadowRenderTargetEvent[8];
+HANDLE BoxApp::shadowRecordingDoneEvents[8];
+HANDLE BoxApp::renderTargetEvent[8];
+HANDLE BoxApp::recordingDoneEvents[8];
+
+HANDLE BoxApp::shadowDrawThreads[8];
+LPDWORD BoxApp::shadowThreadIndex[8];
+
+HANDLE BoxApp::drawThreads[8];
+LPDWORD BoxApp::ThreadIndex[8] = { 0 };
 
 static std::unique_ptr<UploadBuffer<PassConstants>>				PassCB;
+static std::unique_ptr<UploadBuffer<SsaoConstants>>				SsaoCB;
 static std::unique_ptr<UploadBuffer<RateOfAnimTimeConstants>>	RateOfAnimTimeCB;
 static std::unique_ptr<UploadBuffer<LightDataConstants>>		LightBufferCB;
 static std::unique_ptr<UploadBuffer<InstanceData>>				InstanceBuffer;
@@ -75,6 +86,8 @@ BoxApp::~BoxApp()
 
 	SetEvent(mClothWriteEvent);
 	SetEvent(mAnimationWriteEvent);
+
+	mODBC.OnDestroy();
 
 	std::unordered_map<std::string, ObjectData*>::iterator& it = mGameObjectDatas.begin();
 	std::unordered_map<std::string, ObjectData*>::iterator& itEnd = mGameObjectDatas.end();
@@ -103,6 +116,11 @@ BoxApp::~BoxApp()
 	_CrtDumpMemoryLeaks();
 #endif
 }
+
+bool isUseGlobalPose = false;
+
+ImVec4 mGlobalVec = ImVec4();
+ImVec4 mLocalScale = ImVec4();
 
 /*
 	ThreadClothPhysxFunc
@@ -150,7 +168,6 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 			_RenderData->mClothBinedBoneIDX[i] = -1;
 		}
 
-		// Rigid Body Mesh�� �߰�
 		_RenderData->mRigidbody.resize(_RenderItem->SubmeshCount);
 		for (UINT submesh = 0; submesh < _RenderItem->SubmeshCount; submesh++)
 		{
@@ -161,13 +178,12 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 			if (_RenderData->mFormat == "PMX")
 			{
-				vOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].BaseVertexLocation;
-				iOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].StartIndexLocation;
+				vOffset = _RenderData->mGeometry.DrawArgs[submesh].BaseVertexLocation;
+				iOffset = _RenderData->mGeometry.DrawArgs[submesh].StartIndexLocation;
 
-				vSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].VertexSize;
-				iSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].IndexSize;
+				vSize = _RenderData->mGeometry.DrawArgs[submesh].VertexSize;
+				iSize = _RenderData->mGeometry.DrawArgs[submesh].IndexSize;
 
-				// ���� Material�� Vertex�� ������ ���´�.
 				vertices.clear();
 				vertices.resize(vSize);
 				primitives.clear();
@@ -179,15 +195,17 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				std::set<int>::iterator& vIDX = _RenderData->vertBySubmesh[submesh].begin();
 				std::set<int>::iterator& vEndIDX = _RenderData->vertBySubmesh[submesh].end();
 
+				// Physx의 PxClothFabric를 생성하기 위해 기본 cloth의 버텍스를 로드하고,
+				// 이제 이 cloth가 적용된 오브젝트는 Physx에서 전해주는 Vertex 정보에 따라
+				// 유동적으로 움직이기 때문에 기존의 Vertex 값을 0.0으로 초기화 하고
+				// 이후 유동된 값을 다시 받을 준비를 한다.
 				while (vIDX != vEndIDX)
 				{
-					// Physx�� ������ٵ� ���ε�
 					vertices[mOffset].pos[0] = _RenderData->mVertices[*vIDX].Pos.x;
 					vertices[mOffset].pos[1] = _RenderData->mVertices[*vIDX].Pos.y;
 					vertices[mOffset].pos[2] = _RenderData->mVertices[*vIDX].Pos.z;
 					vertices[mOffset].invWeight = 1.0f;
 
-					// �� ���ӿ��� ������ٵ� ���̸� �ȵǹǷ� ���
 					_RenderData->mVertices[*vIDX].Pos.x = 0.0f;
 					_RenderData->mVertices[*vIDX].Pos.y = 0.0f;
 					_RenderData->mVertices[*vIDX].Pos.z = 0.0f;
@@ -196,19 +214,24 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					mOffset++;
 				}
 
+				// PxClothFabric을 생성하기 위해 인덱스를 저장한다.
 				mOffset = 0;
 				mIDXMin = _RenderData->mModel.indices[iOffset];
-				// �ּ� �ε����� ã�´�.
+				// 
 				for (UINT i = iOffset; i < iOffset + iSize; i++)
 				{
 					if (mIDXMin > _RenderData->mModel.indices[i])
 						mIDXMin = _RenderData->mModel.indices[i];
 				}
 
-				// ���� Material�� Index ������ ���´�.
+				// weight가 0.0인 Vertex를 제외하고 남은 Vertex 끼리 재결합을 시키기 위하여
+				// 만일 기존의 인덱스에서 weight가 0.0이 아닌 버텍스가 발견이 되었다면,
+				// 중간에 weight가 0.0이였던 인덱스를 모두 제외하고 Weight가 0.0 초과인 버텍스
+				// 끼리 순열을 만들기 위해 mIDXMin을 제거한다.
 				bool isSuccessedScaled = false;
 				for (UINT i = iOffset; i < iOffset + iSize; i++)
 				{
+					// 위에서 잘못된 인덱스를 로드하였던가, 부분집합이 전체 인덱스 범위에서 벗어났을 경우
 					if (_RenderData->mModel.indices[i] - mIDXMin < 0)
 						throw std::runtime_error("Invaild Indices..");
 					else if (_RenderData->mModel.indices[i] - mIDXMin == 0)
@@ -220,6 +243,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				if (!isSuccessedScaled)
 					throw std::runtime_error("Invaild Indices..");
 
+				// Cloth 데이터를 생성
 				PxTriangleMeshDesc meshDesc;
 				meshDesc.points.data = (void*)&vertices.data()->pos;
 				meshDesc.points.count = static_cast<PxU32>(vertices.size());
@@ -236,65 +260,68 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 			}
 		}
 
+		// 중력에 영향을 받지 않을, 즉 옷감 모델을 원본 모델과 고정시켜주는 역할을 하는 버텍스 리스트
 		_RenderData->srcFixVertexSubmesh.resize(_RenderItem->SubmeshCount);
 		_RenderData->dstFixVertexSubmesh.resize(_RenderItem->SubmeshCount);
+		// 여려 힘에 의해 동적으로 위치가 변하는 버텍스 리스트 
 		_RenderData->srcDynamicVertexSubmesh.resize(_RenderItem->SubmeshCount);
 		_RenderData->dstDynamicVertexSubmesh.resize(_RenderItem->SubmeshCount);
 
+
 		for (UINT submesh = 0; submesh < _RenderItem->SubmeshCount; submesh++)
 		{
-			// Cloth Physix�� ������� �ʴ� ����޽��� ��ŵ
+			// 옷감 서브메쉬가 아니면 스킵
 			if (!_RenderData->isCloth[submesh])	continue;
 
-			if (_RenderData->mFormat == "FBX")
-			{
-				vOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].BaseVertexLocation;
-				iOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].StartIndexLocation;
+			//if (_RenderData->mFormat == "FBX")
+			//{
+			//	vOffset = _RenderData->mGeometry.DrawArgs[submesh].BaseVertexLocation;
+			//	iOffset = _RenderData->mGeometry.DrawArgs[submesh].StartIndexLocation;
 
-				vSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].VertexSize;
-				iSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].IndexSize;
+			//	vSize = _RenderData->mGeometry.DrawArgs[submesh].VertexSize;
+			//	iSize = _RenderData->mGeometry.DrawArgs[submesh].IndexSize;
 
-				vertices.resize(vSize);
-				primitives.resize(iSize);
+			//	vertices.resize(vSize);
+			//	primitives.resize(iSize);
 
-				for (UINT v = 0; v < vSize; v++) {
-					vertices[v].pos[0] = _RenderData->mVertices[vOffset + v].Pos.x;
-					vertices[v].pos[1] = _RenderData->mVertices[vOffset + v].Pos.y;
-					vertices[v].pos[2] = _RenderData->mVertices[vOffset + v].Pos.z;
-					vertices[v].invWeight = _RenderData->mClothWeights[vOffset + v];
-				}
+			//	for (UINT v = 0; v < vSize; v++) {
+			//		vertices[v].pos[0] = _RenderData->mVertices[vOffset + v].Pos.x;
+			//		vertices[v].pos[1] = _RenderData->mVertices[vOffset + v].Pos.y;
+			//		vertices[v].pos[2] = _RenderData->mVertices[vOffset + v].Pos.z;
+			//		vertices[v].invWeight = _RenderData->mClothWeights[vOffset + v];
+			//	}
 
-				// ���� Material�� Index ������ ���´�.
-				for (UINT i = 0; i < iSize; i++) {
-					primitives[i] = _RenderData->mIndices[iOffset + i];
-				}
+			//	// 
+			//	for (UINT i = 0; i < iSize; i++) {
+			//		primitives[i] = _RenderData->mIndices[iOffset + i];
+			//	}
 
-				primitives.pop_back();
+			//	primitives.pop_back();
 
-				PxClothMeshDesc meshDesc;
-				meshDesc.points.data = (void*)&vertices.data()->pos;
-				meshDesc.points.count = static_cast<PxU32>(vertices.size());
-				meshDesc.points.stride = sizeof(PxClothParticle);
+			//	PxClothMeshDesc meshDesc;
+			//	meshDesc.points.data = (void*)&vertices.data()->pos;
+			//	meshDesc.points.count = static_cast<PxU32>(vertices.size());
+			//	meshDesc.points.stride = sizeof(PxClothParticle);
 
-				meshDesc.invMasses.data = (void*)&vertices.data()->invWeight;
-				meshDesc.invMasses.count = static_cast<PxU32>(vertices.size());
-				meshDesc.invMasses.stride = sizeof(PxClothParticle);
+			//	meshDesc.invMasses.data = (void*)&vertices.data()->invWeight;
+			//	meshDesc.invMasses.count = static_cast<PxU32>(vertices.size());
+			//	meshDesc.invMasses.stride = sizeof(PxClothParticle);
 
-				meshDesc.triangles.data = (void*)primitives.data();
-				meshDesc.triangles.count = static_cast<PxU32>(primitives.size() / 3);
-				meshDesc.triangles.stride = sizeof(PxU32) * 3;
+			//	meshDesc.triangles.data = (void*)primitives.data();
+			//	meshDesc.triangles.count = static_cast<PxU32>(primitives.size() / 3);
+			//	meshDesc.triangles.stride = sizeof(PxU32) * 3;
 
-				_RenderData->mClothes[submesh] = mPhys.LoadCloth(vertices.data(), meshDesc);
-			}
-			else if (_RenderData->mFormat == "PMX")
-			{
-				vOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].BaseVertexLocation;
-				iOffset = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].StartIndexLocation;
+			//	_RenderData->mClothes[submesh] = mPhys.LoadCloth(vertices.data(), meshDesc);
+			//}
+			//else if (_RenderData->mFormat == "PMX")
+			//{
+				vOffset = _RenderData->mGeometry.DrawArgs[submesh].BaseVertexLocation;
+				iOffset = _RenderData->mGeometry.DrawArgs[submesh].StartIndexLocation;
 
-				vSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].VertexSize;
-				iSize = _RenderData->mGeometry.DrawArgs[_RenderData->mGeometry.meshNames[submesh]].IndexSize;
+				vSize = _RenderData->mGeometry.DrawArgs[submesh].VertexSize;
+				iSize = _RenderData->mGeometry.DrawArgs[submesh].IndexSize;
 
-				// ���� Material�� Vertex�� ������ ���´�.
+				// 
 				vertices.clear();
 				primitives.clear();
 				vertices.resize(0);
@@ -304,10 +331,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				int primCount = 0;
 
 				/////////////////////////////////////////////////////////////////////////
-				// �켱 Cloth�� ������� �ʴ� �κ��� ���� indices���� �����Ѵ�
+				// Make new submesh Indices with vertices that is not weight zero.
 				/////////////////////////////////////////////////////////////////////////
 				for (UINT idx = iOffset; idx < iOffset + iSize; idx += 3)
 				{
+					// Skip Vertex that is weight zero.
 					if (_RenderData->mClothWeights[_RenderData->mModel.indices[idx]] == 0.0f ||
 						_RenderData->mClothWeights[_RenderData->mModel.indices[idx + 1]] == 0.0f ||
 						_RenderData->mClothWeights[_RenderData->mModel.indices[idx + 2]] == 0.0f)
@@ -328,14 +356,12 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 				std::unordered_map<UINT, UINT> testest;
 
-				// ����޽����� ���Ǵ� ���ؽ� �ε�������Ʈ�� ����ִ� vertBySubmesh���� weight�� 0.0�� ��쿡 
-				// vertBySubmesh���� ���� �� ����.
-				// ���� Material�� Vertex�� ������ ���´�.
 				RGBQUAD color;
 				int uvX, uvY;
 
 				/////////////////////////////////////////////////////////////////////////
-				// Cloth�� Attatch�� ���ؽ� �̹����� ���´�
+				// Load Weight Image
+				// The Weight Image has a information about weight by vertex and Fixed Vertex from Gravity.
 				/////////////////////////////////////////////////////////////////////////
 				int texIDX = _RenderData->mModel.materials[submesh].diffuse_texture_index;
 				std::wstring wname = _RenderData->mModel.textures[texIDX];
@@ -373,7 +399,6 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				{
 					if (mRemover != -1)
 					{
-						// �ش� ����޽��� ���ؽ� ����Ʈ
 						_RenderData->vertBySubmesh[submesh].erase(mRemover);
 						mRemover = -1;
 					}
@@ -410,7 +435,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					vertices.push_back(part);
 
 					///////
-					// ���⿡ PPD2Vertices MAP�� ������
+					// PPD2Vertices MAP
 					///////
 					if (_RenderData->mClothWeights[*vIDX] != 0.0f)
 					{
@@ -436,14 +461,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					primitives[iIDX] = testest[primitives[iIDX]];
 				}
 
-				// ��� ���ؽ��� ������ ��찡 �ƴϸ�
+				// 
 				size_t vertSize = vertices.size();
 
 				if (vertices.size() > 0)
 				{
-					// �ּ� ���� ���ؽ�
-					// vertices[0].invWeight = 0.0f;
-
 					PxClothMeshDesc meshDesc;
 					meshDesc.points.data = (void*)&vertices.data()->pos;
 					meshDesc.points.count = static_cast<PxU32>(vertices.size());
@@ -459,24 +481,22 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					_RenderData->mClothes[submesh] = mPhys.LoadCloth(vertices.data(), meshDesc);
 				}
-				// ��� ���ؽ��� ������ ��� (Cloth�� ���� ��ų �ʿ䰡 ����)
 				else
 				{
 					_RenderData->isCloth[submesh] = false;
 					_RenderData->mClothes[submesh] = NULL;
 				}
-			}
+			//}
 		} // Loop Submesh
 	} // Loop GameObjects
 
-	// ClothParticleInfo�� ���ε� �Ǿ��� ����
+	// ClothParticleInfo
 	PxClothParticleData* ppd = NULL;
-	// Cloth Position ���� ������ ���� ����
+	// Cloth Position 
 	Vertex* mClothOffset = NULL;
 	UINT vertexSize;
 
-	// ���� �ʱ⿡ Cloth Vertices Update�� ���� ���� �Ǿ�� �ϱ� ������
-	// ClothWriteEvent�� On
+	// 초기 베리어(533)를 우선 통과시키기 위해 강제로 이벤트를 킨다.
 	ResetEvent(mClothReadEvent);
 	SetEvent(mClothWriteEvent);
 
@@ -509,7 +529,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 	while (!StopThread)
 	{
-		// Cloth Vertices�� Write Layer�� �� �� ���� ���
+		// Cloth Vertices가 최신화 되었으니, Draw에서 쓰도록 하자
 		WaitForSingleObject(mClothWriteEvent, INFINITE);
 
 		if (StopThread) break;
@@ -523,10 +543,9 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 			_RenderData = mObj->second;
 
-			// new float[4 * vSize] ��� submesh VBV�� �ٷ� ���ε� �� �� ������?
 			clothPos = _RenderData->mVertices.data();
 
-			// ���� �ִϸ��̼��� ���� ������Ʈ��� ��ŵ
+			// 애니메이션, 물리 시뮬레이션이 없는 오브젝트 스킵
 			if (_RenderData->mAnimVertex.size() < 1 &&
 				_RenderData->mBoneMatrix.size() < 1)
 			{
@@ -537,11 +556,12 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 			_RenderData->isDirty = true;
 
-			// ����޽� ������ �ִϸ��̼��� ������Ʈ �ϴ� ��� (cloth)
 			for (submeshIDX = 0; submeshIDX < _RenderData->SubmeshCount; submeshIDX++)
 			{
+				// 리지드 바디의 위치를 최신화
 				if (_RenderData->isRigidBody[submeshIDX])
 				{
+					// pelvis 뼈를 기준으로 속도를 측정.
 					// Calc O
 					mRootF44 = _RenderData->mBoneMatrix[0][8];
 					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
@@ -574,6 +594,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					/////////////////////////////////////
 
+					// 다음 포즈를 계산
 					physx::PxTransform mPose(
 						physx::PxVec3(
 							resP.m128_f32[0],
@@ -591,9 +612,11 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					_RenderData->mRigidbody[submeshIDX]->setKinematicTarget(mPose);
 				}
 
+				// 옷감의 연속적인 모핑, 위치 최신화 
 				if (_RenderData->isCloth[submeshIDX])
 				{
 					// Adapted Cloth Physx
+					// pelvis 뼈를 기준으로 속도를 측정.
 					// Calc O
 					mRootF44 = _RenderData->mBoneMatrix[0][8];
 					mRootMat = DirectX::XMLoadFloat4x4(&mRootF44);
@@ -614,13 +637,15 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					//delta = DirectX::XMQuaternionNormalize(delta);
 
-					delta.m128_f32[0] *= 0.003f;
-					delta.m128_f32[1] *= 0.003f;
-					delta.m128_f32[2] *= 0.003f;
+					delta.m128_f32[0] *= mLocalScale.x;
+					delta.m128_f32[1] *= mLocalScale.y;
+					delta.m128_f32[2] *= mLocalScale.z;
 
 					resQ = delta;
 
 					resQ = DirectX::XMQuaternionNormalize(resQ);
+
+					resP.m128_f32[1] = -10.0f;
 
 					physx::PxTransform mPose(
 						physx::PxVec3(
@@ -638,10 +663,21 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					_RenderData->mClothes[submeshIDX]->setTargetPose(mPose);
 
+					if (isUseGlobalPose)
+					{
+						physx::PxTransform mGlobalPose(
+							physx::PxVec3(
+								mGlobalVec.x,
+								mGlobalVec.y,
+								mGlobalVec.z
+							)
+						);
+
+						_RenderData->mClothes[submeshIDX]->setGlobalPose(mGlobalPose);
+					}
+
 					mClothOffset =
 						clothPos;
-					//clothPos +
-					//_RenderData->mDesc[submeshIDX].BaseVertexLocation;
 					vertexSize =
 						_RenderData->mDesc[submeshIDX].VertexSize;
 
@@ -649,6 +685,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					mDstFixIter = _RenderData->dstFixVertexSubmesh[submeshIDX].begin();
 					mDstEndFixIter = _RenderData->dstFixVertexSubmesh[submeshIDX].end();
 
+					// 결과 옷감 Vertices List를 ObjectData에 전사한다. (고정 버텍스)
 					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eWRITABLE);
 
 					while (mDstFixIter != mDstEndFixIter)
@@ -666,19 +703,13 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					mSrcDynamicIter = _RenderData->srcDynamicVertexSubmesh[submeshIDX].begin();
 					mDstDynamicIter = _RenderData->dstDynamicVertexSubmesh[submeshIDX].begin();
 					mDstEndDynamicIter = _RenderData->dstDynamicVertexSubmesh[submeshIDX].end();
-
+					 
+					// 결과 옷감 Vertices List를 ObjectData에 전사한다. (유동 버텍스)
 					ppd = _RenderData->mClothes[submeshIDX]->lockParticleData(PxDataAccessFlag::eREADABLE);
 
 					while (mDstDynamicIter != mDstEndDynamicIter)
 					{
 						mSrcIterPos = &ppd->particles[*mSrcDynamicIter].pos;
-
-						//// DELTA
-						//{
-						//	(*mDstDynamicIter)->x - mSrcIterPos->x;
-						//	(*mDstDynamicIter)->y - mSrcIterPos->y;
-						//	(*mDstDynamicIter)->z - mSrcIterPos->z;
-						//}
 
 						memcpy((*mDstDynamicIter), mSrcIterPos, sizeof(float) * 3);
 
@@ -694,12 +725,13 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 			mObj++;
 		} // for GameObject
 
-		// Cloth Vertices�� Read Layer�� ����
+		// Cloth Vertices가 최신화 되었으므로 Draw에서 사용을 할 수 있도록 이벤트를 잠근다.
 		ResetEvent(mClothWriteEvent);
 		SetEvent(mClothReadEvent);
 
-		// �� ���� ���� ���� �ٽ� ��� 
-		if (loop++ == 3)
+		// 빈번한 옷감 시뮬레이션의 최신화는 FPS에 치명적이므로, 프레임에 무리가 없을 만큼만
+		// 최신화 빈도를 줄인다.
+		if (loop++ == 5)
 		{
 			loop = 0;
 			mPhys.Update();
@@ -768,7 +800,7 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 	int vcount = 0;
 
 	int submeshIDX = 0;
-	UINT vertexIDX = 0;
+	int vertexIDX = 0;
 	int i = 0;
 
 	DirectX::XMFLOAT4X4* BoneOriginOffset = NULL;
@@ -787,18 +819,18 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 
 	while (!StopThread)
 	{
-		// Cloth Vertices�� Write Layer�� �� �� ���� ���
 		WaitForSingleObject(mAnimationWriteEvent, INFINITE);
 		if (StopThread) break;
 
 		// Update Cloth Vertices
 		obj = mGameObjectDatas.begin();
 		objEnd = mGameObjectDatas.end();
+
 		while (obj != objEnd)
 		{
 			_RenderData = obj->second;
 
-			// ���� �ִϸ��̼��� ���� ������Ʈ��� ��ŵ
+			// 애니메이션 정보가 없다면 업데이트 패스
 			if (_RenderData->mAnimVertex.size() < 1 &&
 				_RenderData->mBoneMatrix.size() < 1)
 			{
@@ -807,37 +839,32 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 				continue;
 			}
 
+			// 애니메이션을 통해 vert가 업데이트 되었으므로 디스크립터에 업데이트 할 것을 요청
 			_RenderData->isDirty = true;
 
-			// �ִϸ��̼� ������Ʈ
+			// 
 			_RenderData->isAnim = true;
 			_RenderData->isLoop = true;
 
-			// ���� �������� ����ϸ�, �������� ���� �� �� Ʈ���Ÿ� �۵��Ѵ�.
+			// 애니메이션의 인덱스를 업데이트
 			currentFrame =
-				(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
-			//currentFrame =
-			//	1;
+			(int)(_RenderData->currentDelayPerSec / _RenderData->durationOfFrame[0]);
 
-			// ���� ���� �������� �ִϸ��̼��� ���̶��?
+			// 애니메이션 인덱스가 엔드 인덱스보다 크다면 다시 시작 인덱스로 반환
 			if ((_RenderData->endAnimIndex) <= currentFrame) {
-				// �ٽ� ���� ���� ����������
 				currentFrame = (int)_RenderData->beginAnimIndex;
 				_RenderData->currentDelayPerSec = (_RenderData->beginAnimIndex * _RenderData->durationOfFrame[0]);
 			}
-			// ���� �������� ���� �Ǿ��ٸ�?
+			// 인덱스가 변형될 때 마다, 현재 프레임이 업데이트 되었음을 알려준다.
 			if (_RenderData->currentFrame != currentFrame) {
 				_RenderData->currentFrame = currentFrame;
 				_RenderData->updateCurrentFrame = true;
 			}
 
-			// ���� ������ ������ �ܺ� �ð��� ������Ʈ �Ѵ�.
+			// 다음 프레임 까지 남은 시간을 계산.
 			residueTime = _RenderData->currentDelayPerSec - (_RenderData->currentFrame * _RenderData->durationOfFrame[0]);
-
-			// �ܺ� �ð� ������Ʈ
 			_RenderData->mAnimResidueTime = residueTime;
 
-			////
 			if (obj->second->mFormat == "FBX") {
 				VertexPos = obj->second->mVertices.data();
 				mVertexOffset = NULL;
@@ -845,28 +872,21 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 
 				for (submeshIDX = 0; submeshIDX < (int)obj->second->SubmeshCount; submeshIDX++)
 				{
-					// ���� �ִϸ��̼� Vertex�� �����Ǿ� �÷��� �Ǵ� Submesh���
+					// 옷 감 메쉬가 아닌 경우에만 애니메이션 처리를 할 것 
 					if (!obj->second->isCloth[submeshIDX])
 					{
-						// ���� ���� �������� �ִϸ��̼� ������ NULL�̸� 0���� ������ ä���.
-						if (obj->second->mAnimVertexSize[obj->second->currentFrame][submeshIDX] == 0)
+						if (obj->second->mAnimVertexSize[submeshIDX] == 0)
 							continue;
 
-						// �� ���� ������Ʈ�� VertexList �� �ش� Submesh�� ���� �������� �ҷ���
 						mVertexOffset =
 							VertexPos +
 							obj->second->mDesc[submeshIDX].BaseVertexLocation;
-						// Submesh�� �ش��ϴ� Vertex ����
-						vertexSize =
-							obj->second->mDesc[submeshIDX].VertexSize;
 
-						// �ִϸ��̼��� �ֽ�ȭ �� ���ؽ� ���� �ּ�
-						animPos = obj->second->mAnimVertex[obj->second->currentFrame][submeshIDX];
-						// �ִϸ��̼� ���ؽ� ������
-						animVertSize = obj->second->mAnimVertexSize[obj->second->currentFrame][submeshIDX];
+						animPos = obj->second->mAnimVertex[submeshIDX][obj->second->currentFrame];
+						animVertSize = obj->second->mAnimVertexSize[submeshIDX];
 
 						vcount = 0;
-						for (vertexIDX = 0; vertexIDX < vertexSize; vertexIDX++)
+						for (vertexIDX = 0; vertexIDX < animVertSize; vertexIDX++)
 						{
 							mVertexOffset[vertexIDX].Pos.x = animPos[vcount++];
 							mVertexOffset[vertexIDX].Pos.y = animPos[vcount++];
@@ -906,25 +926,25 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			// Update Morph
 			//////////////////////////////////////////////////////////////////////////////
 
-			if (_RenderData->mMorphDirty.size() > 0)
+			for (mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++)
 			{
-				for (mIDX = 0; mIDX < _RenderData->mMorphDirty.size(); mIDX++)
+				if (_RenderData->mMorphDirty[mIDX] == 0)
+					continue;
+
+				_RenderData->mMorphDirty[mIDX] = 0;
+
+				mMorph = _RenderData->mMorph[mIDX];
+				weight = mMorph.mVertWeight;
+
+				for (i = 0; i < mMorph.mVertIndices.size(); i++)
 				{
-					mMorph = _RenderData->mMorph[_RenderData->mMorphDirty[mIDX]];
-					weight = mMorph.mVertWeight;
+					DesctinationPos = &_RenderData->mVertices[mMorph.mVertIndices[i]].Pos;
+					DefaultPos = _RenderData->mModel.vertices[mMorph.mVertIndices[i]].position;
 
-					for (i = 0; i < mMorph.mVertIndices.size(); i++)
-					{
-						DesctinationPos = &_RenderData->mVertices[mMorph.mVertIndices[i]].Pos;
-						DefaultPos = _RenderData->mModel.vertices[mMorph.mVertIndices[i]].position;
-
-						DesctinationPos->x = DefaultPos[0] + mMorph.mVertOffset[i][0] * weight;
-						DesctinationPos->y = DefaultPos[1] + mMorph.mVertOffset[i][1] * weight;
-						DesctinationPos->z = DefaultPos[2] + mMorph.mVertOffset[i][2] * weight;
-					}
+					DesctinationPos->x = DefaultPos[0] + mMorph.mVertOffset[i][0] * weight;
+					DesctinationPos->y = DefaultPos[1] + mMorph.mVertOffset[i][1] * weight;
+					DesctinationPos->z = DefaultPos[2] + mMorph.mVertOffset[i][2] * weight;
 				}
-				
-				_RenderData->mMorphDirty.resize(0);
 			}
 
 			obj++;
@@ -977,10 +997,36 @@ bool BoxApp::Initialize()
 	if (!D3DApp::Initialize())
 		return false;
 
+ 	mInstanceIsUpdated = 0;
+
+	mODBC.OnInitDialog();
+
+	mMapGene.GenerateMap(
+		"Map1",									// MapName
+		{ 0.0f, 0.0f, 0.0f },					// MapPosition
+		30,										// MapSize
+		GeneratorParameter::Random,				// HoleCount
+		GeneratorParameter::Random,				// HoleSize
+		GeneratorParameter::VeryHigh,			// HightSize
+		GeneratorParameter::VeryHigh,			// MaxHight
+		GeneratorParameter::Random,				// HeightSmoothing
+		EnableDisable::Enabled,
+		EnableDisable::Enabled,
+		3,
+		EnableDisable::Enabled,
+		25,
+		25,
+		50,
+		EnableDisable::Enabled,
+		25
+	);
+
+	//mSSAOCommandList->Close();
+
 	// Reset the command list to prep for initialization commands.
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
-	// _Awake (������Ʈ �ε�, �ؽ���, ���׸��� ����)
+	// Preprocessing Main _Awake
 	_Awake(this);
 
 	mCamera.SetPosition(0.0f, 0.0f, -15.0f);
@@ -988,22 +1034,32 @@ bool BoxApp::Initialize()
 	mBlurFilter = std::make_unique<BlurFilter>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	mSobelFilter = std::make_unique<SobelFilter>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	mOffscreenRT = std::make_unique<RenderTarget>(md3dDevice.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
-	mShadowMap = std::make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
+	mShadowMap = std::make_unique<ShadowMap>(md3dDevice.Get(), 6000, 6000);
+	mSsao = std::make_unique<Ssao>(md3dDevice.Get(), mCommandList.Get(), mClientWidth, mClientHeight);
 	mDrawTexture = std::make_unique<DrawTexture>(md3dDevice.Get(), 2048, 2048, DXGI_FORMAT_R8G8B8A8_UNORM);
+
+	HWND mHandle = MainWnd();
+	InitGUI(mHandle, md3dDevice, mGUIDescriptorHeap);
 
 	BuildRootSignature();
 	BuildBlurRootSignature();
 	BuildSobelRootSignature();
+	BuildSsaoRootSignature();
 	BuildDrawMapSignature();
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 
 	BuildPSO();
 
-	// ���� ������ �ؽ���, ���׸��� ���ε� �Ǿ� �־����.
-
 	BuildRenderItem();
 	BuildFrameResource();
+
+	BuildGUIFrame();
+
+	mSsao->SetPSOs(
+		mPSOs[ObjectData::RenderType::_SSAO_COMPUTE_TYPE].Get(), 
+		mPSOs[ObjectData::RenderType::_SSAO_BLUR_COMPUTE_TYPE].Get()
+	);
 
 	// Create Physx Synchronization Thread
 	hAnimThread = CreateThread(NULL, 0, ThreadAnimFunc, NULL, 0, &hAnimThreadID);
@@ -1014,9 +1070,21 @@ bool BoxApp::Initialize()
 	mAnimationReadEvent = CreateEvent(nullptr, false, false, nullptr);
 	mAnimationWriteEvent = CreateEvent(nullptr, false, false, nullptr);
 
-	for (UINT i = 0; i < numThread; i++) {
+	for (UINT i = 0; i < numGlobalThread; i++) {
+		shadowRecordingDoneEvents[i] = CreateEvent(nullptr, false, false, nullptr);
+		shadowRenderTargetEvent[i] = CreateEvent(nullptr, false, false, nullptr);
+
 		recordingDoneEvents[i] = CreateEvent(nullptr, false, false, nullptr);
 		renderTargetEvent[i] = CreateEvent(nullptr, false, false, nullptr);
+
+		shadowDrawThreads[i] = CreateThread(
+			nullptr,
+			0,
+			this->DrawShadowThread,
+			reinterpret_cast<LPVOID>(i),
+			0,
+			shadowThreadIndex[i]
+		);
 
 		drawThreads[i] = CreateThread(
 			nullptr,
@@ -1026,9 +1094,7 @@ bool BoxApp::Initialize()
 			0,
 			ThreadIndex[i]
 		);
-
 	}
-
 
 	for (UINT i = 0; i < mBrushThreadNum; i++) {
 		mBrushEvent[i] = CreateEvent(nullptr, false, false, nullptr);
@@ -1052,7 +1118,7 @@ bool BoxApp::CloseCommandList()
 void BoxApp::CreateRtvAndDsvDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 2;
+	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 4;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -1061,7 +1127,7 @@ void BoxApp::CreateRtvAndDsvDescriptorHeaps()
 	));
 
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 2;
+	dsvHeapDesc.NumDescriptors = 3;
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	dsvHeapDesc.NodeMask = 0;
@@ -1093,50 +1159,64 @@ void BoxApp::OnResize()
 	{
 		mOffscreenRT->OnResize(mClientWidth, mClientHeight);
 	}
+	if (mSsao != nullptr)
+	{
+		mSsao->OnResize(mClientWidth, mClientHeight);
+
+		mSsao->RebuildDescriptors(mDepthStencilBuffer.Get());
+	}
 }
 
 void BoxApp::Update(const GameTimer& gt)
 {
-	// Cloth�� ������Ʈ �� �� ���� ���
+	if (mInstanceIsUpdated > 0)
+	{
+		mInstanceIsUpdated -= 1;
+
+		UpdateInstanceBuffer();
+		UpdateInstanceDataWithBaked(gt);
+	}
+
+	DrawGUI(gt);
+
 	WaitForSingleObject(mClothReadEvent, INFINITE);
 	WaitForSingleObject(mAnimationReadEvent, INFINITE);
 
-	_Update(gt);
+	if (isBegining > 10)
+		_Update(gt);
+
+	UpdateMaterialBuffer(gt);
 
 	OnKeyboardInput(gt);
 	AnimationMaterials(gt);
-	UpdateInstanceData(gt);
-	// UpdateMaterialBuffer(gt);
 	UpdateMainPassCB(gt);
-
 	UpdateAnimation(gt);
+
+	UpdateInstanceData(gt);
+
+	UpdateQuestUI(gt);
+
+	//UpdateSsaoCB(gt);
 }
 
 void BoxApp::OnKeyboardInput(const GameTimer& gt)
 {
 	const float dt = gt.DeltaTime() * 50.0f;
 
-	if (GetAsyncKeyState('Q') & 0x8000)
-		mCamera.Fly(-dt);
-	else if (GetAsyncKeyState('E') & 0x8000)
-		mCamera.Fly(dt);
+	std::unordered_map<char, char>::iterator mInputVectorIterator = mInputVector.begin();
 
-	if (GetAsyncKeyState('W') & 0x8000)
-		mCamera.Walk(dt);
-	else if (GetAsyncKeyState('S') & 0x8000)
-		mCamera.Walk(-dt);
+	for (int i = 0; i < mInputVector.size(); i++)
+	{
+		if (GetAsyncKeyState((*mInputVectorIterator).first) & 0x8000)
+			(*mInputVectorIterator).second = 1;
 
-	if (GetAsyncKeyState('A') & 0x8000)
-		mCamera.Strafe(-dt);
-	else if (GetAsyncKeyState('D') & 0x8000)
-		mCamera.Strafe(dt);
+		mInputVectorIterator++;
+	}
 
 	if (GetAsyncKeyState('Z') & 0x8000)
 		mFilterCount -= 1;
 	else if (GetAsyncKeyState('X') & 0x8000)
 		mFilterCount += 1;
-
-	//// ���� ĳ���͸� ����ٴϴ� ī�޶� ������ ���
 
 	// Convert Spherical to Cartesian coordinates.
 	float x = sinf(mPhi)*cosf(mTheta);
@@ -1159,209 +1239,256 @@ void BoxApp::AnimationMaterials(const GameTimer& gt)
 	std::unordered_map<std::string, ObjectData*>::iterator end = mGameObjectDatas.end();
 	ObjectData* obj = nullptr;
 
-	UINT test = 0; 
 	while (iter != end)
 	{
 		obj = (*iter).second;
 
-		//if (!obj->isBillBoard)
-		//{
-		//	iter++;
-		//	continue;
-		//}
-		if (test == 3 || test == 4)
+		if (obj->InstanceCount == 0)
 		{
-			obj->mInstances[0].TexTransform._41 += 0.0f;
-			obj->mInstances[0].TexTransform._42 += gt.DeltaTime();
-			obj->mInstances[0].TexTransform._43 += 0.0f;
+			iter++;
+			continue;
 		}
 
-		test++;
+		InstanceIterator = obj->mInstances.begin();
+
+		(*InstanceIterator).TexTransform._41 += 0.0f;
+		(*InstanceIterator).TexTransform._42 += gt.DeltaTime();
+		(*InstanceIterator).TexTransform._43 += 0.0f;
+
 		iter++;
 	}
 }
 
-void BoxApp::UpdateInstanceData(const GameTimer& gt)
+XMMATRIX view;
+XMMATRIX invView;
+
+XMMATRIX world, texTransform, invWorld, viewToLocal;
+InstanceData data;
+
+//const PhysResource* pr = nullptr;
+UINT visibleInstanceCount = 0;
+
+// Game Index
+int mGameIDX;
+
+int MatIDX;
+int LightIDX;
+
+// UpdateMaterialBuffer
+// Material Count == Submesh Count
+MaterialData matData;
+XMMATRIX matTransform;
+
+ObjectData* obj = NULL;
+PhysResource* pr = nullptr;
+std::vector<ThreadDrawRenderItem>::iterator objIDX;
+std::vector<ThreadDrawRenderItem>::iterator objEnd;
+std::vector<LightDataConstants>::iterator lightDataIDX;
+std::vector<Light>::iterator lightIDX;
+std::vector<Light>::iterator lightEnd;
+
+// 오브젝트가 프러스텀에 걸쳐있는지 여부를 확인하는 콜라이더 크기
+XMFLOAT4X4 boundScale = MathHelper::Identity4x4();
+
+Light* l;
+float mObjectPos[3];
+float distance = 0.0f;
+
+DirectX::XMFLOAT3 lightVec;
+DirectX::XMVECTOR lightData;
+
+XMVECTOR lightDir;
+XMVECTOR lightPos;
+XMVECTOR targetPos;
+XMVECTOR lightUp;
+// Light View Matrix
+XMMATRIX lightView;
+
+// World View에서 Light View 방향으로 변형된 경계구의 위치
+XMFLOAT3 sphereCenterL;
+
+float rad;
+
+XMMATRIX lightProj;
+// NDC 매트릭스
+XMMATRIX T(
+	0.5f, 0.0f, 0.0f, 0.0f,
+	0.0f, -0.5f, 0.0f, 0.0f,
+	0.0f, 0.0f, 1.0f, 0.0f,
+	0.5f, 0.5f, 0.0f, 1.0f
+);
+
+XMMATRIX S;
+
+XMMATRIX mLightViewProj;
+XMMATRIX mLightInvProj;
+XMMATRIX mLightInvView;
+XMMATRIX mLightInvViewProj;
+
+UINT w;
+UINT h;
+
+UINT mThreadNum = 0;
+
+void BoxApp::UpdateMaterialBuffer(const GameTimer& gt)
 {
-	XMMATRIX view = mCamera.GetView();
-	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+	ObjectData* obj = NULL;
 
-	XMMATRIX world, texTransform, invWorld, viewToLocal;
-	InstanceData data;
+	std::unordered_map<std::string, ObjectData*>::iterator iter = mGameObjectDatas.begin();
+	std::unordered_map<std::string, ObjectData*>::iterator end = mGameObjectDatas.end();
 
-	//const PhysResource* pr = nullptr;
-	UINT visibleInstanceCount = 0;
-
-	UINT i;
-	// Game Index
-	int mGameIDX = 0;
-
-	// (���� ������Ʈ ���� * ���� ����޽�) ���� ��ŭ�� ���׸��� ������ �Ϸķ� ���� ��Ű�� ���� �ε��� 
-	int MatIDX = 0;
-	int LightIDX = 0;
-
-	// UpdateMaterialBuffer
-	// Material Count == Submesh Count
-	// �ν��Ͻ����� �����ϱ� ���� �ν��Ͻ��� ��� �� Material�� �����Ѵ�.
-	MaterialData matData;
-	XMMATRIX matTransform;
-
-	//////
-	// 이후 각 라이트마다의 경계구로 변형 요망
-	//////
-	mSceneBounds.Center = XMFLOAT3{ 0.0f, 0.0f, 0.0f };
-	mSceneBounds.Radius = 100;
-
-	std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin();
-	std::vector<std::pair<std::string, Material>>::iterator& matEnd = mMaterials.end();
-	for (; matIDX != matEnd; matIDX++)
+	UINT count = 0;
+	while (iter != end)
 	{
-		matTransform = XMLoadFloat4x4(&matIDX->second.MatTransform);
+		obj = (*iter).second;
+
+		if (obj->isDiffuseDirty)
+		{
+			for (int i = 0; i < (*iter).second->Mat.size(); i++)
+			{
+				mMaterials[obj->Mat[i].MatCBIndex].DiffuseAlbedo = obj->Mat[i].DiffuseAlbedo;
+			}
+		}
+
+		count++;
+		iter++;
+	}
+
+	std::vector<Material>::iterator& matIDX = mMaterials.begin();
+	std::vector<Material>::iterator& matEnd = mMaterials.end();
+	while (matIDX != matEnd)
+	{
+		matTransform = XMLoadFloat4x4(&matIDX->MatTransform);
 
 		// Initialize new MaterialDatas
-		matData.DiffuseAlbedo = matIDX->second.DiffuseAlbedo;
-		matData.FresnelR0 = matIDX->second.FresnelR0;
-		matData.Roughness = matIDX->second.Roughness;
+		matData.DiffuseAlbedo = matIDX->DiffuseAlbedo;
+		matData.FresnelR0 = matIDX->FresnelR0;
+		matData.Roughness = matIDX->Roughness;
+		matData.DiffuseCount = matIDX->DiffuseCount;
 
 		XMStoreFloat4x4(
 			&matData.MatTransform,
 			XMMatrixTranspose(matTransform)
 		);
 
-		matIDX->second.MatInstIndex = MatIDX;
+		matIDX->MatInstIndex = MatIDX;
 
 		// copy on Descriptor Set
 		MaterialBuffer->CopyData(MatIDX++, matData);
 
-		// matIDX->second.NumFramesDirty--;
+		matIDX++;
 	}
+}
 
-	ObjectData* obj = NULL;
-	PhysResource* pr = nullptr;
-	std::unordered_map<std::string, ObjectData*>::iterator objIDX;
-	std::unordered_map<std::string, ObjectData*>::iterator objEnd;
-	std::vector<LightDataConstants>::iterator lightDataIDX;
-	std::vector<Light>::iterator lightIDX;
-	std::vector<Light>::iterator lightEnd = mLights.end();
+void BoxApp::UpdateInstanceData(const GameTimer& gt)
+{
+	view = mCamera.GetView();
+	invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+
+	UINT i, j;
+	// Game Index
+	mGameIDX = 0;
+
+	MatIDX = 0;
+	LightIDX = 0;
+
+	lightEnd = mLights.end();
 
 	// 오브젝트가 프러스텀에 걸쳐있는지 여부를 확인하는 콜라이더 크기
-	XMFLOAT4X4 boundScale = MathHelper::Identity4x4();
+	boundScale = MathHelper::Identity4x4();
+	distance = 0.0f;
+	mThreadNum = 0;
 
-	Light* l			= nullptr;
-	float* mObjectPos	= nullptr;
-	float distance		= 0.0f;
+	DirectX::XMVECTOR mParentPosition;
+	DirectX::XMMATRIX mParentWorld;
 
-	DirectX::XMFLOAT3 lightVec;
-	DirectX::XMVECTOR lightData;
-
-	XMVECTOR lightDir;
-	XMVECTOR lightPos;
-	XMVECTOR targetPos;
-	XMVECTOR lightUp;
-	// Light View Matrix
-	XMMATRIX lightView;
-
-	// World View에서 Light View 방향으로 변형된 경계구의 위치
-	XMFLOAT3 sphereCenterL;
-
-	float rad;
-
-	XMMATRIX lightProj;
-	// NDC 매트릭스
-	XMMATRIX T(
-		0.5f, 0.0f, 0.0f, 0.0f,
-		0.0f, -0.5f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		0.5f, 0.5f, 0.0f, 1.0f
-	);
-
-	XMMATRIX S;
-
-	XMMATRIX mLightViewProj;
-	XMMATRIX mLightInvProj;
-	XMMATRIX mLightInvView;
-	XMMATRIX mLightInvViewProj;
-
-	UINT w;
-	UINT h;
-
-	mRenderTasks.resize(mGameObjectDatas.size());
-	mRenderInstTasks.resize(mGameObjectDatas.size());
-
-	objIDX = mGameObjectDatas.begin();
-	objEnd = mGameObjectDatas.end();
-	for (; objIDX != objEnd; objIDX++)
+	for (mThreadNum = 0; mThreadNum < numGlobalThread; mThreadNum++)
 	{
-		obj = (*objIDX).second;
-		mRenderTasks[mGameIDX] = obj;
+		objIDX = mThreadDrawRenderItems[mThreadNum].begin();
+		objEnd = mThreadDrawRenderItems[mThreadNum].end();
 
-		mRenderInstTasks[mGameIDX].clear();
-
-		if (obj->isBillBoard)
+		for (; objIDX != objEnd; objIDX++)
 		{
-			// getSyncDesc
-			pr = &obj->mPhysResources[0];
+			obj = (*objIDX).mObject;
 
-			// Collider Box 또한 이동
-			mObjectPos = pr->Position;
 
-			world = XMLoadFloat4x4(&obj->mInstances[0].World);
-
-			world.r[3].m128_f32[0] = mObjectPos[0];
-			world.r[3].m128_f32[1] = mObjectPos[1];
-			world.r[3].m128_f32[2] = mObjectPos[2];
-
-			texTransform = XMLoadFloat4x4(&obj->mInstances[0].TexTransform);
-
-			InstanceBuffer->CopyData(visibleInstanceCount, data);
-			mRenderInstTasks[mGameIDX].push_back(visibleInstanceCount);
-
-			mGameIDX++;
-			visibleInstanceCount++;
-			continue;
-		}
-
-		for (i = 0; i < obj->InstanceCount; ++i)
-		{
-			// getSyncDesc
-			pr = &obj->mPhysResources[i];
-
-			// Collider Box 또한 이동
-			mObjectPos = pr->Position;
-
-			world = XMLoadFloat4x4(&obj->mInstances[i].World);
-
-			world.r[3].m128_f32[0] = mObjectPos[0];
-			world.r[3].m128_f32[1] = mObjectPos[1];
-			world.r[3].m128_f32[2] = mObjectPos[2];
-
-			obj->Bounds[i].Center.x = mObjectPos[0];
-			obj->Bounds[i].Center.y = mObjectPos[1];
-			obj->Bounds[i].Center.z = mObjectPos[2];
-
-			texTransform = XMLoadFloat4x4(&obj->mInstances[i].TexTransform);
-
-			invWorld = XMMatrixInverse(&XMMatrixDeterminant(world), world);
-			viewToLocal = XMMatrixMultiply(invView, invWorld);
-
-			BoundingFrustum localSpaceFrustum;
-			// 카메라의 시야에 ((worldMat)^-1 * (viewMat)^-1)를 곱하여, 오브젝트 관점에서의 프러스텀으로 변형
-			// 후, 최종 결과의 프러스텀 내 오브젝트가 존재한다면 실행
-			mCamFrustum.Transform(localSpaceFrustum, viewToLocal);
-
-			// 프러스텀 내에 존재하는 오브젝트인지 확인 후, true라면 오브젝트 정보를 적재
-			if (
-					(obj->mRenderType == (UINT)ObjectData::RenderType::_SKY_FORMAT_RENDER_TYPE) ||
-					(obj->mRenderType == (UINT)ObjectData::RenderType::_DEBUG_BOX_TYPE) ||
-					(localSpaceFrustum.Contains(obj->Bounds[i]) != DirectX::DISJOINT)
-				)
+			if (obj->isBaked || (obj->mVertices.size() == 0 && obj->mBillBoardVertices.size() == 0))
 			{
+				mGameIDX++;
+				continue;
+			}
+
+			if (obj->mParentName == "")
+			{
+				mParentPosition = { 0.0f, 0.0f, 0.0f, 1.0f };
+				mParentWorld = {
+					1, 0, 0, 0,
+					0, 1, 0, 0,
+					0, 0, 1, 0,
+					0, 0, 0, 1
+				};
+			}
+			else
+			{
+				mParentPosition = mGameObjectDatas[obj->mParentName]->mTranslate[0].position;
+				mParentPosition.m128_f32[0] *= 10.0f;
+				mParentPosition.m128_f32[1] *= 10.0f;
+				mParentPosition.m128_f32[2] *= 10.0f;
+
+				mParentWorld = mGameObjectDatas[obj->mParentName]->mTranslate[0].Matrix();
+			}
+
+			InstanceIterator = obj->mInstances.begin();
+			BoundsIterator = obj->Bounds.begin();
+
+			if (obj->isTextureSheetAnimation)
+			{
+				data.TopLeftTexCroodPos = (*InstanceIterator).TopLeftTexCroodPos;
+				data.BottomRightTexCroodPos = (*InstanceIterator).BottomRightTexCroodPos;
+			}
+
+			if (obj->isBillBoard)
+			{
+				DirectX::XMMATRIX world = DirectX::XMLoadFloat4x4(&(*InstanceIterator).World);
+				world = mParentWorld * world;
+
+				DirectX::XMStoreFloat4x4(&data.World, world);
+				data.TexTransform = (*InstanceIterator).TexTransform;
+
+				InstanceBuffer->CopyData((*objIDX).mInstanceIDX, data);
+
+				mGameIDX++;
+				continue;
+			}
+
+			bool isUpdate = false;
+			for (i = 0; i < obj->InstanceCount; ++i)
+			{
+				if (obj->mParentName != "")
+					obj->mTranslate[i].position = mParentPosition;
+
+				obj->mTranslate[i].Update(gt.DeltaTime());
+
+				world = obj->mTranslate[i].Matrix();
+
+				XMStoreFloat4x4(&(*InstanceIterator).World, world);
+
+				mObjectPos[0] = world.r[3].m128_f32[0];
+				mObjectPos[1] = world.r[3].m128_f32[1];
+				mObjectPos[2] = world.r[3].m128_f32[2];
+
+				(*BoundsIterator).Center.x = world.r[3].m128_f32[0];
+				(*BoundsIterator).Center.y = world.r[3].m128_f32[1];
+				(*BoundsIterator).Center.z = world.r[3].m128_f32[2];
+
+				texTransform = XMLoadFloat4x4(&(*InstanceIterator).TexTransform);
+				
 				XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
 				XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(texTransform));
-				data.MaterialIndex = obj->mInstances[i].MaterialIndex;
+				data.MaterialIndex = (*InstanceIterator).MaterialIndex;
 
 				// (현재 보여지고 있는 오브젝트의 개수) == (인스턴스 인덱스)
-				InstanceBuffer->CopyData(visibleInstanceCount, data);
+				InstanceBuffer->CopyData((*objIDX).mInstanceIDX + i, data);
 
 				// Light Update
 				if (mLightDatas.size() > 0)
@@ -1375,15 +1502,6 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 					int LightSize = 0;
 					while (lightIDX != lightEnd)
 					{
-						// 라이트 무브먼트 테스트
-						{
-							/*(*lightIDX).Position.x += gt.DeltaTime() * 0.5f;
-							(*lightIDX).Position.z += gt.DeltaTime() * 0.5f;
-							(*lightIDX).Position.y += gt.DeltaTime() * 0.5f;*/
-						}
-
-						// 오브젝트의 포지션을 얻어온다.
-
 						// 만일 라이트가 Dir이면
 						if ((*lightIDX).mLightType == LightType::DIR_LIGHTS)
 						{
@@ -1434,9 +1552,8 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 						lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 						// Light View Matrix
 						lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
-
 						// Store Light Pos
-						XMStoreFloat3(&(*lightIDX).mLightPosW, lightPos);
+						XMStoreFloat4(&(*lightIDX).mLightPosW, lightPos);
 
 						// World View에서 Light View 방향으로 변형된 경계구의 위치
 						XMStoreFloat3(&sphereCenterL, XMVector3TransformCoord(targetPos, lightView));
@@ -1480,23 +1597,331 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 						lightIDX++;
 					}// while (lightIDX != lightEnd)
 
-					LightBufferCB->CopyData(visibleInstanceCount, (*lightDataIDX));
+					LightBufferCB->CopyData((*objIDX).mInstanceIDX + i, (*lightDataIDX));
+
+					lightDataIDX++;
 				}// if (mLightDatas.size() > 0)
-
-				mRenderInstTasks[mGameIDX].push_back(visibleInstanceCount);
-
-				// 전체 오브젝트 인스턴스 카운트 (Default OBJ + BillBoard OBJ)
-				visibleInstanceCount++;
-				// InstanceBuffer가 지정되어 있는 오브젝트'만' 카운트
-				lightDataIDX++;
+				InstanceIterator++;
+				BoundsIterator++;
 			}
+
+			// 다음 게임 오브젝트의 인덱싱
+			mGameIDX++;
 		}
+	}
+}
+
+void BoxApp::UpdateInstanceDataWithBaked(const GameTimer& gt)
+{
+	view = mCamera.GetView();
+	invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+
+	//const PhysResource* pr = nullptr;
+	visibleInstanceCount = 0;
+
+	UINT i, j;
+	// Game Index
+	mGameIDX = 0;
+
+	MatIDX = 0;
+	LightIDX = 0;
+
+
+	//////
+	// 이후 각 라이트마다의 경계구로 변형 요망
+	//////
+	mSceneBounds.Center = XMFLOAT3{ 0.0f, 0.0f, 0.0f };
+	mSceneBounds.Radius = 100;
+
+	std::vector<Material>::iterator& matIDX = mMaterials.begin();
+	std::vector<Material>::iterator& matEnd = mMaterials.end();
+	while (matIDX != matEnd)
+	{
+		matTransform = XMLoadFloat4x4(&matIDX->MatTransform);
+
+		// Initialize new MaterialDatas
+		matData.DiffuseAlbedo = matIDX->DiffuseAlbedo;
+		matData.FresnelR0 = matIDX->FresnelR0;
+		matData.Roughness = matIDX->Roughness;
+		matData.DiffuseCount = matIDX->DiffuseCount;
+
+		XMStoreFloat4x4(
+			&matData.MatTransform,
+			XMMatrixTranspose(matTransform)
+		);
+
+		matIDX->MatInstIndex = MatIDX;
+
+		// copy on Descriptor Set
+		MaterialBuffer->CopyData(MatIDX++, matData);
+
+		matIDX++;
+	}
+
+	lightEnd = mLights.end();
+
+	// 오브젝트가 프러스텀에 걸쳐있는지 여부를 확인하는 콜라이더 크기
+	boundScale = MathHelper::Identity4x4();
+
+	distance		= 0.0f;
+
+	mThreadDrawRenderItem.resize(0);
+	mRenderTasks.resize(mGameObjectDatas.size());
+
+	std::unordered_map<std::string, ObjectData*>::iterator objIDX = mGameObjectDatas.begin();
+	std::unordered_map<std::string, ObjectData*>::iterator objEnd = mGameObjectDatas.end();
+
+	for (; objIDX != objEnd; objIDX++)
+	{
+		obj = (*objIDX).second;
+		mRenderTasks[mGameIDX] = obj;
+
+		InstanceIterator = obj->mInstances.begin();
+		BoundsIterator = obj->Bounds.begin();
+
+		if (obj->isTextureSheetAnimation)
+		{
+			data.TopLeftTexCroodPos = (*InstanceIterator).TopLeftTexCroodPos;
+			data.BottomRightTexCroodPos = (*InstanceIterator).BottomRightTexCroodPos;
+		}
+
+		if (obj->isBillBoard)
+		{
+			data.World = (*InstanceIterator).World;
+			data.TexTransform = (*InstanceIterator).TexTransform;
+
+			InstanceBuffer->CopyData(visibleInstanceCount, data);
+
+			mThreadDrawRenderItem.push_back(
+				ThreadDrawRenderItem(
+					obj,
+					visibleInstanceCount,
+					0,
+					obj->InstanceCount
+				)
+			);
+
+			mGameIDX++;
+			visibleInstanceCount++;
+			continue;
+		}
+
+		int isOnTheFrustumCount = 0;
+		UINT mInstanceIDX = 0;
+
+		for (i = 0; i < obj->InstanceCount; ++i)
+		{
+			world = XMLoadFloat4x4(&(*InstanceIterator).World);
+
+			mObjectPos[0] = world.r[3].m128_f32[0];
+			mObjectPos[1] = world.r[3].m128_f32[1];
+			mObjectPos[2] = world.r[3].m128_f32[2];
+
+			(*BoundsIterator).Center.x = world.r[3].m128_f32[0];
+			(*BoundsIterator).Center.y = world.r[3].m128_f32[1];
+			(*BoundsIterator).Center.z = world.r[3].m128_f32[2];
+
+			texTransform = XMLoadFloat4x4(&(*InstanceIterator).TexTransform);
+
+			invWorld = XMMatrixInverse(&XMMatrixDeterminant(world), world);
+			if (!DirectX::XMMatrixIsNaN(invWorld))
+			{
+				viewToLocal = XMMatrixMultiply(invView, invWorld);
+			}
+			else
+			{
+				viewToLocal = invView;
+			}
+
+			BoundingFrustum localSpaceFrustum;
+
+			// 카메라의 시야에 ((worldMat)^-1 * (viewMat)^-1)를 곱하여, 오브젝트 관점에서의 프러스텀으로 변형
+			// 후, 최종 결과의 프러스텀 내 오브젝트가 존재한다면 실행
+			mCamFrustum.Transform(localSpaceFrustum, viewToLocal);
+
+			if (i == 0)
+			{
+				// Store Offset Index of Instance Buffer
+				mInstanceIDX = visibleInstanceCount;
+			}
+
+			isOnTheFrustumCount++;
+
+			XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
+			XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(texTransform));
+			data.MaterialIndex = (*InstanceIterator).MaterialIndex;
+
+			// (현재 보여지고 있는 오브젝트의 개수) == (인스턴스 인덱스)
+			InstanceBuffer->CopyData(visibleInstanceCount, data);
+
+			// Light Update
+			if (mLightDatas.size() > 0)
+			{
+				lightIDX = mLights.begin();
+				lightDataIDX = mLightDatas.begin();
+
+				distance = 0.0f;
+
+				// 충돌 라이트를 최신화 하기 위해 clear한다.
+				int LightSize = 0;
+				while (lightIDX != lightEnd)
+				{
+					// 만일 라이트가 Dir이면
+					if ((*lightIDX).mLightType == LightType::DIR_LIGHTS)
+					{
+						// 무조건 포함
+						(*lightDataIDX).data[LightSize] = *lightIDX;
+					}
+					// 만일 라이트가 Point이면
+					else if ((*lightIDX).mLightType == LightType::POINT_LIGHT)
+					{
+						// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
+						lightVec.x = mObjectPos[0] - (*lightIDX).mPosition.x;
+						lightVec.y = mObjectPos[1] - (*lightIDX).mPosition.y;
+						lightVec.z = mObjectPos[2] - (*lightIDX).mPosition.z;
+
+						lightData = DirectX::XMLoadFloat3(&lightVec);
+
+						XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
+
+						if (distance < (*lightIDX).mFalloffEnd)
+						{
+							(*lightDataIDX).data[LightSize] = *lightIDX;
+						}
+					}
+					// 만일 라이트가 Spot이면
+					else if ((*lightIDX).mLightType == LightType::SPOT_LIGHT)
+					{
+						// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
+						lightVec.x = mObjectPos[0] - (*lightIDX).mPosition.x;
+						lightVec.y = mObjectPos[1] - (*lightIDX).mPosition.y;
+						lightVec.z = mObjectPos[2] - (*lightIDX).mPosition.z;
+
+						lightData = DirectX::XMLoadFloat3(&lightVec);
+
+						XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
+
+						if (distance < (*lightIDX).mFalloffEnd)
+						{
+							(*lightDataIDX).data[LightSize] = *lightIDX;
+						}
+					}
+
+					//lightDir = XMLoadFloat3(&(*lightIDX).mDirection);
+					lightDir.m128_f32[0] = 0.57735f;
+					lightDir.m128_f32[1] = -0.57735f;
+					lightDir.m128_f32[2] = 0.57735f;
+					lightPos = -2.0f * lightDir;
+					targetPos = XMLoadFloat3(&mSceneBounds.Center);
+					lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+					// Light View Matrix
+					lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
+					// Store Light Pos
+					XMStoreFloat4(&(*lightIDX).mLightPosW, lightPos);
+
+					// World View에서 Light View 방향으로 변형된 경계구의 위치
+					XMStoreFloat3(&sphereCenterL, XMVector3TransformCoord(targetPos, lightView));
+
+					rad = mSceneBounds.Radius;
+
+					// Ortho 프러스텀 생성
+					(*lightIDX).mLightNearZ = sphereCenterL.z - rad;
+					(*lightIDX).mLightFarZ = sphereCenterL.z + rad;
+
+					lightProj =
+						XMMatrixOrthographicOffCenterLH(
+							sphereCenterL.x - rad,
+							sphereCenterL.x + rad,
+							sphereCenterL.y - rad,
+							sphereCenterL.y + rad,
+							sphereCenterL.z - rad,
+							sphereCenterL.z + rad
+						);
+
+					S = lightView * lightProj * T;
+					XMStoreFloat4x4(&(*lightIDX).mLightView, lightView);
+					XMStoreFloat4x4(&(*lightIDX).mLightProj, lightProj);
+
+					mLightViewProj = XMMatrixMultiply(lightView, lightProj);
+					mLightInvView = XMMatrixInverse(&XMMatrixDeterminant(lightView), lightView);
+					mLightInvProj = XMMatrixInverse(&XMMatrixDeterminant(lightProj), lightProj);
+					mLightInvViewProj = XMMatrixInverse(&XMMatrixDeterminant(mLightViewProj), mLightViewProj);
+
+					XMStoreFloat4x4(&(*lightIDX).ShadowViewProj, XMMatrixTranspose(mLightViewProj));
+					XMStoreFloat4x4(&(*lightIDX).ShadowViewProjNDC, XMMatrixTranspose(S));
+					XMStoreFloat4x4(&mMainPassCB.ShadowViewProj, XMMatrixTranspose(mLightViewProj));
+					XMStoreFloat4x4(&mMainPassCB.ShadowViewProjNDC, XMMatrixTranspose(S));
+
+					(*lightIDX).AmbientLight = XMFLOAT4(0.4f, 0.4f, 0.4f, 1.0f);
+
+					w = mShadowMap->Width();
+					h = mShadowMap->Height();
+
+					LightSize += 1;
+					lightIDX++;
+				}// while (lightIDX != lightEnd)
+
+				LightBufferCB->CopyData(visibleInstanceCount, (*lightDataIDX));
+			}// if (mLightDatas.size() > 0)
+
+			// 전체 오브젝트 인스턴스 카운트 (Default OBJ + BillBoard OBJ)
+			visibleInstanceCount++;
+			// InstanceBuffer가 지정되어 있는 오브젝트'만' 카운트
+			lightDataIDX++;
+			InstanceIterator++;
+			BoundsIterator++;
+		}
+
+		mThreadDrawRenderItem.push_back(
+			ThreadDrawRenderItem(
+				obj,
+				mInstanceIDX,
+				0,
+				isOnTheFrustumCount
+			)
+		);
 
 		// 다음 게임 오브젝트의 인덱싱
 		mGameIDX++;
 	}
 
-	mInstanceCount = visibleInstanceCount;
+	for (i = 0; i < numGlobalThread; i++)
+		mThreadDrawRenderItems[i].resize(0);
+
+	// mThreadDrawRenderItem를 쓰레드 개수로 나눈다.
+	UINT loop = 0;
+	for (i = 0; i < mThreadDrawRenderItem.size(); i++)
+	{
+		if (mThreadDrawRenderItem[i].mOnTheFrustumCount < numGlobalThread)
+		{
+			mThreadDrawRenderItems[loop].push_back(mThreadDrawRenderItem[i]);
+			loop = (loop + 1) < numGlobalThread ? (loop + 1) : 0;
+		}
+		else
+		{
+			UINT mPieceOfOnTheFrustumCount = mThreadDrawRenderItem[i].mOnTheFrustumCount / numGlobalThread;
+
+			for (j = 0; j < (numGlobalThread - 1); j++)
+			{
+				mThreadDrawRenderItems[j].push_back(
+					ThreadDrawRenderItem(
+						mThreadDrawRenderItem[i].mObject,
+						mThreadDrawRenderItem[i].mInstanceIDX + (mPieceOfOnTheFrustumCount * j),
+						mThreadDrawRenderItem[i].mOnlySubmeshIDX,
+						mPieceOfOnTheFrustumCount
+					)
+				);
+			}
+			mThreadDrawRenderItems[numGlobalThread - 1].push_back(
+				ThreadDrawRenderItem(
+					mThreadDrawRenderItem[i].mObject,
+					mThreadDrawRenderItem[i].mInstanceIDX + (mPieceOfOnTheFrustumCount * (numGlobalThread - 1)),
+					mThreadDrawRenderItem[i].mOnlySubmeshIDX,
+					mThreadDrawRenderItem[i].mOnTheFrustumCount - (mPieceOfOnTheFrustumCount * (numGlobalThread - 1))
+				)
+			);
+		}
+	}
 }
 
 void BoxApp::UpdateMainPassCB(const GameTimer& gt)
@@ -1509,16 +1934,23 @@ void BoxApp::UpdateMainPassCB(const GameTimer& gt)
 		XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
 		XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
 
+		XMMATRIX T(
+			0.5f, 0.0f, 0.0f, 0.0f,
+			0.0f, -0.5f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			0.5f, 0.5f, 0.0f, 1.0f);
+
+		XMMATRIX viewProjTex = XMMatrixMultiply(viewProj, T);
+
 		XMStoreFloat4x4(&mMainPassCB.view, XMMatrixTranspose(view));
 		XMStoreFloat4x4(&mMainPassCB.Invview, XMMatrixTranspose(invView));
 		XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
 		XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
 		XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
 		XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+		XMStoreFloat4x4(&mMainPassCB.ViewProjTex, XMMatrixTranspose(viewProjTex));
 
 		mMainPassCB.EyePosW = mCamera.GetPosition3f();
-		//mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
-		//mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
 		mMainPassCB.NearZ = 1.0f;
 		mMainPassCB.FarZ = 1000.0f;
 		mMainPassCB.TotalTime = gt.TotalTime();
@@ -1530,20 +1962,120 @@ void BoxApp::UpdateMainPassCB(const GameTimer& gt)
 
 void BoxApp::UpdateAnimation(const GameTimer& gt)
 {
-	RenderItem* obj = NULL;
-	ObjectData* objData = NULL;
+	ObjectData* obj = NULL;
 
 	float delta = gt.DeltaTime();
+	std::unordered_map<std::string, ObjectData*>::iterator objIDX = mGameObjectDatas.begin();
+	std::unordered_map<std::string, ObjectData*>::iterator objEnd = mGameObjectDatas.end();
+
+	XMVECTOR up;
+	XMVECTOR right;
+	XMVECTOR front;
+
+	while (objIDX != objEnd)
+	{
+		obj = (*objIDX).second;
+
+		obj->currentDelayPerSec += delta;
+
+		for (int i = 0; i < obj->mBillBoardVertices.size(); i++)
+		{
+			up = DirectX::XMLoadFloat3(&obj->mBillBoardVertices[i].Norm);
+			right = mCamera.GetLook();
+
+			front = DirectX::XMVector3Cross(up, right);
+			DirectX::XMStoreFloat3(&obj->mBillBoardVertices[i].Norm, front);
+		}
+
+		objIDX++;
+	}
+}
+
+void BoxApp::UpdateSsaoCB(const GameTimer& gt)
+{
+	SsaoConstants ssaoCB;
+
+	XMMATRIX P = mCamera.GetProj();
+
+	// Transform NDC space [-1,+1]^2 to texture space [0,1]^2
+	XMMATRIX T(
+		0.5f, 0.0f, 0.0f, 0.0f,
+		0.0f, -0.5f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.5f, 0.5f, 0.0f, 1.0f);
+
+	ssaoCB.Proj = mMainPassCB.Proj;
+	ssaoCB.InvProj = mMainPassCB.InvProj;
+	XMStoreFloat4x4(&ssaoCB.ProjTex, XMMatrixTranspose(P*T));
+
+	mSsao->GetOffsetVectors(ssaoCB.OffsetVectors);
+
+	std::vector<float> blurWeights = mSsao->CalcGaussWeights(2.5f);
+	ssaoCB.BlurWeights[0] = XMFLOAT4(&blurWeights[0]);
+	ssaoCB.BlurWeights[1] = XMFLOAT4(&blurWeights[4]);
+	ssaoCB.BlurWeights[2] = XMFLOAT4(&blurWeights[8]);
+
+	ssaoCB.InvRenderTargetSize = XMFLOAT2(1.0f / mSsao->SsaoMapWidth(), 1.0f / mSsao->SsaoMapHeight());
+
+	// Coordinates given in view space.
+	ssaoCB.OcclusionRadius = 0.5f;
+	ssaoCB.OcclusionFadeStart = 0.2f;
+	ssaoCB.OcclusionFadeEnd = 1.0f;
+	ssaoCB.SurfaceEpsilon = 0.05f;
+
+	SsaoCB->CopyData(0, ssaoCB);
+}
+
+void BoxApp::UpdateInstanceBuffer()
+{
+	// Calc Instance Size
+	int InstanceNum = 0;
+	// Calc Submesh Size
+	int SubmeshNum = 0;
+	// Calc Bone Size
+	int BoneNum = 0;
+
+	RenderItem* obj = NULL;
 	std::list<RenderItem*>::iterator objIDX = mGameObjects.begin();
 	std::list<RenderItem*>::iterator objEnd = mGameObjects.end();
-	for (; objIDX != objEnd; objIDX++)
-	{
-		obj = *objIDX;
-		objData = mGameObjectDatas[obj->mName];
+	while (objIDX != objEnd) {
+		obj = (*objIDX);
+		RecursionFrameResource(obj, InstanceNum, SubmeshNum, BoneNum);
 
-		// ���� �ִϸ��̼� ���� �ð��� ������Ʈ �Ѵ�.
-		objData->currentDelayPerSec += delta;
+		objIDX++;
 	}
+
+	if (InstanceNum > 0)
+	{
+		LightBufferCB =
+			std::make_unique<UploadBuffer<LightDataConstants>>(md3dDevice.Get(), InstanceNum, true);
+		InstanceBuffer =
+			std::make_unique<UploadBuffer<InstanceData>>(md3dDevice.Get(), InstanceNum, false);
+	}
+}
+
+void BoxApp::UpdateQuestUI(const GameTimer& gt)
+{
+	//mODBC.GetTuple(0, data);
+	//printf("");
+
+	//mODBC.GetCurrentQuest(data);
+	//printf("");
+
+	//mODBC.SetComplete(data.id);
+
+	//mODBC.GetCurrentQuest(data);
+	//printf("");
+
+	//questParamComp->pushToggleComponent(isUseGlobalPose, "isUseGlobalPoseToggle", "isUseGlobalPoseToggle");
+
+	//questParamComp->pushSliderFloatComponent(mGlobalVec.x, "GlobalVecX", "GlobalVecX", -1.0f, 1.0f);
+	//questParamComp->pushSliderFloatComponent(mGlobalVec.y, "GlobalVecY", "GlobalVecY", -1.0f, 1.0f);
+	//questParamComp->pushSliderFloatComponent(mGlobalVec.z, "GlobalVecZ", "GlobalVecZ", -1.0f, 1.0f);
+
+	//questParamComp->pushSliderFloatComponent(mLocalScale.x, "LocalScaleX", "LocalScaleX", -0.01f, 0.01f);
+	//questParamComp->pushSliderFloatComponent(mLocalScale.y, "LocalScaleY", "LocalScaleY", -0.1f, 0.1f);
+	//questParamComp->pushSliderFloatComponent(mLocalScale.z, "LocalScaleZ", "LocalScaleZ", -0.01f, 0.01f);
 }
 
 void BoxApp::InitSwapChain(int numThread)
@@ -1551,8 +2083,11 @@ void BoxApp::InitSwapChain(int numThread)
 	{
 		// commandAlloc, commandList의 재사용을 위한 리셋
 		ThrowIfFailed(mDirectCmdListAlloc->Reset());
-		for (int i = 0; i < 3; i++)
+		for (UINT i = 0; i < numGlobalThread; i++)
+		{
 			ThrowIfFailed(mMultiCmdListAlloc[i]->Reset());
+			ThrowIfFailed(mMultiShadowCmdListAlloc[i]->Reset());
+		}
 
 		ThrowIfFailed(
 			mCommandList->Reset(
@@ -1560,12 +2095,17 @@ void BoxApp::InitSwapChain(int numThread)
 				mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get()
 			)
 		);
-		for (int i = 0; i < 3; i++)
+		for (UINT i = 0; i < numGlobalThread; i++)
+		{
 			ThrowIfFailed(mMultiCommandList[i]->Reset(
-				mMultiCmdListAlloc[i].Get(), 
+				mMultiCmdListAlloc[i].Get(),
 				mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get()
-			)
-		);
+			));
+			ThrowIfFailed(mMultiShadowCommandList[i]->Reset(
+				mMultiShadowCmdListAlloc[i].Get(),
+				mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get()
+			));
+		}
 
 		// Indicate a state transition on the resource usage.
 		mCommandList->ResourceBarrier(
@@ -1635,120 +2175,18 @@ void BoxApp::InitSwapChain(int numThread)
 		SetEvent(mAnimationWriteEvent);
 	}
 
-	// Opaque 아이템을 렌더 하여 DepthMap을 그린다.
 	{
-		mCommandList->ResourceBarrier(
-			1,
-			&CD3DX12_RESOURCE_BARRIER::Transition(
-				mShadowMap->Resource(),
-				D3D12_RESOURCE_STATE_GENERIC_READ,
-				D3D12_RESOURCE_STATE_DEPTH_WRITE
-			)
-		);
-
-		mCommandList->RSSetViewports(1, &mShadowMap->Viewport());
-		mCommandList->RSSetScissorRects(1, &mShadowMap->ScissorRect());
-
-		UINT passCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
-
-		mCommandList->ClearDepthStencilView (
-			mShadowMap->Dsv(),
-			D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
-			1.0f,
-			0,
-			0,
-			nullptr
-		);
-
-		// Set null render target because we are only going to draw to
-		// depth buffer.  Setting a null render target will disable color writes.
-		// Note the active PSO also must specify a render target count of 0.
-		mCommandList->OMSetRenderTargets(
-			0,
-			nullptr,
-			false,
-			&mShadowMap->Dsv()
-		);
-
-		ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
-		mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-		mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
-
-		// Select Descriptor Buffer Index
-		mCommandList->SetGraphicsRootConstantBufferView (
-			0,
-			PassCB->Resource()->GetGPUVirtualAddress()
-		);
-
-		mCommandList->SetPipelineState(mPSOs[ObjectData::RenderType::_OPAQUE_SHADOW_MAP_RENDER_TYPE].Get());
-
-		// Instance Count
-		D3D12_GPU_VIRTUAL_ADDRESS objectCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
-		D3D12_GPU_VIRTUAL_ADDRESS lightCB = LightBufferCB->Resource()->GetGPUVirtualAddress();
-
-		// For each render item...
-		size_t instAcc = 0;
-		ObjectData* obj = NULL;
-		for (size_t i = 0; i < mGameObjectDatas.size(); ++i)
+		for (UINT i = 0; i < numGlobalThread; i++)
 		{
-			obj = (std::next(mGameObjectDatas.begin(), i))->second;
-
-			if (!obj->isDrawShadow)
-			{
-				instAcc++;
-				continue;
-			}
-
-			for (size_t j = 0; j < obj->InstanceCount; j++)
-			{
-				// Instance
-				D3D12_GPU_VIRTUAL_ADDRESS objCBAddress =
-					objectCB + instAcc * sizeof(InstanceData);
-				D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress =
-					lightCB + instAcc * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
-
-				mCommandList->IASetVertexBuffers(0, 1, &obj->mGeometry.VertexBufferView());
-				mCommandList->IASetIndexBuffer(&obj->mGeometry.IndexBufferView());
-				mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-				mCommandList->SetGraphicsRootConstantBufferView(
-					1,
-					lightCBAddress
-				);
-				mCommandList->SetGraphicsRootShaderResourceView (
-					3,
-					objCBAddress
-				);
-
-				SubmeshGeometry* sg = nullptr;
-				for (size_t k = 0; k < obj->SubmeshCount; k++)
-				{
-					sg = &obj->mGeometry.DrawArgs[
-						obj->mGeometry.meshNames[k].c_str()
-					];
-
-					mCommandList->DrawIndexedInstanced(
-						sg->IndexSize,
-						obj->InstanceCount,
-						sg->StartIndexLocation,
-						sg->BaseVertexLocation,
-						0
-					);
-				}
-
-				instAcc++;
-			}
+			SetEvent(shadowRenderTargetEvent[i]);
 		}
 
-		// Change back to GENERIC_READ so we can read the texture in a shader.
-		mCommandList->ResourceBarrier(
-			1,
-			&CD3DX12_RESOURCE_BARRIER::Transition(
-				mShadowMap->Resource(),
-				D3D12_RESOURCE_STATE_DEPTH_WRITE,
-				D3D12_RESOURCE_STATE_GENERIC_READ
-			)
-		);
+		WaitForMultipleObjects(numGlobalThread, shadowRecordingDoneEvents, true, INFINITE);
+
+		for (UINT i = 0; i < numGlobalThread; i++)
+		{
+			ResetEvent(shadowRecordingDoneEvents[i]);
+		}
 	}
 
 	// Compute Draw Texture
@@ -1795,13 +2233,16 @@ void BoxApp::InitSwapChain(int numThread)
 			{
 				obj->isBillBoardDirty = false;
 
-				d3dUtil::UpdateDefaultBuffer(
-					mCommandList.Get(),
-					obj->mBillBoardVertices.data(),
-					obj->mGeometry.VertexBufferByteSize,
-					obj->mGeometry.VertexBufferUploader,
-					obj->mGeometry.VertexBufferGPU
-				);
+				if (obj->mBillBoardVertices.size() > 0)
+				{
+					d3dUtil::UpdateDefaultBuffer(
+						mCommandList.Get(),
+						obj->mBillBoardVertices.data(),
+						obj->mGeometry.VertexBufferByteSize,
+						obj->mGeometry.VertexBufferUploader,
+						obj->mGeometry.VertexBufferGPU
+					);
+				}
 			}
 		}
 
@@ -1815,8 +2256,25 @@ void BoxApp::InitSwapChain(int numThread)
 	{
 		mCommandList->Close();
 
+		mMultiShadowCommandList[0]->Close();
+		mMultiShadowCommandList[1]->Close();
+		mMultiShadowCommandList[2]->Close();
+		mMultiShadowCommandList[3]->Close();
+		mMultiShadowCommandList[4]->Close();
+		mMultiShadowCommandList[5]->Close();
+		mMultiShadowCommandList[6]->Close();
+		mMultiShadowCommandList[7]->Close();
+
 		ID3D12CommandList* commands[] = {
-			mCommandList.Get()
+			mCommandList.Get(),
+			mMultiShadowCommandList[0].Get(),
+			mMultiShadowCommandList[1].Get(),
+			mMultiShadowCommandList[2].Get(),
+			mMultiShadowCommandList[3].Get(),
+			mMultiShadowCommandList[4].Get(),
+			mMultiShadowCommandList[5].Get(),
+			mMultiShadowCommandList[6].Get(),
+			mMultiShadowCommandList[7].Get()
 		};
 		mCommandQueue->ExecuteCommandLists(_countof(commands), commands);
 
@@ -1838,16 +2296,169 @@ void BoxApp::InitSwapChain(int numThread)
 			CloseHandle(_event);
 		}
 	}
+}
 
-	printf("");
+DWORD WINAPI BoxApp::DrawShadowThread(LPVOID temp)
+{
+	UINT ThreadIDX = (UINT)(temp);
+
+	SubmeshGeometry* sg = nullptr;
+
+	// PreMake offset of Descriptor Resource Buffer.
+	// 프레임 버퍼의 시작 주소 (Base Pointer)
+	D3D12_GPU_VIRTUAL_ADDRESS instanceCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
+	D3D12_GPU_VIRTUAL_ADDRESS lightCB = LightBufferCB->Resource()->GetGPUVirtualAddress();
+
+	// 프레임 버퍼 (Stack Pointer)
+	D3D12_GPU_VIRTUAL_ADDRESS objCBAddress;
+	D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress;
+
+	// For each render item...
+	ThreadDrawRenderItem* mRenderItem = nullptr;
+	ObjectData* obj = nullptr;
+
+	// loop Resource
+	size_t i, k;
+
+	while (ThreadIDX < numGlobalThread)
+	{
+		// Draw에서 Update를 마치고 Draw를 시작하라고 지시 할 때 까지 대기
+		WaitForSingleObject(shadowRenderTargetEvent[ThreadIDX], INFINITE);
+
+		instanceCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
+		lightCB = LightBufferCB->Resource()->GetGPUVirtualAddress();
+
+		// Opaque 아이템을 렌더 하여 DepthMap을 그린다.
+		{
+			mMultiShadowCommandList[ThreadIDX]->ResourceBarrier(
+				1,
+				&CD3DX12_RESOURCE_BARRIER::Transition(
+					mShadowMap->Resource(),
+					D3D12_RESOURCE_STATE_GENERIC_READ,
+					D3D12_RESOURCE_STATE_DEPTH_WRITE
+				)
+			);
+
+			mMultiShadowCommandList[ThreadIDX]->RSSetViewports(1, &mShadowMap->Viewport());
+			mMultiShadowCommandList[ThreadIDX]->RSSetScissorRects(1, &mShadowMap->ScissorRect());
+
+			UINT passCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
+
+			if (ThreadIDX == 0)
+			{
+				mMultiShadowCommandList[ThreadIDX]->ClearDepthStencilView(
+					mShadowMap->Dsv(),
+					D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+					1.0f,
+					0,
+					0,
+					nullptr
+				);
+			}
+
+			// Set null render target because we are only going to draw to
+			// depth buffer.  Setting a null render target will disable color writes.
+			// Note the active PSO also must specify a render target count of 0.
+			mMultiShadowCommandList[ThreadIDX]->OMSetRenderTargets(
+				0,
+				nullptr,
+				false,
+				&mShadowMap->Dsv()
+			);
+
+			ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+			mMultiShadowCommandList[ThreadIDX]->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+			mMultiShadowCommandList[ThreadIDX]->SetGraphicsRootSignature(mRootSignature.Get());
+
+			// Select Descriptor Buffer Index
+			mMultiShadowCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
+				0,
+				PassCB->Resource()->GetGPUVirtualAddress()
+			);
+
+			mMultiShadowCommandList[ThreadIDX]->SetPipelineState(mPSOs[ObjectData::RenderType::_OPAQUE_SHADOW_MAP_RENDER_TYPE].Get());
+
+			for (i = 0; i < mThreadDrawRenderItems[ThreadIDX].size(); ++i)
+			{
+				mRenderItem = &mThreadDrawRenderItems[ThreadIDX][i];
+				obj = mRenderItem->mObject;
+
+				if ( obj->mVertices.size() == 0			|| 
+					 !obj->isDrawShadow					||
+					 !mRenderItem->mOnTheFrustumCount)
+				{
+					continue;
+				}
+
+				// Instance
+				objCBAddress = 
+					instanceCB + mRenderItem->mInstanceIDX * sizeof(InstanceData);
+				lightCBAddress = 
+					lightCB + mRenderItem->mInstanceIDX * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
+
+				SubmeshGeometry* sg = nullptr;
+
+				mMultiShadowCommandList[ThreadIDX]->IASetVertexBuffers(
+					0, 
+					1, 
+					&obj->mGeometry.VertexBufferView()
+				);
+				mMultiShadowCommandList[ThreadIDX]->IASetIndexBuffer(
+					&obj->mGeometry.IndexBufferView()
+				);
+				mMultiShadowCommandList[ThreadIDX]->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+				mMultiShadowCommandList[ThreadIDX]->SetGraphicsRootConstantBufferView(
+					1,
+					lightCBAddress
+				);
+				mMultiShadowCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+					3,
+					objCBAddress
+				);
+
+				for (k = 0; k < obj->SubmeshCount; k++)
+				{
+					sg = &obj->mGeometry.DrawArgs[k];
+
+					mMultiShadowCommandList[ThreadIDX]->DrawIndexedInstanced(
+						sg->IndexSize,
+						mRenderItem->mOnTheFrustumCount,
+						sg->StartIndexLocation,
+						sg->BaseVertexLocation,
+						0
+					);
+				}
+			}
+
+			// Change back to GENERIC_READ so we can read the texture in a shader.
+			mMultiShadowCommandList[ThreadIDX]->ResourceBarrier(
+				1,
+				&CD3DX12_RESOURCE_BARRIER::Transition(
+					mShadowMap->Resource(),
+					D3D12_RESOURCE_STATE_DEPTH_WRITE,
+					D3D12_RESOURCE_STATE_GENERIC_READ
+				)
+			);
+		}
+
+		// Done recording commands.
+		//ThrowIfFailed(mMultiShadowCommandList[ThreadIDX]->Close());
+
+		ResetEvent(shadowRenderTargetEvent[ThreadIDX]);
+		SetEvent(shadowRecordingDoneEvents[ThreadIDX]);
+	}
+
+	return (DWORD)0;
 }
 
 DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 {
 	UINT ThreadIDX = (UINT)(temp);
 
-	UINT instanceIDX = 0;
 	SubmeshGeometry* sg = nullptr;
+
+	UINT i, j;
 
 	// PreMake offset of Descriptor Resource Buffer.
 	// 프레임 버퍼의 시작 주소 (Base Pointer)
@@ -1864,25 +2475,8 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	D3D12_GPU_VIRTUAL_ADDRESS rateOfAnimTimeCBAddress;
 	D3D12_GPU_VIRTUAL_ADDRESS pmxBoneCBAddress;
 
-	// Instance Offset
-	uint32_t _gInstOffset = 0;
-
-	// loop Resource
-	UINT i, j;
-
-	// RenderInstTasks Offset
-	UINT _taskOffset;
-	// RenderInstTasks End Point
-	UINT _taskEnd;
-
 	// Extracted Render Items.
 	ObjectData* obj = nullptr;
-	int amountOfTask = 0;
-	int continueIDX = -1;
-	UINT taskIDX = 0;
-
-	// GameObjectIndices
-	std::vector<struct PieceOfRenderItemByThread> mGameObjectIndices;
 
 	UINT loop = 0;
 	UINT end = 0;
@@ -1890,61 +2484,13 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 	int MatIDX = 0;
 	int gameIDX = 0;
 
-	while (ThreadIDX < numThread)
+	while (ThreadIDX < numGlobalThread)
 	{
 		// Draw에서 Update를 마치고 Draw를 시작하라고 지시 할 때 까지 대기
 		WaitForSingleObject(renderTargetEvent[ThreadIDX], INFINITE);
 
-		// Initialization
-		continueIDX = -1;
-		taskIDX = 0;
-		instanceIDX = 0;
-
-		// Divid RenderItem Geometrys by ThreadIDX
-		// This Situation will be make Minimalized saving to VBV buffer.
-		
-		// 그려야 할 인스턴스 리스트를 삼등분 하여 나누어 렌더링
-
-		// 시작 인스턴스 인덱스 
-		_taskOffset = (mInstanceCount / 3) * ThreadIDX;
-
-		// 끝 인스턴스 인덱스
-		if (ThreadIDX != 2)
-			_taskEnd = (mInstanceCount / 3) * (ThreadIDX + 1);
-		else
-			_taskEnd = mInstanceCount;
-
-		// 렌더링 할 오브젝트가 없다면 스킵
-		if (_taskEnd - _taskOffset == 0)
-		{
-			ThrowIfFailed(mMultiCommandList[ThreadIDX]->Close());
-
-			ResetEvent(renderTargetEvent[ThreadIDX]);
-			SetEvent(recordingDoneEvents[ThreadIDX]);
-
-			return 1;
-		}
-
-		// 하나의 스레드가 그려야 할 인스턴스의 개수만큼 공간을 할당함.
-		mGameObjectIndices.resize(_taskEnd - _taskOffset);
-
-		UINT count = 0;
-		UINT index = 0;
-		// _taskEnd
-		for (i = 0; i < mRenderInstTasks.size(); i++)
-		{
-			for (j = 0; j < mRenderInstTasks[i].size(); j++)
-			{
-				if (_taskOffset <= count && count < _taskEnd)
-				{
-					mGameObjectIndices[index].mObjPTR = mRenderTasks[i];
-					mGameObjectIndices[index].mInstanceOffset = mRenderInstTasks[i][j];
-
-					index++;
-				}
-				count++;
-			}
-		}
+		lightCB = LightBufferCB->Resource()->GetGPUVirtualAddress();
+		instanceCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
 
 #ifdef _USE_UBER_SHADER
 		// Recording CommandList
@@ -1997,9 +2543,14 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 					10,
 					mShadowMap->Srv()
 				);
-				// DrawTexture
+				// SsaoMap
 				mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
 					11,
+					mSsao->AmbientMapSrv()
+				);
+				// DrawTexture
+				mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+					12,
 					mDrawTexture->OutputSrv()
 				);
 			}
@@ -2007,20 +2558,21 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 			mMultiCommandList[ThreadIDX]->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		}
 
-		{
-			continueIDX = -1;
-			MatIDX = 0;
+		ThreadDrawRenderItem* mRenderItem = nullptr;
 
-			for (taskIDX = 0; taskIDX < (_taskEnd - _taskOffset); taskIDX++)
+		{
+			for (UINT taskIDX = 0; taskIDX < mThreadDrawRenderItems[ThreadIDX].size(); taskIDX++)
 			{
-				obj				= mGameObjectIndices[taskIDX].mObjPTR;
+				mRenderItem = &mThreadDrawRenderItems[ThreadIDX][taskIDX];
+				obj	= mRenderItem->mObject;
+
+				if (mRenderItem->mOnTheFrustumCount == 0)
+					continue;
 
 				if (!obj->isBillBoard)
 				{
-					_gInstOffset = mGameObjectIndices[taskIDX].mInstanceOffset;
-
 					size_t vertSize = obj->mVertices.size();
-					if (!obj || !vertSize) break;
+					if (!obj || !vertSize) continue;
 
 					mMultiCommandList[ThreadIDX]->SetPipelineState(
 						mPSOs[(ObjectData::RenderType)obj->mRenderType].Get()
@@ -2036,8 +2588,10 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 					);
 
 					// Move to Current Stack Pointer
-					instanceCBAddress = instanceCB + _gInstOffset * sizeof(InstanceData);
-					lightCBAddress = lightCB + _gInstOffset * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
+					instanceCBAddress = 
+						instanceCB + mRenderItem->mInstanceIDX * sizeof(InstanceData);
+					lightCBAddress = 
+						lightCB + mRenderItem->mInstanceIDX * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
 					pmxBoneCBAddress = pmxBoneCB;
 					rateOfAnimTimeCBAddress = rateOfAnimTimeCB;
 
@@ -2053,24 +2607,22 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 								2,
 								rateOfAnimTimeCBAddress
 							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+								5,
+								pmxBoneCBAddress
+							);
 						}
 						mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
 							3,
 							instanceCBAddress
 						);
-						mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-							5,
-							pmxBoneCBAddress
-						);
 					}
 
+					// count of submesh
+					if (obj->Mat.size() > 0)
 					{
-						// count of submesh
 						for (j = 0; j < obj->SubmeshCount; j++)
 						{
-							if (obj->Mat.size() == 0 && obj->SkyMat.size() == 0)
-								throw std::runtime_error("");
-
 							// Select Texture to Index
 							CD3DX12_GPU_DESCRIPTOR_HANDLE tex(
 								mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
@@ -2085,105 +2637,115 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 								mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
 							);
 
-							if (obj->Mat.size() > 0)
-							{
-								matCBAddress = matCB + obj->Mat[j]->MatCBIndex * sizeof(MaterialData);
+							matCBAddress = matCB + obj->Mat[j].MatCBIndex * sizeof(MaterialData);
 
-								// Move to Current Stack Pointer
-								tex.Offset(
-									obj->Mat[j]->DiffuseSrvHeapIndex,
-									mCbvSrvUavDescriptorSize
-								);
+							// Move to Current Stack Pointer
+							tex.Offset(
+								obj->Mat[j].DiffuseSrvHeapIndex,
+								mCbvSrvUavDescriptorSize
+							);
 
-								maskTex.Offset(
-									obj->Mat[j]->MaskSrvHeapIndex >= 0 ? obj->Mat[j]->MaskSrvHeapIndex : 0,
-									mCbvSrvUavDescriptorSize
-								);
+							maskTex.Offset(
+								obj->Mat[j].MaskSrvHeapIndex,
+								mCbvSrvUavDescriptorSize
+							);
 
-								noiseTex.Offset(
-									obj->Mat[j]->NoiseSrvHeapIndex >= 0 ? obj->Mat[j]->NoiseSrvHeapIndex : 0,
-									mCbvSrvUavDescriptorSize
-								);
-
-								skyTex.Offset(
-									0,
-									mCbvSrvUavDescriptorSize
-								);
-							}
-							else
-							{
-								matCBAddress = matCB;
-
-								// Move to Current Stack Pointer
-								tex.Offset(
-									0,
-									mCbvSrvUavDescriptorSize
-								);
-
-								maskTex.Offset(
-									0,
-									mCbvSrvUavDescriptorSize
-								);
-
-								noiseTex.Offset(
-									0,
-									mCbvSrvUavDescriptorSize
-								);
-
-								skyTex.Offset(
-									0,
-									mCbvSrvUavDescriptorSize
-								);
-							}
+							noiseTex.Offset(
+								obj->Mat[j].NoiseSrvHeapIndex,
+								mCbvSrvUavDescriptorSize
+							);
 
 							// Select Descriptor Buffer Index
-							{
-								mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-									4,
-									matCBAddress
-								);
-								mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
-									6,
-									tex
-								);
-								mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
-									7,
-									maskTex
-								);
-								mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
-									8,
-									noiseTex
-								);
-								mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
-									9,
-									skyTex
-								);
-							}
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+								4,
+								matCBAddress
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								6,
+								tex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								7,
+								maskTex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								8,
+								noiseTex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								9,
+								skyTex
+							);
 
-							sg = &obj->mGeometry.DrawArgs[
-								obj->mGeometry.meshNames[
-									j
-								].c_str()
-							];
+							sg = &obj->mGeometry.DrawArgs[j];
 
 							mMultiCommandList[ThreadIDX]->DrawIndexedInstanced(
 								sg->IndexSize,
-								obj->InstanceCount,
+								mRenderItem->mOnTheFrustumCount,
+								sg->StartIndexLocation,
+								sg->BaseVertexLocation,
+								0
+							);
+						}
+					}// if (obj->Mat.size() > 0)
+					else
+					{
+						// Select Texture to Index
+						CD3DX12_GPU_DESCRIPTOR_HANDLE tex(
+							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+						);
+						CD3DX12_GPU_DESCRIPTOR_HANDLE maskTex(
+							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+						);
+						CD3DX12_GPU_DESCRIPTOR_HANDLE noiseTex(
+							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+						);
+						CD3DX12_GPU_DESCRIPTOR_HANDLE skyTex(
+							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+						);
+
+						for (j = 0; j < obj->SubmeshCount; j++)
+						{
+							matCBAddress = matCB;
+
+							// Select Descriptor Buffer Index
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+								4,
+								matCBAddress
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								6,
+								tex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								7,
+								maskTex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								8,
+								noiseTex
+							);
+							mMultiCommandList[ThreadIDX]->SetGraphicsRootDescriptorTable(
+								9,
+								skyTex
+							);
+
+							sg = &obj->mGeometry.DrawArgs[j];
+
+							mMultiCommandList[ThreadIDX]->DrawIndexedInstanced(
+								sg->IndexSize,
+								mRenderItem->mOnTheFrustumCount,
 								sg->StartIndexLocation,
 								sg->BaseVertexLocation,
 								0
 							);
 						}
 					}
-
-					_gInstOffset += 1;
 				} // if (!obj->isBillBoard)
 				else
 				{
-					_gInstOffset = mGameObjectIndices[taskIDX].mInstanceOffset;
-
 					size_t vertSize = obj->mBillBoardVertices.size();
-					if (!obj || !vertSize) break;
+					if (!obj || !vertSize) continue;
 
 					mMultiCommandList[ThreadIDX]->SetPipelineState(
 						mPSOs[(ObjectData::RenderType)obj->mRenderType].Get()
@@ -2200,21 +2762,16 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 
 					// Move to Current Stack Pointer
-					instanceCBAddress = instanceCB + _gInstOffset * sizeof(InstanceData);
+					instanceCBAddress = 
+						instanceCB + mRenderItem->mInstanceIDX * sizeof(InstanceData);
 					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
 						3,
 						instanceCBAddress
 					);
 
-					auto vertices = (Vertex*)obj->mGeometry.VertexBufferCPU->GetBufferPointer();
-					auto indices = (std::uint32_t*)obj->mGeometry.IndexBufferCPU->GetBufferPointer();
-
 					// count of submesh
 					for (j = 0; j < obj->SubmeshCount; j++)
 					{
-						if (obj->Mat.size() == 0 && obj->SkyMat.size() == 0)
-							throw std::runtime_error("");
-
 						// Select Texture to Index
 						CD3DX12_GPU_DESCRIPTOR_HANDLE tex(
 							mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
@@ -2228,23 +2785,21 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 						if (obj->Mat.size() > 0)
 						{
-							if (obj->Mat[j]->MatCBIndex < 0)
-								printf("");
-							matCBAddress = matCB + obj->Mat[j]->MatCBIndex * sizeof(MaterialData);
+							matCBAddress = matCB + obj->Mat[j].MatCBIndex * sizeof(MaterialData);
 
 							// Move to Current Stack Pointer
 							tex.Offset(
-								obj->Mat[j]->DiffuseSrvHeapIndex,
+								obj->Mat[j].DiffuseSrvHeapIndex,
 								mCbvSrvUavDescriptorSize
 							);
 
 							maskTex.Offset(
-								obj->Mat[j]->MaskSrvHeapIndex >= 0 ? obj->Mat[j]->MaskSrvHeapIndex : 0,
+								obj->Mat[j].MaskSrvHeapIndex/* >= 0 ? obj->Mat[j].MaskSrvHeapIndex : 0*/,
 								mCbvSrvUavDescriptorSize
 							);
 
 							noiseTex.Offset(
-								obj->Mat[j]->NoiseSrvHeapIndex >= 0 ? obj->Mat[j]->NoiseSrvHeapIndex : 0,
+								obj->Mat[j].NoiseSrvHeapIndex/* >= 0 ? obj->Mat[j].NoiseSrvHeapIndex : 0*/,
 								mCbvSrvUavDescriptorSize
 							);
 						}
@@ -2289,15 +2844,11 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 							);
 						}
 
-						sg = &obj->mGeometry.DrawArgs[
-							obj->mGeometry.meshNames[
-								j
-							].c_str()
-						];
+						sg = &obj->mGeometry.DrawArgs[j];
 
 						mMultiCommandList[ThreadIDX]->DrawIndexedInstanced(
 							sg->IndexSize,
-							obj->InstanceCount,
+							mRenderItem->mOnTheFrustumCount,
 							sg->StartIndexLocation,
 							sg->BaseVertexLocation,
 							0
@@ -2305,57 +2856,52 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 					}
 				} // (obj->isBillBoard)
 			}
-			_gInstOffset = 0;
 		}
 
-		// DebugBox를 그리는 구간.
-		{
-			continueIDX = -1;
-			MatIDX = 0;
+		printf("");
 
-			for (taskIDX = 0; taskIDX < (_taskEnd - _taskOffset); taskIDX++)
-			{
-				obj = mGameObjectIndices[taskIDX].mObjPTR;
-				_gInstOffset = mGameObjectIndices[taskIDX].mInstanceOffset;
+		//// DebugBox를 그리는 구간.
+		//{
+		//	continueIDX = -1;
+		//	MatIDX = 0;
 
-				if (!obj || !obj->isDebugBox)	continue;
+		//	for (taskIDX = 0; taskIDX < (_taskEnd - _taskOffset); taskIDX++)
+		//	{
+		//		obj = mGameObjectIndices[taskIDX];
 
-				mMultiCommandList[ThreadIDX]->SetPipelineState(
-					mPSOs[ObjectData::RenderType::_DEBUG_BOX_TYPE].Get()
-				);
+		//		if (!obj || !obj->isDebugBox)	continue;
 
-				mMultiCommandList[ThreadIDX]->IASetVertexBuffers(
-					0,
-					1,
-					&obj->mDebugBoxData->mGeometry.VertexBufferView()
-				);
-				mMultiCommandList[ThreadIDX]->IASetIndexBuffer(
-					&obj->mDebugBoxData->mGeometry.IndexBufferView()
-				);
+		//		mMultiCommandList[ThreadIDX]->SetPipelineState(
+		//			mPSOs[ObjectData::RenderType::_DEBUG_BOX_TYPE].Get()
+		//		);
 
-				// Move to Current Stack Pointer
-				instanceCBAddress = instanceCB + _gInstOffset * sizeof(InstanceData);
-				mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
-					3,
-					instanceCBAddress
-				);
+		//		mMultiCommandList[ThreadIDX]->IASetVertexBuffers(
+		//			0,
+		//			1,
+		//			&obj->mDebugBoxData->mGeometry.VertexBufferView()
+		//		);
+		//		mMultiCommandList[ThreadIDX]->IASetIndexBuffer(
+		//			&obj->mDebugBoxData->mGeometry.IndexBufferView()
+		//		);
 
-				sg = &obj->mDebugBoxData->mGeometry.DrawArgs[
-					obj->mDebugBoxData->mGeometry.meshNames[0]
-				];
+		//		// Move to Current Stack Pointer
+		//		instanceCBAddress = instanceCB + obj->InstanceIDX * sizeof(InstanceData);
+		//		mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
+		//			3,
+		//			instanceCBAddress
+		//		);
 
-				mMultiCommandList[ThreadIDX]->DrawIndexedInstanced(
-					sg->IndexSize,
-					obj->mDebugBoxData->InstanceCount,
-					sg->StartIndexLocation,
-					sg->BaseVertexLocation,
-					0
-				);
+		//		sg = &obj->mDebugBoxData->mGeometry.DrawArgs[0];
 
-				_gInstOffset += 1;
-			}
-			_gInstOffset = 0;
-		}
+		//		mMultiCommandList[ThreadIDX]->DrawIndexedInstanced(
+		//			sg->IndexSize,
+		//			obj->mDebugBoxData->InstanceCount,
+		//			sg->StartIndexLocation,
+		//			sg->BaseVertexLocation,
+		//			0
+		//		);
+		//	}
+		//}
 
 #endif //!_USE_UBER_SHADER
 
@@ -2371,28 +2917,36 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 void BoxApp::Draw(const GameTimer& gt)
 {
-	InitSwapChain(numThread);
+	isBegining++;
 
-	// �� RenderItem���� ��Ƽ ���������� �׸���.
+	InitSwapChain(numGlobalThread);
+
+	// Render Item on Multi Renderer.
 	{
-		SetEvent(renderTargetEvent[0]);
-		SetEvent(renderTargetEvent[1]);
-		SetEvent(renderTargetEvent[2]);
+		for (UINT i = 0; i < numGlobalThread; i++)
+		{
+			SetEvent(renderTargetEvent[i]);
+		}
 
-		WaitForMultipleObjects(3, recordingDoneEvents, true, INFINITE);
+		WaitForMultipleObjects(numGlobalThread, recordingDoneEvents, true, INFINITE);
 
-		ResetEvent(recordingDoneEvents[0]);
-		ResetEvent(recordingDoneEvents[1]);
-		ResetEvent(recordingDoneEvents[2]);
+		for (UINT i = 0; i < numGlobalThread; i++)
+		{
+			ResetEvent(recordingDoneEvents[i]);
+		}
 	}
 
-	// CommandAllocationList�� ����� RenderItem���� CommnadQ�� ������.
 	{
 		// Add the command list to the queue for execution.
 		ID3D12CommandList* cmdsLists[] = { 
 			mMultiCommandList[0].Get(), 
 			mMultiCommandList[1].Get(), 
-			mMultiCommandList[2].Get() 
+			mMultiCommandList[2].Get(),
+			mMultiCommandList[3].Get(),
+			mMultiCommandList[4].Get(),
+			mMultiCommandList[5].Get(),
+			mMultiCommandList[6].Get(),
+			mMultiCommandList[7].Get()
 		};
 		mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
@@ -2421,14 +2975,19 @@ void BoxApp::Draw(const GameTimer& gt)
 		// _Non_Skinned_Opaque SobelFilter
 		//
 
-		// commandAlloc, commandList�� ���� �ϱ� ���� ��������
+		// commandAlloc, commandList
 		ThrowIfFailed(mDirectCmdListAlloc->Reset());
+		//ThrowIfFailed(mSSAOCmdListAlloc->Reset());
+
 		ThrowIfFailed(mCommandList->Reset(
 			mDirectCmdListAlloc.Get(), 
 			mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get())
 		);
+		//ThrowIfFailed(mSSAOCommandList->Reset(
+		//	mSSAOCmdListAlloc.Get(),
+		//	mPSOs[ObjectData::RenderType::_POST_PROCESSING_PIPELINE].Get())
+		//);
 
-		// ��ũ���� ���ε�
 		ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 		mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
@@ -2539,29 +3098,186 @@ void BoxApp::Draw(const GameTimer& gt)
 		);
 	}
 
-	{
-		mCommandList->Close();
+	// ImGui
+	mCommandList->SetDescriptorHeaps(1, mGUIDescriptorHeap.GetAddressOf());
+	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());
 
-		// Add the command list to the queue for execution.
-		ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-		mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+	//// SSAO
+	//{
+	//	ID3D12Resource* normalMap = mSsao->NormalMap();
+	//	CD3DX12_CPU_DESCRIPTOR_HANDLE normalMapRtv = mSsao->NormalMapRtv();
 
-		// swap the back and front buffers
-		ThrowIfFailed(mSwapChain->Present(0, 0));
-		mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
+	//	mCommandList->SetPipelineState(mPSOs[ObjectData::RenderType::_DRAW_NORMAL_COMPUTE_TYPE].Get());
 
-		mCurrentFence++;
+	//	// Get a Normal SRV for calculating SSAO 
+	//	mCommandList->RSSetViewports(1, &mScreenViewport);
+	//	mCommandList->RSSetScissorRects(1, &mScissorRect);
 
-		mCommandQueue->Signal(mFence.Get(), mCurrentFence);
+	//	// Change to RENDER_TARGET.
+	//	mCommandList->ResourceBarrier(
+	//		1,
+	//		&CD3DX12_RESOURCE_BARRIER::Transition(
+	//			normalMap,
+	//			D3D12_RESOURCE_STATE_GENERIC_READ,
+	//			D3D12_RESOURCE_STATE_RENDER_TARGET
+	//		)
+	//	);
 
-		if (mFence->GetCompletedValue() <= mCurrentFence) {
-			HANDLE _event = CreateEvent(nullptr, false, false, nullptr);
+	//	// Clear the screen normal map and depth buffer.
+	//	float clearValue[] = { 0.0f, 0.0f, 1.0f, 0.0f };
+	//	mCommandList->ClearRenderTargetView(
+	//		normalMapRtv,
+	//		clearValue,
+	//		0,
+	//		nullptr
+	//	);
+	//	mCommandList->ClearDepthStencilView(
+	//		DepthStencilView(),
+	//		D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+	//		1.0f,
+	//		0,
+	//		0,
+	//		nullptr
+	//	);
 
-			mFence->SetEventOnCompletion(mCurrentFence, _event);
+	//	// Specify the buffers we are going to render to.
+	//	mCommandList->OMSetRenderTargets(
+	//		1,
+	//		&normalMapRtv,
+	//		true,
+	//		&DepthStencilView()
+	//	);
 
-			WaitForSingleObject(_event, INFINITE);
-			CloseHandle(_event);
-		}
+	//	ID3D12DescriptorHeap* descriptorHeaps1[] = { mSrvDescriptorHeap.Get() };
+	//	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps1), descriptorHeaps1);
+	//	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+	//	// Bind the constant buffer for this pass.
+	//	mCommandList->SetGraphicsRootConstantBufferView(
+	//		0,
+	//		PassCB->Resource()->GetGPUVirtualAddress()
+	//	);
+	//	mCommandList->SetGraphicsRootShaderResourceView(
+	//		4,
+	//		MaterialBuffer->Resource()->GetGPUVirtualAddress()
+	//	);
+	//	mCommandList->SetGraphicsRootShaderResourceView(
+	//		5,
+	//		PmxAnimationBuffer->Resource()->GetGPUVirtualAddress()
+	//	);
+
+	//	D3D12_GPU_VIRTUAL_ADDRESS objectCB = InstanceBuffer->Resource()->GetGPUVirtualAddress();
+
+	//	std::unordered_map<std::string, ObjectData*>::iterator& iter = mGameObjectDatas.begin();
+	//	std::unordered_map<std::string, ObjectData*>::iterator& end = mGameObjectDatas.end();
+
+	//	ObjectData* obj = nullptr;
+	//	while(iter != end)
+	//	{
+	//		obj = iter->second;
+
+	//		if (
+	//			!obj->isOnTheFrustumCount	||
+	//			obj->isDrawTexture			||
+	//			obj->mFormat == "PMX"		||
+	//			obj->Bounds.size() == 0
+	//			)
+	//		{
+	//			iter++;
+	//			continue;
+	//		}
+
+	//		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB + obj->InstanceIDX * sizeof(InstanceData);
+
+	//		mCommandList->SetGraphicsRootShaderResourceView(3, objCBAddress);
+
+	//		SubmeshGeometry* sg = nullptr;
+	//		size_t k;
+
+	//		if (!obj->isOnlySubmesh)
+	//		{
+	//			mCommandList->IASetVertexBuffers(0, 1, &obj->mGeometry.VertexBufferView());
+	//			mCommandList->IASetIndexBuffer(&obj->mGeometry.IndexBufferView());
+	//			mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	//			for (k = 0; k < obj->SubmeshCount; k++)
+	//			{
+	//				sg = &obj->mGeometry.DrawArgs[k];
+
+	//				mCommandList->DrawIndexedInstanced(
+	//					sg->IndexSize,
+	//					obj->isOnTheFrustumCount,
+	//					sg->StartIndexLocation,
+	//					sg->BaseVertexLocation,
+	//					0
+	//				);
+	//			}
+	//		}
+	//		else
+	//		{
+	//			for (int kIter = 0; kIter < obj->onlySubmeshIndices.size(); kIter++)
+	//			{
+	//				k = obj->onlySubmeshIndices[kIter];
+
+	//				mCommandList->IASetVertexBuffers(0, 1, &obj->mGeometry.VertexBufferViewBySubmesh(k));
+	//				mCommandList->IASetIndexBuffer(&obj->mGeometry.IndexBufferViewBySubmesh(k));
+	//				mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	//				sg = &obj->mGeometry.DrawArgs[k];
+
+	//				mCommandList->DrawIndexedInstanced(
+	//					sg->IndexSize,
+	//					obj->isOnTheFrustumCount,
+	//					sg->StartIndexLocation,
+	//					sg->BaseVertexLocation,
+	//					0
+	//				);
+	//			}
+	//		}
+
+	//		iter++;
+	//	}
+
+	//	// Change back to GENERIC_READ so we can read the texture in a shader.
+	//	mCommandList->ResourceBarrier(
+	//		1,
+	//		&CD3DX12_RESOURCE_BARRIER::Transition(
+	//			normalMap,
+	//			D3D12_RESOURCE_STATE_RENDER_TARGET,
+	//			D3D12_RESOURCE_STATE_GENERIC_READ)
+	//	);
+
+	//	// calculate SSAO
+	//	mCommandList->SetGraphicsRootSignature(mSsaoRootSignature.Get());
+	//	mSsao->ComputeSsao(mCommandList.Get(), &SsaoCB, 5);
+	//}
+
+	// Close and fly to GPU
+	mCommandList->Close();
+	//mSSAOCommandList->Close();
+
+	// Add the command list to the queue for execution.
+	ID3D12CommandList* cmdsLists[] = { 
+		mCommandList.Get()
+		// mSSAOCommandList.Get()
+	};
+	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+
+	// swap the back and front buffers
+	ThrowIfFailed(mSwapChain->Present(0, 0));
+	mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
+
+	mCurrentFence++;
+
+	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
+
+	if (mFence->GetCompletedValue() <= mCurrentFence) {
+		HANDLE _event = CreateEvent(nullptr, false, false, nullptr);
+
+		mFence->SetEventOnCompletion(mCurrentFence, _event);
+
+		WaitForSingleObject(_event, INFINITE);
+		CloseHandle(_event);
 	}
 }
 
@@ -2623,6 +3339,8 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
 			mCamera.Pitch(dy);
 			mCamera.RotateY(dx);
 
+			mMainCameraDeltaRotationY = mTheta;
+
 			mLastMousePos.x = x;
 			mLastMousePos.y = y;
 		}
@@ -2647,11 +3365,13 @@ void BoxApp::BuildRootSignature()
 	skyTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 2, 0);
 	CD3DX12_DESCRIPTOR_RANGE shadowTexTable;
 	shadowTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 1);
+	CD3DX12_DESCRIPTOR_RANGE ssaoTexTable;
+	ssaoTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 2);
 	CD3DX12_DESCRIPTOR_RANGE drawTexTable;
-	drawTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 2);
+	drawTexTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 3);
 
 	// Root parameter can be a table, root descriptor or root constants.
-	std::array<CD3DX12_ROOT_PARAMETER, 12> slotRootParameter;
+	std::array<CD3DX12_ROOT_PARAMETER, 13> slotRootParameter;
 
 	// PassCB
 	slotRootParameter[0].InitAsConstantBufferView(0);
@@ -2675,8 +3395,10 @@ void BoxApp::BuildRootSignature()
 	slotRootParameter[9].InitAsDescriptorTable(1, &skyTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 	// Shadow Textures
 	slotRootParameter[10].InitAsDescriptorTable(1, &shadowTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	// Ssao Textures
+	slotRootParameter[11].InitAsDescriptorTable(1, &ssaoTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 	// Draw Textures
-	slotRootParameter[11].InitAsDescriptorTable(1, &drawTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[12].InitAsDescriptorTable(1, &drawTexTable, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
@@ -2803,6 +3525,84 @@ void BoxApp::BuildSobelRootSignature()
 		IID_PPV_ARGS(mSobelRootSignature.GetAddressOf())));
 }
 
+void BoxApp::BuildSsaoRootSignature()
+{
+	CD3DX12_DESCRIPTOR_RANGE texTable0;
+	texTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0);
+
+	CD3DX12_DESCRIPTOR_RANGE texTable1;
+	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0);
+
+	// Root parameter can be a table, root descriptor or root constants.
+	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+
+	// Perfomance TIP: Order from most frequent to least frequent.
+	slotRootParameter[0].InitAsConstantBufferView(0);
+	slotRootParameter[1].InitAsConstants(1, 1);
+	slotRootParameter[2].InitAsDescriptorTable(1, &texTable0, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[3].InitAsDescriptorTable(1, &texTable1, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
+		0, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+	const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
+		1, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+	const CD3DX12_STATIC_SAMPLER_DESC depthMapSam(
+		2, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressW
+		0.0f,
+		0,
+		D3D12_COMPARISON_FUNC_LESS_EQUAL,
+		D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE);
+
+	const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
+		3, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+	std::array<CD3DX12_STATIC_SAMPLER_DESC, 4> staticSamplers =
+	{
+		pointClamp, linearClamp, depthMapSam, linearWrap
+	};
+
+	// A root signature is an array of root parameters.
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter,
+		(UINT)staticSamplers.size(), staticSamplers.data(),
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	// create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(md3dDevice->CreateRootSignature(
+		0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(mSsaoRootSignature.GetAddressOf())));
+}
+
 void BoxApp::BuildDrawMapSignature()
 {
 	// Post Processing 전 이미지
@@ -2862,18 +3662,22 @@ void BoxApp::BuildDescriptorHeaps()
 	const int texCount = (const int)mTextures.size();
 	const int blurDescriptorCount			= 2;
 	const int sobelDescriptorCount			= mSobelFilter->DescriptorCount();
+	const int ssaoDescriptorCount			= 10;
 	const int postProcessDescriptorCount	= 2;
 	const int shdowMapDescriptorCount		= 2;
 	const int drawTextureDescriptorCount	= mDrawTexture->DescriptorCount();
+	
 
 	D3D12_DESCRIPTOR_HEAP_DESC SrvUavHeapDesc;
 	SrvUavHeapDesc.NumDescriptors = 
 		texCount					+ 
 		blurDescriptorCount			+ 
 		sobelDescriptorCount		+ 
+		ssaoDescriptorCount			+
 		postProcessDescriptorCount	+ 
 		shdowMapDescriptorCount		+ 
-		drawTextureDescriptorCount;
+		drawTextureDescriptorCount  + 
+		30;
 
 	SrvUavHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	SrvUavHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
@@ -2884,10 +3688,6 @@ void BoxApp::BuildDescriptorHeaps()
 			IID_PPV_ARGS(&mSrvDescriptorHeap)
 		)
 	);
-
-	//
-	// �ؽ��İ� ����� ���� �����Ѵ�.
-	//
 
 	int mDescOffset = texCount;
 
@@ -2964,6 +3764,29 @@ void BoxApp::BuildDescriptorHeaps()
 
 	mDescOffset += shdowMapDescriptorCount;
 
+	mSsao->BuildDescriptors(
+		mDepthStencilBuffer.Get(),
+		CD3DX12_CPU_DESCRIPTOR_HANDLE(
+			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+			mDescOffset,
+			(UINT)mCbvSrvUavDescriptorSize
+		),
+		CD3DX12_GPU_DESCRIPTOR_HANDLE(
+			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+			mDescOffset,
+			(UINT)mCbvSrvUavDescriptorSize
+		),
+		CD3DX12_CPU_DESCRIPTOR_HANDLE(
+			mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
+			SwapChainBufferCount + 1,
+			(UINT)mRtvDescriptorSize
+		),
+		mCbvSrvUavDescriptorSize,
+		mRtvDescriptorSize
+	);
+
+	mDescOffset += ssaoDescriptorCount;
+
 	mDrawTexture->BuildDescriptors(
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
@@ -2991,22 +3814,22 @@ void BoxApp::BuildDescriptorHeaps()
 
 	for (int texIDX = 0; texIDX < mTextures.size(); texIDX++)
 	{
-		if (!mTextures[mTextureList[texIDX]].isCube)
+		if (!mTextures[texIDX].isCube)
 		{
 			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 			srvDesc.Texture2D.MostDetailedMip = 0;
 			srvDesc.Texture2D.MipLevels = -1;
-			srvDesc.Format = mTextures[mTextureList[texIDX]].Resource->GetDesc().Format;
-			md3dDevice->CreateShaderResourceView(mTextures[mTextureList[texIDX]].Resource.Get(), &srvDesc, hDescriptor);
+			srvDesc.Format = mTextures[texIDX].Resource->GetDesc().Format;
+			md3dDevice->CreateShaderResourceView(mTextures[texIDX].Resource.Get(), &srvDesc, hDescriptor);
 		}
 		else
 		{
 			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
 			srvDesc.TextureCube.MostDetailedMip = 0;
-			srvDesc.TextureCube.MipLevels = mTextures[mTextureList[texIDX]].Resource->GetDesc().MipLevels;
+			srvDesc.TextureCube.MipLevels = mTextures[texIDX].Resource->GetDesc().MipLevels;
 			srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
-			srvDesc.Format = mTextures[mTextureList[texIDX]].Resource->GetDesc().Format;
-			md3dDevice->CreateShaderResourceView(mTextures[mTextureList[texIDX]].Resource.Get(), &srvDesc, hDescriptor);
+			srvDesc.Format = mTextures[texIDX].Resource->GetDesc().Format;
+			md3dDevice->CreateShaderResourceView(mTextures[texIDX].Resource.Get(), &srvDesc, hDescriptor);
 		}
 		// next descriptor
 		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
@@ -3049,15 +3872,38 @@ void BoxApp::BuildShadersAndInputLayout()
 
 	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", alphaTestDefines, "VS", "vs_5_1");
 	mShaders["skinnedVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", skinnedDefines, "VS", "vs_5_1");
+	mShaders["drawNormalsVS"] = d3dUtil::CompileShader(L"Shaders\\DrawNormals.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["ssaoVS"] = d3dUtil::CompileShader(L"Shaders\\Ssao.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["ssaoBlurVS"] = d3dUtil::CompileShader(L"Shaders\\SsaoBlur.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["pmxFormatVS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", pmxFormatDefines, "VS", "vs_5_1");
+	mShaders["mapBaseVS"] = d3dUtil::CompileShader(L"Shaders\\MapBase.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["_SKILL_TONADO_SPLASH_VS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Splash.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["_SKILL_TONADO_SPLASH_3_VS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Splash3.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["_SKILL_TONADO_MAIN_TONADO_VS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Main_Tonado.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["_SKILL_TONADO_WATER_TORUS_VS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Water_Torus.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["_SKILL_PUNCH_SPARKS_VS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Punch_Sparks.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["_SKILL_PUNCH_ENDL_DESBIS_VS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Punch_Endl_Desbis.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["_SKILL_LASER_TRAILS_VS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Laser_Trails.hlsl", nullptr, "VS", "vs_5_1");
 
 	mShaders["_SKILL_TONADO_SPLASH_GS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Splash.hlsl", nullptr, "GS", "gs_5_1");
+	mShaders["_SKILL_TONADO_SPLASH_3_GS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Splash3.hlsl", nullptr, "GS", "gs_5_1");
+	mShaders["_SKILL_PUNCH_SPARKS_GS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Punch_Sparks.hlsl", nullptr, "GS", "gs_5_1");
+	mShaders["_SKILL_PUNCH_ENDL_DESBIS_GS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Punch_Endl_Desbis.hlsl", nullptr, "GS", "gs_5_1");
 
 	mShaders["pix"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["drawNormalsPS"] = d3dUtil::CompileShader(L"Shaders\\DrawNormals.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["ssaoPS"] = d3dUtil::CompileShader(L"Shaders\\Ssao.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["ssaoBlurPS"] = d3dUtil::CompileShader(L"Shaders\\SsaoBlur.hlsl", nullptr, "PS", "ps_5_1");
 	mShaders["debugPS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", debugDefines, "PS", "ps_5_1");
 	mShaders["drawTexPS"] = d3dUtil::CompileShader(L"Shaders\\color.hlsl", drawTexDefines, "PS", "ps_5_1");
+	mShaders["mapBasePS"] = d3dUtil::CompileShader(L"Shaders\\MapBase.hlsl", nullptr, "PS", "ps_5_1");
 	mShaders["_SKILL_TONADO_SPLASH_PS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Splash.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["_SKILL_TONADO_SPLASH_3_PS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Splash3.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["_SKILL_TONADO_MAIN_TONADO_PS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Main_Tonado.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["_SKILL_TONADO_WATER_TORUS_PS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Tonado_Water_Torus.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["_SKILL_PUNCH_SPARKS_PS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Punch_Sparks.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["_SKILL_PUNCH_ENDL_DESBIS_PS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Punch_Endl_Desbis.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["_SKILL_LASER_TRAILS_PS"] = d3dUtil::CompileShader(L"Shaders\\Skill_Laser_Trails.hlsl", nullptr, "PS", "ps_5_1");
 
 	mShaders["horzBlurCS"] = d3dUtil::CompileShader(L"Shaders\\Blur.hlsl", nullptr, "HorzBlurCS", "cs_5_0");
 	mShaders["vertBlurCS"] = d3dUtil::CompileShader(L"Shaders\\Blur.hlsl", nullptr, "VertBlurCS", "cs_5_0");
@@ -3095,7 +3941,8 @@ void BoxApp::BuildShadersAndInputLayout()
 	mBillBoardInputLayout =
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 	};
 }
 
@@ -3106,21 +3953,25 @@ void BoxApp::RecursionFrameResource(
 	int& BoneNum
 )
 {
-	InstanceNum += (2 * (obj->InstanceCount));
-	SubmeshNum += obj->SubmeshCount;
+	ObjectData* mData = mGameObjectDatas[obj->mName];
+
+	InstanceNum += mData->InstanceCount + 3;
+	SubmeshNum += mData->SubmeshCount;
 
 	if (obj->mFormat == "PMX")
 		BoneNum = mGameObjectDatas[obj->mName]->mModel.bone_count;
 
-	auto& objIDX = obj->mChilds.begin();
-	auto& objEnd = obj->mChilds.end();
-	for (; objIDX != objEnd; objIDX++) {
+	std::unordered_map<std::string, RenderItem*>::iterator& iter = obj->mChilds.begin();
+	std::unordered_map<std::string, RenderItem*>::iterator& end = obj->mChilds.end();
+	while (iter != end) {
 		RecursionFrameResource(
-			(*objIDX).second, 
+			(*iter).second, 
 			InstanceNum, 
 			SubmeshNum, 
 			BoneNum
 		);
+
+		iter++;
 	}
 }
 
@@ -3142,6 +3993,7 @@ void BoxApp::BuildFrameResource()
 	}
 
 	PassCB = std::make_unique<UploadBuffer<PassConstants>>(md3dDevice.Get(), 1, true);
+	SsaoCB = std::make_unique<UploadBuffer<SsaoConstants>>(md3dDevice.Get(), 1, true);
 	RateOfAnimTimeCB	= 
 		std::make_unique<UploadBuffer<RateOfAnimTimeConstants>>(md3dDevice.Get(), 1, true);
 	if (InstanceNum > 0)
@@ -3160,6 +4012,30 @@ void BoxApp::BuildFrameResource()
 
 void BoxApp::BuildPSO()
 {
+	D3D12_RENDER_TARGET_BLEND_DESC transparencyBlendDesc;
+	transparencyBlendDesc.BlendEnable = true;
+	transparencyBlendDesc.LogicOpEnable = false;
+	transparencyBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	transparencyBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	transparencyBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+	transparencyBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+	transparencyBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
+	transparencyBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	transparencyBlendDesc.LogicOp = D3D12_LOGIC_OP_NOOP;
+	transparencyBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+	D3D12_RENDER_TARGET_BLEND_DESC cullingBlendDesc;
+	cullingBlendDesc.BlendEnable = true;
+	cullingBlendDesc.LogicOpEnable = false;
+	cullingBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	cullingBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	cullingBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+	cullingBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+	cullingBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
+	cullingBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	cullingBlendDesc.LogicOp = D3D12_LOGIC_OP_NOOP;
+	cullingBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
 	//
 	// PSO for Opaque
 	//
@@ -3252,6 +4128,26 @@ void BoxApp::BuildPSO()
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&pmxFormatDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_PMX_FORMAT_RENDER_TYPE])));
 
 	//
+	// PSO for MapBase
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC mapBaseDesc = psoDesc;
+	mapBaseDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+
+	mapBaseDesc.pRootSignature = mRootSignature.Get();
+
+	mapBaseDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["mapBaseVS"]->GetBufferPointer()),
+		mShaders["mapBaseVS"]->GetBufferSize()
+	};
+	mapBaseDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["mapBasePS"]->GetBufferPointer()),
+		mShaders["mapBasePS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&mapBaseDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_MAP_BASE_RENDER_TYPE])));
+
+	//
 	// PSO for horizontal blur
 	// 
 	D3D12_COMPUTE_PIPELINE_STATE_DESC horzBlurPSO = {};
@@ -3342,6 +4238,76 @@ void BoxApp::BuildPSO()
 	));
 
 	//
+	// PSO for drawing normals.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC drawNormalsPsoDesc = psoDesc;
+	drawNormalsPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["drawNormalsVS"]->GetBufferPointer()),
+		mShaders["drawNormalsVS"]->GetBufferSize()
+	};
+	drawNormalsPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["drawNormalsPS"]->GetBufferPointer()),
+		mShaders["drawNormalsPS"]->GetBufferSize()
+	};
+	drawNormalsPsoDesc.RTVFormats[0] = Ssao::NormalMapFormat;
+	drawNormalsPsoDesc.SampleDesc.Count = 1;
+	drawNormalsPsoDesc.SampleDesc.Quality = 0;
+	drawNormalsPsoDesc.DSVFormat = mDepthStencilFormat;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&drawNormalsPsoDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_DRAW_NORMAL_COMPUTE_TYPE])));
+
+	//
+	// PSO for SSAO.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC ssaoPsoDesc = psoDesc;
+	ssaoPsoDesc.InputLayout = { nullptr, 0 };
+	ssaoPsoDesc.pRootSignature = mSsaoRootSignature.Get();
+	ssaoPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["ssaoVS"]->GetBufferPointer()),
+		mShaders["ssaoVS"]->GetBufferSize()
+	};
+	ssaoPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["ssaoPS"]->GetBufferPointer()),
+		mShaders["ssaoPS"]->GetBufferSize()
+	};
+
+	// SSAO effect does not need the depth buffer.
+	ssaoPsoDesc.DepthStencilState.DepthEnable = false;
+	ssaoPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	ssaoPsoDesc.RTVFormats[0] = Ssao::AmbientMapFormat;
+	ssaoPsoDesc.SampleDesc.Count = 1;
+	ssaoPsoDesc.SampleDesc.Quality = 0;
+	ssaoPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&ssaoPsoDesc, 
+		IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SSAO_COMPUTE_TYPE]))
+	);
+
+	//
+	// PSO for SSAO blur.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC ssaoBlurPsoDesc = ssaoPsoDesc;
+	ssaoBlurPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["ssaoBlurVS"]->GetBufferPointer()),
+		mShaders["ssaoBlurVS"]->GetBufferSize()
+	};
+	ssaoBlurPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["ssaoBlurPS"]->GetBufferPointer()),
+		mShaders["ssaoBlurPS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&ssaoBlurPsoDesc, 
+		IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SSAO_BLUR_COMPUTE_TYPE]))
+	);
+
+	//
 	// PSO for DebugBox
 	//
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugBoxDesc = psoDesc;
@@ -3409,6 +4375,319 @@ void BoxApp::BuildPSO()
 	};
 
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skillDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKILL_TONADO_SPLASH_TYPE])));
+
+	//
+	// PSO for TONADO_SPLASH_SHADER
+	// 
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skillTonadoSplashDesc = skillDesc;
+
+	skillTonadoSplashDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_SPLASH_3_VS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_SPLASH_3_VS"]->GetBufferSize()
+	};
+	skillTonadoSplashDesc.GS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_SPLASH_3_GS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_SPLASH_3_GS"]->GetBufferSize()
+	};
+	skillTonadoSplashDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_SPLASH_3_PS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_SPLASH_3_PS"]->GetBufferSize()
+	};
+
+	skillTonadoSplashDesc.BlendState.RenderTarget[0] = transparencyBlendDesc;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skillTonadoSplashDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKILL_TONADO_SPLASH_3_TYPE])));
+
+	//
+	// PSO for _POST_PROCESSING_PIPELINE
+	// 
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skillPunchDesc = skillDesc;
+
+	skillPunchDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_PUNCH_SPARKS_VS"]->GetBufferPointer()),
+		mShaders["_SKILL_PUNCH_SPARKS_VS"]->GetBufferSize()
+	};
+	skillPunchDesc.GS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_PUNCH_SPARKS_GS"]->GetBufferPointer()),
+		mShaders["_SKILL_PUNCH_SPARKS_GS"]->GetBufferSize()
+	};
+	skillPunchDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_PUNCH_SPARKS_PS"]->GetBufferPointer()),
+		mShaders["_SKILL_PUNCH_SPARKS_PS"]->GetBufferSize()
+	};
+
+	skillPunchDesc.BlendState.RenderTarget[0] = transparencyBlendDesc;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skillPunchDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKILL_PUNCH_SPARKS_TYPE])));
+
+	//
+	// PSO for _SKILL_PUNCH_ENDL_DESBIS
+	// 
+	skillDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_PUNCH_ENDL_DESBIS_VS"]->GetBufferPointer()),
+		mShaders["_SKILL_PUNCH_ENDL_DESBIS_VS"]->GetBufferSize()
+	};
+	skillDesc.GS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_PUNCH_ENDL_DESBIS_GS"]->GetBufferPointer()),
+		mShaders["_SKILL_PUNCH_ENDL_DESBIS_GS"]->GetBufferSize()
+	};
+	skillDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_PUNCH_ENDL_DESBIS_PS"]->GetBufferPointer()),
+		mShaders["_SKILL_PUNCH_ENDL_DESBIS_PS"]->GetBufferSize()
+	};
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skillDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKILL_PUNCH_ENDL_DESBIS_TYPE])));
+
+	//
+	// PSO for TONADO_WATER_TORUS
+	//
+	skillDesc = psoDesc;
+	skillDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_WATER_TORUS_VS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_WATER_TORUS_VS"]->GetBufferSize()
+	};
+	skillDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_WATER_TORUS_PS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_WATER_TORUS_PS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skillDesc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKILL_TONADO_WATER_TORUS_TYPE])));
+
+	//
+	// PSO for _POST_PROCESSING_PIPELINE
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skill_Main_Tonado_Desc = psoDesc;
+	skill_Main_Tonado_Desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	skill_Main_Tonado_Desc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_MAIN_TONADO_VS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_MAIN_TONADO_VS"]->GetBufferSize()
+	};
+	skill_Main_Tonado_Desc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_MAIN_TONADO_PS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_MAIN_TONADO_PS"]->GetBufferSize()
+	};
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skill_Main_Tonado_Desc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKILL_TONADO_MAIN_TONADO_TYPE])));
+
+	//
+	// PSO for _POST_PROCESSING_PIPELINE
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skill_Laser_Ray_Waves_Desc = psoDesc;
+	skill_Laser_Ray_Waves_Desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	skill_Laser_Ray_Waves_Desc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_MAIN_TONADO_VS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_MAIN_TONADO_VS"]->GetBufferSize()
+	};
+	skill_Laser_Ray_Waves_Desc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_TONADO_MAIN_TONADO_PS"]->GetBufferPointer()),
+		mShaders["_SKILL_TONADO_MAIN_TONADO_PS"]->GetBufferSize()
+	};
+
+	skill_Laser_Ray_Waves_Desc.BlendState.RenderTarget[0] = transparencyBlendDesc;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skill_Laser_Ray_Waves_Desc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKILL_TONADO_MAIN_TONADO_TYPE])));
+
+	//
+	// PSO for _POST_PROCESSING_PIPELINE
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skill_Laser_Trails_Desc = psoDesc;
+	skill_Laser_Trails_Desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	skill_Laser_Trails_Desc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_LASER_TRAILS_VS"]->GetBufferPointer()),
+		mShaders["_SKILL_LASER_TRAILS_VS"]->GetBufferSize()
+	};
+	skill_Laser_Trails_Desc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["_SKILL_LASER_TRAILS_PS"]->GetBufferPointer()),
+		mShaders["_SKILL_LASER_TRAILS_PS"]->GetBufferSize()
+	};
+
+	skill_Laser_Trails_Desc.BlendState.RenderTarget[0] = transparencyBlendDesc;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skill_Laser_Trails_Desc, IID_PPV_ARGS(&mPSOs[ObjectData::RenderType::_SKILL_LASER_TRAILS_TYPE])));
+
+}
+
+float hpGuage = 0.3f;
+
+void BoxApp::BuildGUIFrame() {
+	//////////////////////
+	// Load HP, MP Resource
+	//////////////////////
+	int width, height;
+	Texture HP, MP, Storm, Thunder, Earthquake;
+
+	HP.Filename = L"D:\\Portfolio\\source\\DX12\\DirectX\\MyDemos\\MyD3D12Project\\textures\\UI\\HP.dds";
+	HP.isCube = false;
+	HP.Name = "HP";
+
+	MP.Filename = L"D:\\Portfolio\\source\\DX12\\DirectX\\MyDemos\\MyD3D12Project\\textures\\UI\\MP.dds";
+	MP.isCube = false;
+	MP.Name = "MP";
+
+	Storm.Filename = L"D:\\Portfolio\\source\\DX12\\DirectX\\MyDemos\\MyD3D12Project\\textures\\UI\\Storm.dds";
+	Storm.isCube = false;
+	Storm.Name = "STORM";
+
+	Thunder.Filename = L"D:\\Portfolio\\source\\DX12\\DirectX\\MyDemos\\MyD3D12Project\\textures\\UI\\Thunder.dds";
+	Thunder.isCube = false;
+	Thunder.Name = "THUNDER";
+
+	Earthquake.Filename = L"D:\\Portfolio\\source\\DX12\\DirectX\\MyDemos\\MyD3D12Project\\textures\\UI\\earthquake.dds";
+	Earthquake.isCube = false;
+	Earthquake.Name = "EARTHQUAKE";
+	
+	uploadTexture(HP, width, height);
+	uploadTexture(MP, width, height);
+	uploadTexture(Storm);
+	uploadTexture(Thunder);
+	uploadTexture(Earthquake);
+
+	//////////////////////
+	// Upload Resource
+	//////////////////////
+	D3D12_DESCRIPTOR_HEAP_DESC GUISRVHeapDesc;
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
+		mGUIDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+		1,
+		(UINT)mRtvDescriptorSize
+	);
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	{
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+		srvDesc.Texture2D.MipLevels = -1;
+		srvDesc.Format = HP.Resource->GetDesc().Format;
+		md3dDevice->CreateShaderResourceView(HP.Resource.Get(), &srvDesc, hDescriptor);
+
+		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+
+		srvDesc.Format = MP.Resource->GetDesc().Format;
+		md3dDevice->CreateShaderResourceView(MP.Resource.Get(), &srvDesc, hDescriptor);
+
+		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+
+		srvDesc.Format = Storm.Resource->GetDesc().Format;
+		md3dDevice->CreateShaderResourceView(Storm.Resource.Get(), &srvDesc, hDescriptor);
+
+		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+
+		srvDesc.Format = Thunder.Resource->GetDesc().Format;
+		md3dDevice->CreateShaderResourceView(Thunder.Resource.Get(), &srvDesc, hDescriptor);
+
+		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+
+		srvDesc.Format = Earthquake.Resource->GetDesc().Format;
+		md3dDevice->CreateShaderResourceView(Earthquake.Resource.Get(), &srvDesc, hDescriptor);
+
+		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+	}
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE HPTex(
+		mGUIDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+	);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE MPTex(
+		mGUIDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+	);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE StormTex(
+		mGUIDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+	);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE ThunderTex(
+		mGUIDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+	);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE EarthquakeTex(
+		mGUIDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+	);
+	HPTex.Offset(
+		1,
+		mCbvSrvUavDescriptorSize
+	);
+	MPTex.Offset(
+		2,
+		mCbvSrvUavDescriptorSize
+	);
+	StormTex.Offset(
+		3,
+		mCbvSrvUavDescriptorSize
+	);
+	ThunderTex.Offset(
+		4,
+		mCbvSrvUavDescriptorSize
+	); 
+	EarthquakeTex.Offset(
+		5,
+		mCbvSrvUavDescriptorSize
+	);
+
+	mGUIResources["HP"] = HPTex.ptr;
+	mGUIResources["MP"] = MPTex.ptr;
+	mGUIResources["STORM"] = StormTex.ptr;
+	mGUIResources["Thunder"] = ThunderTex.ptr;
+	mGUIResources["Earthquake"] = EarthquakeTex.ptr;
+
+	// Append GUI Frame
+	std::shared_ptr<ImGuiFrameComponent> clothParamComp = pushFrame("ClothParamGUI");
+
+	clothParamComp->pushToggleComponent(isUseGlobalPose, "isUseGlobalPoseToggle", "isUseGlobalPoseToggle");
+
+	clothParamComp->pushSliderFloatComponent(mGlobalVec.x, "GlobalVecX", "GlobalVecX", -1.0f, 1.0f);
+	clothParamComp->pushSliderFloatComponent(mGlobalVec.y, "GlobalVecY", "GlobalVecY", -1.0f, 1.0f);
+	clothParamComp->pushSliderFloatComponent(mGlobalVec.z, "GlobalVecZ", "GlobalVecZ", -1.0f, 1.0f);
+
+	clothParamComp->pushSliderFloatComponent(mLocalScale.x, "LocalScaleX", "LocalScaleX", -0.01f, 0.01f);
+	clothParamComp->pushSliderFloatComponent(mLocalScale.y, "LocalScaleY", "LocalScaleY", -0.1f, 0.1f);
+	clothParamComp->pushSliderFloatComponent(mLocalScale.z, "LocalScaleZ", "LocalScaleZ", -0.01f, 0.01f);
+
+	//////////////////////////////////////
+	// Initialize Quest Info
+	//////////////////////////////////////
+	mQuestParamComp = pushFrame("Quest");
+
+	mODBC.GetCurrentQuest(mQuestData);
+
+	std::wstring targetWName(mQuestData.target_name);
+	std::string targetName;
+
+	targetName.assign(targetWName.begin(), targetWName.end());
+
+	mQuestParamComp->pushTextComponent("TargetHint", "Target: " + targetName);
+	mQuestParamComp->pushTextComponent("NumberHint", 
+		"Number: " + 
+		std::to_string(mQuestData.target_number) + 
+		" / " + 
+		std::to_string(mQuestData.target_max_number)
+	);
+
+	mQuestParamComp->pushTextComponent("DestinationHint", 
+		"Destination : <" + 
+		std::to_string(mQuestData.destination_pos_x) + 
+		", " + 
+		std::to_string(mQuestData.destination_pos_y) + 
+		">"
+	);
+
+	mQuestParamComp->pushTextComponent("LimitTimeHint",
+		"LimitTime :" +
+		std::to_string(mQuestData.limit_time)
+	);
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxApp::GetStaticSamplers()
@@ -3487,6 +4766,9 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxApp::GetStaticSamplers()
 void BoxApp::RecursionChildItem(RenderItem* go)
 {
 	ObjectData* obj = mGameObjectDatas[go->mName];
+
+	if (go->mParent)
+		obj->mParentName = go->mParent->mName;
 
 	// 비어있는 객체일 시 패스
 	if (obj->SubmeshCount > 0)
@@ -3660,7 +4942,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 
 			obj->mGeometry.VertexByteStride = sizeof(BillBoardSpriteVertex);
 			obj->mGeometry.IndexFormat = DXGI_FORMAT_R32_UINT;
-		}
+		} // else if (obj->isBillBoard)
 		else 
 		{
 			// CPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
@@ -3704,7 +4986,6 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 			obj->mGeometry.VertexByteStride = sizeof(Vertex);
 			obj->mGeometry.IndexFormat = DXGI_FORMAT_R32_UINT;
 		} // (go->mFormat != "PMX")
-
 
 		if (obj->isDebugBox)
 		{
@@ -3784,6 +5065,7 @@ void BoxApp::BuildRenderItem()
 RenderItem* BoxApp::CreateGameObject(std::string Name, int instance)
 {
 	RenderItem* newGameObjects = new RenderItem();
+	ObjectData* obj = new ObjectData();
 
 	// Allocated RenderItem ID
 	newGameObjects->mName = Name;
@@ -3791,16 +5073,13 @@ RenderItem* BoxApp::CreateGameObject(std::string Name, int instance)
 	// Create Collider Body
 	//phys.CreateBox(1, 1, 1);
 
-	newGameObjects->ObjCBIndex = 0;
-	newGameObjects->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
 	newGameObjects->InstanceCount = instance;
 
-	newGameObjects->isDirty.resize(instance);
-
-	ObjectData* obj = new ObjectData();
-
 	obj->mName = Name;
+	obj->InstanceCount = instance;
+
+	newGameObjects->mData = obj;
+
 	for (UINT i = 0; i < newGameObjects->InstanceCount; i++)
 	{
 		InstanceData id;
@@ -3816,8 +5095,11 @@ RenderItem* BoxApp::CreateGameObject(std::string Name, int instance)
 
 		obj->Bounds.push_back(bb);
 
-		PhysResource mPhysRes;
-		obj->mPhysResources.push_back(mPhysRes);
+		Translate t;
+		obj->mTranslate.push_back(t);
+
+		//PhysResource mPhysRes;
+		//obj->mPhysResources.push_back(mPhysRes);
 	}
 
 	mGameObjects.push_back(newGameObjects);
@@ -3840,17 +5122,12 @@ RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance)
 	// Create Collider Body
 	//phys.CreateBox(1, 1, 1);
 
-	newGameObjects->ObjCBIndex = 0;
-	newGameObjects->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
 	newGameObjects->InstanceCount = instance;
-
-	newGameObjects->isDirty.resize(instance);
 
 	ObjectData* obj = new ObjectData();
 
 	obj->mName = Name;
-	obj->mPhysResources.resize(instance);
+	//obj->mPhysResources.resize(instance);
 	for (UINT i = 0; i < newGameObjects->InstanceCount; i++)
 	{
 		InstanceData id;
@@ -3868,14 +5145,15 @@ RenderItem* BoxApp::CreateStaticGameObject(std::string Name, int instance)
 
 		staticObj = mPhys.CreateStatic(PxTransform(PxVec3(0, 0, 0)), sphere);
 
-		mPhys.BindObjColliber(
-			staticObj,
-			&obj->mPhysResources[i]
-		);
+		//mPhys.BindObjColliber(
+		//	staticObj,
+		//	&obj->mPhysResources[i]
+		//);
 	}
 
 	mGameObjects.push_back(newGameObjects);
 	mGameObjectDatas[Name] = obj;
+	newGameObjects->mData = obj;
 
 	return newGameObjects;
 }
@@ -3893,17 +5171,12 @@ RenderItem* BoxApp::CreateKinematicGameObject(std::string Name, int instance)
 	// Create Collider Body
 	//phys.CreateBox(1, 1, 1);
 
-	newGameObjects->ObjCBIndex = 0;
-	newGameObjects->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
 	newGameObjects->InstanceCount = instance;
-
-	newGameObjects->isDirty.resize(instance);
 
 	ObjectData* obj = new ObjectData();
 
 	obj->mName = Name;
-	obj->mPhysResources.resize(instance);
+	//obj->mPhysResources.resize(instance);
 	for (UINT i = 0; i < obj->InstanceCount; i++)
 	{
 		InstanceData id;
@@ -3922,16 +5195,17 @@ RenderItem* BoxApp::CreateKinematicGameObject(std::string Name, int instance)
 		sphere = mPhys.CreateSphere(1.0f);
 
 		dynamicObj = mPhys.CreateKinematic(PxTransform(PxVec3(0, 0, 0)), sphere, 1, PxVec3(0, 0, 0));
-		obj->mPhyxRigidBody.push_back(dynamicObj);
+		obj->mPhysRigidBody.push_back(dynamicObj);
 
-		mPhys.BindObjColliber(
-			dynamicObj,
-			&obj->mPhysResources[i]
-		);
+		//mPhys.BindObjColliber(
+		//	dynamicObj,
+		//	&obj->mPhysResources[i]
+		//);
 	}
 
 	mGameObjects.push_back(newGameObjects);
 	mGameObjectDatas[Name] = obj;
+	newGameObjects->mData = obj;
 
 	return newGameObjects;
 }
@@ -3944,17 +5218,12 @@ RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance)
 	// Allocated RenderItem ID
 	newGameObjects->mName = Name;
 
-	newGameObjects->ObjCBIndex = 0;
-	newGameObjects->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
 	newGameObjects->InstanceCount = instance;
-
-	newGameObjects->isDirty.resize(instance);
 
 	ObjectData* obj = new ObjectData();
 
 	obj->mName = Name;
-	obj->mPhysResources.resize(instance);
+	//obj->mPhysResources.resize(instance);
 	for (UINT i = 0; i < newGameObjects->InstanceCount; i++)
 	{
 		InstanceData id;
@@ -3972,18 +5241,19 @@ RenderItem* BoxApp::CreateDynamicGameObject(std::string Name, int instance)
 		obj->Bounds.push_back(bb);
 
 		dynamicObj = mPhys.CreateDynamic(PxTransform(PxVec3(0, 0, 0)), PxSphereGeometry(3), PxVec3(0, 0, 0));
-		obj->mPhyxRigidBody.push_back(dynamicObj);
+		obj->mPhysRigidBody.push_back(dynamicObj);
 
-		mPhys.BindObjColliber(
-			dynamicObj,
-			&obj->mPhysResources[i]
-		);
+		//mPhys.BindObjColliber(
+		//	dynamicObj,
+		//	&obj->mPhysResources[i]
+		//);
 	}
 
 	mGameObjects.push_back(newGameObjects);
 	mGameObjectDatas[Name] = obj;
 
 	mGameObjectDatas[Name]->InstanceCount = instance;
+	newGameObjects->mData = obj;
 
 	return newGameObjects;
 }
@@ -4031,8 +5301,6 @@ void BoxApp::CreateBoxObject(
 	);
 
 	r->mFormat = Format;
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = isDrawTexture;
 
 	// init Boundary(Collider) Box
 	DirectX::XMMATRIX mBoundScaleMat = {};
@@ -4069,31 +5337,38 @@ void BoxApp::CreateBoxObject(
 			obj->Bounds.push_back(bb);
 		}
 
-		obj->mPhysResources.resize(r->InstanceCount);
+		//obj->mPhysResources.resize(r->InstanceCount);
 
 		mGameObjectDatas[r->mName] = obj;
 		obj = mGameObjectDatas[r->mName];
 	}
 
+	//r->mData = obj;
+
 	if (obj->mInstances.size() == 0)
 		throw std::runtime_error("Instance Size must bigger than 0.");
 
-	size_t resourceSize = obj->mPhysResources.size();
+	size_t resourceSize = obj->mInstances.size();
+	InstanceIterator = obj->mInstances.begin();
+	BoundsIterator = obj->Bounds.begin();
+
 	for (UINT inst = 0; inst < resourceSize; inst++)
 	{
-		obj->Bounds[inst].Transform(obj->Bounds[inst], mWorldMat);
+		(*BoundsIterator).Transform((*BoundsIterator), mWorldMat);
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
 
-		obj->mPhysResources[inst].Position[0]	= position.x;
-		obj->mPhysResources[inst].Position[1]	= position.y;
-		obj->mPhysResources[inst].Position[2]	= position.z;
-		obj->mPhysResources[inst].Rotation[0]	= rotation.x;
-		obj->mPhysResources[inst].Rotation[1]	= rotation.y;
-		obj->mPhysResources[inst].Rotation[2]	= rotation.z;
-		obj->mPhysResources[inst].Scale[0]		= scale.x;
-		obj->mPhysResources[inst].Scale[1]		= scale.y;
-		obj->mPhysResources[inst].Scale[2]		= scale.z;
+		obj->mTranslate.push_back(
+			Translate(
+				mPositionVec,
+				mRotationVec,
+				mScaleVec,
+				mWorldMat
+			)
+		);
 
-		memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		InstanceIterator++;
+		BoundsIterator++;
+		//memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
 	}
 
 	obj->mName = r->mName;
@@ -4107,7 +5382,7 @@ void BoxApp::CreateBoxObject(
 	obj->isCloth.push_back(false);
 	obj->isRigidBody.push_back(false);
 
-	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
+
 	SubmeshGeometry mSubmesh;
 	mSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
 	mSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
@@ -4125,8 +5400,8 @@ void BoxApp::CreateBoxObject(
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
-	obj->mGeometry.DrawArgs[Name.c_str()] = mSubmesh;
-	obj->mGeometry.DrawArgs[Name.c_str()].textureName = (textuerName.c_str());
+	obj->mGeometry.DrawArgs.push_back(mSubmesh);
+	obj->mGeometry.DrawArgs[obj->mGeometry.DrawArgs.size() - 1].textureName = (textuerName.c_str());
 	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 
@@ -4181,6 +5456,10 @@ void BoxApp::CreateSphereObject(
 	rotation.y = DirectX::XMConvertToRadians(rotation.y);
 	rotation.z = DirectX::XMConvertToRadians(rotation.z);
 
+	scale.x *= rad;
+	scale.y *= rad;
+	scale.z *= rad;
+
 	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
 	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
 	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
@@ -4201,8 +5480,6 @@ void BoxApp::CreateSphereObject(
 	);
 
 	r->mFormat = Format;
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = isDrawTexture;
 
 	// input subGeom
 	GeometryGenerator::MeshData Sphere;
@@ -4230,31 +5507,37 @@ void BoxApp::CreateSphereObject(
 			obj->Bounds.push_back(bb);
 		}
 
-		obj->mPhysResources.resize(r->InstanceCount);
+		//obj->mPhysResources.resize(r->InstanceCount);
 
 		mGameObjectDatas[r->mName] = obj;
 		obj = mGameObjectDatas[r->mName];
 	}
 
+	//r->mData = obj;
+
 	if (obj->mInstances.size() == 0)
 		throw std::runtime_error("Instance Size must bigger than 0.");
 
-	size_t resourceSize = obj->mPhysResources.size();
+	InstanceIterator = obj->mInstances.begin();
+	BoundsIterator = obj->Bounds.begin();
+	size_t resourceSize = obj->mInstances.size();
 	for (UINT inst = 0; inst < resourceSize; inst++)
 	{
-		obj->Bounds[inst].Transform(obj->Bounds[inst], mWorldMat);
+		(*BoundsIterator).Transform((*BoundsIterator), mWorldMat);
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
 
-		obj->mPhysResources[inst].Position[0]	= position.x;
-		obj->mPhysResources[inst].Position[1]	= position.y;
-		obj->mPhysResources[inst].Position[2]	= position.z;
-		obj->mPhysResources[inst].Rotation[0]	= rotation.x;
-		obj->mPhysResources[inst].Rotation[1]	= rotation.y;
-		obj->mPhysResources[inst].Rotation[2]	= rotation.z;
-		obj->mPhysResources[inst].Scale[0]		= scale.x;
-		obj->mPhysResources[inst].Scale[1]		= scale.y;
-		obj->mPhysResources[inst].Scale[2]		= scale.z;
+		obj->mTranslate.push_back(
+			Translate(
+				mPositionVec,
+				mRotationVec,
+				mScaleVec,
+				mWorldMat
+			)
+		);
 
-		memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		InstanceIterator++;
+		BoundsIterator++;
+		//memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
 	}
 
 	obj->mName = r->mName;
@@ -4286,8 +5569,8 @@ void BoxApp::CreateSphereObject(
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
-	obj->mGeometry.DrawArgs[Name.c_str()] = mSubmesh;
-	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.DrawArgs.push_back(mSubmesh);
+	obj->mGeometry.DrawArgs[obj->mGeometry.DrawArgs.size() - 1].textureName = textuerName.c_str();
 	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 
@@ -4313,7 +5596,6 @@ void BoxApp::CreateSphereObject(
 		std::end(Sphere.Indices32)
 	);
 
-	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
 	obj->mGeometry.IndexSize			+= (UINT)Sphere.Indices32.size();
 
 	obj->mGeometry.VertexBufferByteSize	+= (UINT)Sphere.Vertices.size() * sizeof(Vertex);
@@ -4361,8 +5643,6 @@ void BoxApp::CreateGeoSphereObject(
 	);
 
 	r->mFormat = Format;
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = isDrawTexture;
 
 	// input subGeom
 	GeometryGenerator::MeshData Sphere;
@@ -4390,31 +5670,37 @@ void BoxApp::CreateGeoSphereObject(
 			obj->Bounds.push_back(bb);
 		}
 
-		obj->mPhysResources.resize(r->InstanceCount);
+		//obj->mPhysResources.resize(r->InstanceCount);
 
 		mGameObjectDatas[r->mName] = obj;
 		obj = mGameObjectDatas[r->mName];
 	}
 
+	//r->mData = obj;
+
 	if (obj->mInstances.size() == 0)
 		throw std::runtime_error("Instance Size must bigger than 0.");
 
-	size_t resourceSize = obj->mPhysResources.size();
+	InstanceIterator = obj->mInstances.begin();
+	BoundsIterator = obj->Bounds.begin();
+	size_t resourceSize = obj->mInstances.size();
 	for (UINT inst = 0; inst < resourceSize; inst++)
 	{
-		obj->Bounds[inst].Transform(obj->Bounds[inst], mWorldMat);
+		(*BoundsIterator).Transform((*BoundsIterator), mWorldMat);
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
 
-		obj->mPhysResources[inst].Position[0]	= position.x;
-		obj->mPhysResources[inst].Position[1]	= position.y;
-		obj->mPhysResources[inst].Position[2]	= position.z;
-		obj->mPhysResources[inst].Rotation[0]	= rotation.x;
-		obj->mPhysResources[inst].Rotation[1]	= rotation.y;
-		obj->mPhysResources[inst].Rotation[2]	= rotation.z;
-		obj->mPhysResources[inst].Scale[0]		= scale.x;
-		obj->mPhysResources[inst].Scale[1]		= scale.y;
-		obj->mPhysResources[inst].Scale[2]		= scale.z;
+		obj->mTranslate.push_back(
+			Translate(
+				mPositionVec,
+				mRotationVec,
+				mScaleVec,
+				mWorldMat
+			)
+		);
 
-		memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		InstanceIterator++;
+		BoundsIterator++;
+		// memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
 	}
 
 	obj->mName = r->mName;
@@ -4446,8 +5732,8 @@ void BoxApp::CreateGeoSphereObject(
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
-	obj->mGeometry.DrawArgs[Name.c_str()] = mSubmesh;
-	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.DrawArgs.push_back(mSubmesh);
+	obj->mGeometry.DrawArgs[obj->mGeometry.DrawArgs.size() - 1].textureName = textuerName.c_str();
 	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 
@@ -4473,7 +5759,6 @@ void BoxApp::CreateGeoSphereObject(
 		std::end(Sphere.Indices32)
 	);
 
-	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
 	obj->mGeometry.IndexSize			+= (UINT)Sphere.Indices32.size();
 
 	obj->mGeometry.VertexBufferByteSize	+= (UINT)Sphere.Vertices.size() * sizeof(Vertex);
@@ -4524,8 +5809,6 @@ void BoxApp::CreateCylinberObject(
 	);
 
 	r->mFormat = Format;
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = isDrawTexture;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
@@ -4553,31 +5836,37 @@ void BoxApp::CreateCylinberObject(
 			obj->Bounds.push_back(bb);
 		}
 
-		obj->mPhysResources.resize(r->InstanceCount);
+		//obj->mPhysResources.resize(r->InstanceCount);
 
 		mGameObjectDatas[r->mName] = obj;
 		obj = mGameObjectDatas[r->mName];
 	}
 
+	//r->mData = obj;
+
 	if (obj->mInstances.size() == 0)
 		throw std::runtime_error("Instance Size must bigger than 0.");
 	
-	size_t resourceSize = obj->mPhysResources.size();
+	InstanceIterator = obj->mInstances.begin();
+	BoundsIterator = obj->Bounds.begin();
+	size_t resourceSize = obj->mInstances.size();
 	for (UINT inst = 0; inst < resourceSize; inst++)
 	{
-		obj->Bounds[inst].Transform(obj->Bounds[inst], mWorldMat);
+		(*BoundsIterator).Transform((*BoundsIterator), mWorldMat);
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
 
-		obj->mPhysResources[inst].Position[0]	= position.x;
-		obj->mPhysResources[inst].Position[1]	= position.y;
-		obj->mPhysResources[inst].Position[2]	= position.z;
-		obj->mPhysResources[inst].Rotation[0]	= rotation.x;
-		obj->mPhysResources[inst].Rotation[1]	= rotation.y;
-		obj->mPhysResources[inst].Rotation[2]	= rotation.z;
-		obj->mPhysResources[inst].Scale[0]		= scale.x;
-		obj->mPhysResources[inst].Scale[1]		= scale.y;
-		obj->mPhysResources[inst].Scale[2]		= scale.z;
+		obj->mTranslate.push_back(
+			Translate(
+				mPositionVec,
+				mRotationVec,
+				mScaleVec,
+				mWorldMat
+			)
+		);
 
-		memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		InstanceIterator++;
+		BoundsIterator++;
+		//memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
 	}
 
 	obj->mName = r->mName;
@@ -4591,8 +5880,6 @@ void BoxApp::CreateCylinberObject(
 	obj->isCloth.push_back(false);
 	obj->isRigidBody.push_back(false);
 
-
-	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
 	SubmeshGeometry mSubmesh;
 	mSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
 	mSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
@@ -4610,8 +5897,8 @@ void BoxApp::CreateCylinberObject(
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
-	obj->mGeometry.DrawArgs[Name.c_str()] = mSubmesh;
-	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.DrawArgs.push_back(mSubmesh);
+	obj->mGeometry.DrawArgs[obj->mGeometry.DrawArgs.size() - 1].textureName = textuerName.c_str();
 	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 
@@ -4699,8 +5986,6 @@ void BoxApp::CreateGridObject(
 	}
 
 	r->mFormat = Format;
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = isDrawTexture;
 
 	// input subGeom
 	GeometryGenerator::MeshData Box;
@@ -4728,28 +6013,31 @@ void BoxApp::CreateGridObject(
 			obj->Bounds.push_back(bb);
 		}
 
-		obj->mPhysResources.resize(r->InstanceCount);
+		//obj->mPhysResources.resize(r->InstanceCount);
 
 		mGameObjectDatas[r->mName] = obj;
 		obj = mGameObjectDatas[r->mName];
 	}
 
-	size_t resourceSize = obj->mPhysResources.size();
+	//r->mData = obj;
+
+	InstanceIterator = obj->mInstances.begin();
+	size_t resourceSize = obj->mInstances.size();
 	for (UINT inst = 0; inst < resourceSize; inst++)
 	{
-		DirectX::XMStoreFloat4x4(&obj->mInstances[inst].World, mWorldMat);
-		
-		obj->mPhysResources[inst].Position[0]	= position.x;
-		obj->mPhysResources[inst].Position[1]	= position.y;
-		obj->mPhysResources[inst].Position[2]	= position.z;
-		obj->mPhysResources[inst].Rotation[0]	= rotation.x;
-		obj->mPhysResources[inst].Rotation[1]	= rotation.y;
-		obj->mPhysResources[inst].Rotation[2]	= rotation.z;
-		obj->mPhysResources[inst].Scale[0]		= scale.x;
-		obj->mPhysResources[inst].Scale[1]		= scale.y;
-		obj->mPhysResources[inst].Scale[2]		= scale.z;
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
 
-		memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		obj->mTranslate.push_back(
+			Translate(
+				mPositionVec,
+				mRotationVec,
+				mScaleVec,
+				mWorldMat
+			)
+		);
+
+		InstanceIterator++;
+		//memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
 	}
 
 	obj->mName = r->mName;
@@ -4775,11 +6063,12 @@ void BoxApp::CreateGridObject(
 	mSubmesh.VertexSize = (UINT)Box.Vertices.size();
 
 	// init Boundary(Collider) Box
+	BoundsIterator = obj->Bounds.begin();
 	if (obj->Bounds.size() > 0)
 	{
-		obj->Bounds[0].Extents.x = scale.x * w * 0.5f;
-		obj->Bounds[0].Extents.y = scale.y;
-		obj->Bounds[0].Extents.z = scale.z * h * 0.5f;
+		(*BoundsIterator).Extents.x = scale.x * w * 0.5f;
+		(*BoundsIterator).Extents.y = scale.y;
+		(*BoundsIterator).Extents.z = scale.z * h * 0.5f;
 	}
 
 	obj->mDesc[0].StartIndexLocation = mSubmesh.StartIndexLocation;
@@ -4792,8 +6081,8 @@ void BoxApp::CreateGridObject(
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
-	obj->mGeometry.DrawArgs[Name.c_str()] = mSubmesh;
-	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.DrawArgs.push_back(mSubmesh);
+	obj->mGeometry.DrawArgs[obj->mGeometry.DrawArgs.size() - 1].textureName = textuerName.c_str();
 	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 	size_t startV = obj->mVertices.size();
@@ -4818,7 +6107,6 @@ void BoxApp::CreateGridObject(
 		std::end(Box.Indices32)
 	);
 
-	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
 	obj->mGeometry.IndexSize			+= (UINT)Box.Indices32.size();
 
 	obj->mGeometry.VertexBufferByteSize	+= (UINT)Box.Vertices.size() * sizeof(Vertex);
@@ -4841,11 +6129,10 @@ void BoxApp::CreateBillBoardObject(
 	InstanceData id;
 
 	r->mFormat = Format;
-	r->isSky = false;
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = false;
 
 	ObjectData* obj = mGameObjectDatas[r->mName];
+	mParticles[r->mName] = new Particle;
+
 	if (!obj)
 	{
 		obj = new ObjectData();
@@ -4853,6 +6140,9 @@ void BoxApp::CreateBillBoardObject(
 		mGameObjectDatas[r->mName] = obj;
 		obj = mGameObjectDatas[r->mName];
 	}
+
+	if (!r->mData)
+		r->mData = obj;
 
 	obj->mName = r->mName;
 	obj->mFormat = r->mFormat;
@@ -4880,11 +6170,20 @@ void BoxApp::CreateBillBoardObject(
 
 	obj->mBillBoardVertices.resize(particleCount);
 	obj->mIndices.resize(particleCount);
-	obj->mPhysResources.resize(particleCount);
+
+	//obj->mPhysResources.resize(particleCount);
 	for (UINT partIDX = 0; partIDX < particleCount; partIDX++)
 	{
 		obj->mBillBoardVertices[partIDX].Pos	= position;
 		obj->mBillBoardVertices[partIDX].Size	= extends;
+
+		obj->mTranslate.push_back(
+			Translate(
+				{ position.x, position.y, position.z, 1.0f },
+				{0.0f, 0.0f, 0.0f, 1.0f},
+				{ extends.x, extends.y, 0.0f, 1.0f }
+			)
+		);
 
 		obj->mIndices[partIDX] = partIDX;
 	}
@@ -4903,8 +6202,8 @@ void BoxApp::CreateBillBoardObject(
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
-	obj->mGeometry.DrawArgs[Name.c_str()] = mSubmesh;
-	obj->mGeometry.DrawArgs[Name.c_str()].textureName = textuerName.c_str();
+	obj->mGeometry.DrawArgs.push_back(mSubmesh);
+	obj->mGeometry.DrawArgs[obj->mGeometry.DrawArgs.size() - 1].textureName = textuerName.c_str();
 	obj->mGeometry.meshNames.push_back(Name.c_str());
 
 	// 다음 서브메쉬를 담기 위하여 SP(Stack Pointer)를 최신화 한다
@@ -4924,6 +6223,7 @@ void BoxApp::CreateFBXObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
+	ObjectData::RenderType renderType,
 	bool uvMode,
 	bool isDrawShadow,
 	bool isDrawTexture
@@ -4931,7 +6231,11 @@ void BoxApp::CreateFBXObject(
 {
 	GeometryGenerator Geom;
 
+	// 게임 데이터 리스트에서 오브젝트를 찾고, 
 	ObjectData* obj = mGameObjectDatas[r->mName];
+	mParticles[r->mName] = new Particle;
+
+	// 만일 존재하지 않는다면, 새로 생성
 	if (!obj)
 	{
 		obj = new ObjectData();
@@ -4953,15 +6257,18 @@ void BoxApp::CreateFBXObject(
 			obj->Bounds.push_back(bb);
 		}
 
-		obj->mPhysResources.resize(r->InstanceCount);
+		//obj->mPhysResources.resize(r->InstanceCount);
 
 		mGameObjectDatas[r->mName] = obj;
 		obj = mGameObjectDatas[r->mName];
 	}
 
+	if (!r->mData)
+		r->mData = obj;
+
 	obj->mName = r->mName;
 	obj->mFormat = "FBX";
-	obj->mRenderType = ObjectData::RenderType::_OPAQUE_RENDER_TYPE;
+	obj->mRenderType = renderType;
 
 	rotation.x = DirectX::XMConvertToRadians(rotation.x);
 	rotation.y = DirectX::XMConvertToRadians(rotation.y);
@@ -4987,29 +6294,30 @@ void BoxApp::CreateFBXObject(
 	);
 
 	r->mFormat = "FBX";
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = isDrawTexture;
 
 	// init Boundary(Collider) Box
-	obj->Bounds[0].Center = position;
-	obj->Bounds[0].Extents = scale;
+	InstanceIterator = obj->mInstances.begin();
+	BoundsIterator = obj->Bounds.begin();
+	(*BoundsIterator).Center = position;
+	(*BoundsIterator).Extents = scale;
 
-	size_t resourceSize = obj->mPhysResources.size();
+	// Physx와 연동시키기 위해, Transform 초기화
+	size_t resourceSize = obj->mInstances.size();
 	for (UINT inst = 0; inst < resourceSize; inst++)
 	{
-		DirectX::XMStoreFloat4x4(&obj->mInstances[inst].World, mWorldMat);
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
 
-		obj->mPhysResources[inst].Position[0]	= position.x;
-		obj->mPhysResources[inst].Position[1]	= position.y;
-		obj->mPhysResources[inst].Position[2]	= position.z;
-		obj->mPhysResources[inst].Rotation[0]	= rotation.x;
-		obj->mPhysResources[inst].Rotation[1]	= rotation.y;
-		obj->mPhysResources[inst].Rotation[2]	= rotation.z;
-		obj->mPhysResources[inst].Scale[0]		= scale.x;
-		obj->mPhysResources[inst].Scale[1]		= scale.y;
-		obj->mPhysResources[inst].Scale[2]		= scale.z;
+		obj->mTranslate.push_back(
+			Translate(
+				mPositionVec,
+				mRotationVec,
+				mScaleVec,
+				mWorldMat
+			)
+		);
 
-		memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		InstanceIterator++;
+		//memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
 	}
 
 	// input subGeom
@@ -5029,47 +6337,48 @@ void BoxApp::CreateFBXObject(
 	UINT indexOffset = 0;
 	UINT vertexOffset = 0;
 
+	// 서브메쉬 초기화
 	for (int subMeshCount = 0; subMeshCount < meshData.size(); ++subMeshCount)
 	{
 		SubmeshGeometry mSubmesh;
-		std::string submeshName = Name + std::to_string(subMeshCount);
+		std::string submeshName = meshData[subMeshCount].mName;
 
-		// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
+		// 하나의 서브메쉬의 Vertex, Index 크기 저장
 		mSubmesh.IndexSize = (UINT)meshData[subMeshCount].Indices32.size();
 		mSubmesh.VertexSize = (UINT)meshData[subMeshCount].Vertices.size();
 
+		// 현재 서브메쉬가 저장된 Offset 저장
 		obj->mDesc[subMeshCount].BaseVertexLocation = vertexOffset;
 		obj->mDesc[subMeshCount].StartIndexLocation = indexOffset;
 
 		obj->mDesc[subMeshCount].IndexSize = mSubmesh.IndexSize;
 		obj->mDesc[subMeshCount].VertexSize = mSubmesh.VertexSize;
 
-		// �� ����޽��� Cloth physix �ε����� �ʱ�ȭ
+		// 서브메쉬 당 Cloth Physx, RigidBody를 적용 시킬 것인가에 대한 Boolean
 		obj->isCloth.push_back(false);
 		obj->isRigidBody.push_back(false);
 
-		// Submesh ����
+		// Submesh 개수 증가
 		r->SubmeshCount += 1;
 
 		obj->mGeometry.subMeshCount += 1;
-		obj->mGeometry.DrawArgs[submeshName] = mSubmesh;
-		obj->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(meshData[subMeshCount].texPath);
-		obj->mGeometry.DrawArgs[submeshName].textureName = meshData[subMeshCount].texPath;
+		obj->mGeometry.DrawArgs.push_back(mSubmesh);
 
-		obj->mGeometry.DrawArgs[submeshName].BaseVertexLocation = vertexOffset;
-		obj->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
+		obj->mGeometry.DrawArgs[subMeshCount].name = d3dUtil::getName(meshData[subMeshCount].texPath);
+		obj->mGeometry.DrawArgs[subMeshCount].textureName = meshData[subMeshCount].texPath;
 
-		// �ش� �̸��� �Ž��� ����Ǿ� ������ �˸��� ���� �̸��� ����
+		obj->mGeometry.DrawArgs[subMeshCount].BaseVertexLocation = vertexOffset;
+		obj->mGeometry.DrawArgs[subMeshCount].StartIndexLocation = indexOffset;
+
+		// 서브메쉬 정보를 스택에 저장
 		obj->mGeometry.meshNames.push_back(submeshName);
-		texturePath.push_back(obj->mGeometry.DrawArgs[submeshName].textureName);
+		texturePath.push_back(obj->mGeometry.DrawArgs[subMeshCount].textureName);
 
-		// _Geom ������ �����ϱ⿡ ���ؽ� ������ �������� �̸� ���صд�.
+		// 서브메쉬의 Vertex, Index를 스택에 Push
 		startV = obj->mVertices.size();
-		// ���ο� Submesh�� �� ������ �����Ѵ�.
+		
 		obj->mVertices.resize(startV + meshData[subMeshCount].Vertices.size());
 		Vertex* v = obj->mVertices.data();
-		// _Geometry�� �ϳ��� ������ ���� ���� ������ ������Ʈ���� �� �� ���� ���ؽ� ���� �ֱ��Ѵ�.
-		// �̴� ���Ŀ� Deprecated �� ��.
 		for (size_t i = 0; i < (meshData[subMeshCount].Vertices.size()); ++i)
 		{
 			v[i + startV].Pos = meshData[subMeshCount].Vertices[i].Position;
@@ -5084,10 +6393,9 @@ void BoxApp::CreateFBXObject(
 			std::end(meshData[subMeshCount].Indices32)
 		);
 
-		// Texture, Material �ڵ� ����
+		// Texture, Material 바인딩
 		{
-			// ���� �ؽ��İ� �����Ѵٸ�
-			if (obj->mGeometry.DrawArgs[submeshName].textureName != "")
+			if (obj->mGeometry.DrawArgs[subMeshCount].textureName != "")
 			{
 				Texture charTex;
 				std::string TexPath;
@@ -5101,11 +6409,11 @@ void BoxApp::CreateFBXObject(
 				this->uploadTexture(charTex);
 				this->uploadMaterial(charTex.Name, charTex.Name);
 
-				// ���ο� ���׸���, �ؽ��� �߰�
 				this->BindMaterial(r, charTex.Name);
 			}
 			else
 			{
+				// 텍스쳐가 없거나 텍스쳐를 찾지 못하였을 경우 Default Texture, Materiai
 				this->BindMaterial(r, "Default", "", "", "bricksTex");
 			}
 
@@ -5113,7 +6421,6 @@ void BoxApp::CreateFBXObject(
 
 		startV += mSubmesh.VertexSize;
 
-		// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
 		vertexOffset += mSubmesh.VertexSize;
 		indexOffset += mSubmesh.IndexSize;
 
@@ -5121,7 +6428,215 @@ void BoxApp::CreateFBXObject(
 
 		obj->mGeometry.VertexBufferByteSize += mSubmesh.VertexSize * sizeof(Vertex);
 		obj->mGeometry.IndexBufferByteSize += mSubmesh.IndexSize * sizeof(std::uint32_t);
+	} // for (int subMeshCount = 0; subMeshCount < meshData.size(); ++subMeshCount)
+}
+
+// Load Non-Skinned Object
+void BoxApp::CreateFBXObjectSplitSubmeshs(
+	std::string Name,
+	std::string Path,
+	std::string FileName,
+	RenderItem* r,
+	DirectX::XMFLOAT3 position,
+	DirectX::XMFLOAT3 rotation,
+	DirectX::XMFLOAT3 scale,
+	ObjectData::RenderType renderType,
+	UINT submeshIDX,
+	bool uvMode,
+	bool isDrawShadow,
+	bool isDrawTexture
+)
+{
+	GeometryGenerator Geom;
+
+	// 게임 데이터 리스트에서 오브젝트를 찾고, 
+	ObjectData* obj = mGameObjectDatas[r->mName];
+	// 만일 존재하지 않는다면, 새로 생성
+	if (!obj)
+	{
+		obj = new ObjectData();
+
+		for (UINT i = 0; i < r->InstanceCount; i++)
+		{
+			InstanceData id;
+			id.World = MathHelper::Identity4x4();
+			id.TexTransform = MathHelper::Identity4x4();
+			id.MaterialIndex = 0;
+
+			obj->mInstances.push_back(id);
+
+			BoundingBox bb;
+			bb.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+			bb.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
+
+			// Bind Phy
+			obj->Bounds.push_back(bb);
+		}
+
+		//obj->mPhysResources.resize(r->InstanceCount);
+
+		mGameObjectDatas[r->mName] = obj;
+		obj = mGameObjectDatas[r->mName];
 	}
+
+	//r->mData = obj;
+
+	obj->mName = r->mName;
+	obj->mFormat = "FBX";
+	obj->mRenderType = renderType;
+
+	obj->isOnlySubmesh = true;
+
+	rotation.x = DirectX::XMConvertToRadians(rotation.x);
+	rotation.y = DirectX::XMConvertToRadians(rotation.y);
+	rotation.z = DirectX::XMConvertToRadians(rotation.z);
+
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&position);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&rotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&scale);
+
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
+
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
+
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
+
+	r->mFormat = "FBX";
+
+	// init Boundary(Collider) Box
+	if (obj->InstanceCount > 0)
+	{
+		InstanceIterator = obj->mInstances.begin();
+		BoundsIterator = obj->Bounds.begin();
+		(*BoundsIterator).Center = position;
+		(*BoundsIterator).Extents.x = scale.x;
+		(*BoundsIterator).Extents.y = scale.y;
+		(*BoundsIterator).Extents.z = scale.z;
+
+		// Physx와 연동시키기 위해, Transform 초기화
+		size_t resourceSize = obj->mInstances.size();
+		for (UINT inst = 0; inst < resourceSize; inst++)
+		{
+			DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
+
+			obj->mTranslate.push_back(
+				Translate(
+					mPositionVec,
+					mRotationVec,
+					mScaleVec,
+					mWorldMat
+				)
+			);
+
+			InstanceIterator++;
+			//memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		}
+	}
+
+	// input subGeom
+	std::vector<GeometryGenerator::MeshData> meshData;
+	Geom.CreateFBXModel(
+		meshData,
+		(Path + "\\" + FileName),
+		uvMode
+	);
+
+	obj->InstanceCount = r->InstanceCount;
+	obj->SubmeshCount = 1;
+	obj->mDesc.resize(meshData.size());
+
+	UINT indexOffset = 0;
+	UINT vertexOffset = 0;
+
+	// Push Submesh
+	SubmeshGeometry mSubmesh;
+	std::string submeshName = meshData[submeshIDX].mName;
+
+	// 하나의 서브메쉬의 Vertex, Index 크기 저장
+	mSubmesh.IndexSize = (UINT)meshData[submeshIDX].Indices32.size();
+	mSubmesh.VertexSize = (UINT)meshData[submeshIDX].Vertices.size();
+
+	// 현재 서브메쉬가 저장된 Offset 저장
+	obj->mDesc[0].BaseVertexLocation = vertexOffset;
+	obj->mDesc[0].StartIndexLocation = indexOffset;
+
+	obj->mDesc[0].IndexSize = mSubmesh.IndexSize;
+	obj->mDesc[0].VertexSize = mSubmesh.VertexSize;
+
+	// 서브메쉬 당 Cloth Physx, RigidBody를 적용 시킬 것인가에 대한 Boolean
+	obj->isCloth.push_back(false);
+	obj->isRigidBody.push_back(false);
+
+	// Submesh 개수 증가
+	r->SubmeshCount += 1;
+
+	obj->mGeometry.subMeshCount += 1;
+	obj->mGeometry.DrawArgs.push_back(mSubmesh);
+
+	obj->mGeometry.DrawArgs[0].name = d3dUtil::getName(meshData[0].texPath);
+	obj->mGeometry.DrawArgs[0].textureName = meshData[0].texPath;
+	obj->mGeometry.DrawArgs[0].BaseVertexLocation = vertexOffset;
+	obj->mGeometry.DrawArgs[0].StartIndexLocation = indexOffset;
+
+	// 서브메쉬 정보를 스택에 저장
+	obj->mGeometry.meshNames.push_back(submeshName);
+
+	// 서브메쉬의 Vertex, Index를 스택에 Push
+	obj->mVertices.resize(meshData[submeshIDX].Vertices.size());
+	Vertex* v = obj->mVertices.data();
+	for (size_t i = 0; i < (meshData[submeshIDX].Vertices.size()); ++i)
+	{
+		v[i].Pos = meshData[submeshIDX].Vertices[i].Position;
+		v[i].Normal = meshData[submeshIDX].Vertices[i].Normal;
+		v[i].Tangent = meshData[submeshIDX].Vertices[i].TangentU;
+		v[i].TexC = meshData[submeshIDX].Vertices[i].TexC;
+	}
+
+	obj->mIndices.insert(
+		obj->mIndices.end(),
+		std::begin(meshData[submeshIDX].Indices32),
+		std::end(meshData[submeshIDX].Indices32)
+	);
+
+	// Texture, Material 바인딩
+	if (obj->mGeometry.DrawArgs[0].textureName != "")
+	{
+		Texture charTex;
+		std::string TexPath;
+		std::wstring wTexPath;
+
+		charTex.Name = d3dUtil::getName(meshData[0].texPath);
+		TexPath = d3dUtil::getDDSFormat(Path + "\\textures\\" + charTex.Name);
+		wTexPath.assign(TexPath.begin(), TexPath.end());
+		charTex.Filename = wTexPath;
+
+		this->uploadTexture(charTex);
+		this->uploadMaterial(charTex.Name, charTex.Name);
+
+		this->BindMaterial(r, charTex.Name);
+	}
+	else
+	{
+		// 텍스쳐가 없거나 텍스쳐를 찾지 못하였을 경우 Default Texture, Materiai
+		this->BindMaterial(r, "Default", "", "", "bricksTex");
+	}
+
+	vertexOffset += mSubmesh.VertexSize;
+	indexOffset += mSubmesh.IndexSize;
+
+	obj->mGeometry.IndexSizes.push_back((UINT)mSubmesh.IndexSize);
+
+	obj->mGeometry.VertexBufferByteSize = mSubmesh.VertexSize * sizeof(Vertex);
+	obj->mGeometry.IndexBufferByteSize = mSubmesh.IndexSize * sizeof(std::uint32_t);
 }
 
 // Load Skinned Object
@@ -5134,6 +6649,7 @@ void BoxApp::CreateFBXSkinnedObject(
 	DirectX::XMFLOAT3 position,
 	DirectX::XMFLOAT3 rotation,
 	DirectX::XMFLOAT3 scale,
+	AnimationClip& mAnimClips,
 	bool uvMode,
 	bool isDrawShadow,
 	bool isDrawTexture
@@ -5166,11 +6682,13 @@ void BoxApp::CreateFBXSkinnedObject(
 			obj->Bounds.push_back(bb);
 		}
 
-		obj->mPhysResources.resize(r->InstanceCount);
+		//obj->mPhysResources.resize(r->InstanceCount);
 
 		mGameObjectDatas[r->mName] = obj;
 		obj = mGameObjectDatas[r->mName];
 	}
+
+	//r->mData = obj;
 
 	obj->mName = r->mName;
 	obj->mFormat = "FBX";
@@ -5200,33 +6718,40 @@ void BoxApp::CreateFBXSkinnedObject(
 	);
 
 	r->mFormat = "FBX";
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = isDrawTexture;
 
 	// init Boundary(Collider) Box
-	obj->Bounds[0].Center = position;
-	obj->Bounds[0].Extents = scale;
+	InstanceIterator = obj->mInstances.begin();
+	BoundsIterator = obj->Bounds.begin();
+	(*BoundsIterator).Center = position;
+	(*BoundsIterator).Extents = scale;
 
-	size_t resourceSize = obj->mPhysResources.size();
+	size_t resourceSize = obj->mInstances.size();
 	for (UINT inst = 0; inst < resourceSize; inst++)
 	{
-		DirectX::XMStoreFloat4x4(&obj->mInstances[inst].World, mWorldMat);
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
 
-		obj->mPhysResources[inst].Position[0] = position.x;
-		obj->mPhysResources[inst].Position[1] = position.y;
-		obj->mPhysResources[inst].Position[2] = position.z;
-		obj->mPhysResources[inst].Rotation[0] = rotation.x;
-		obj->mPhysResources[inst].Rotation[1] = rotation.y;
-		obj->mPhysResources[inst].Rotation[2] = rotation.z;
-		obj->mPhysResources[inst].Scale[0] = scale.x;
-		obj->mPhysResources[inst].Scale[1] = scale.y;
-		obj->mPhysResources[inst].Scale[2] = scale.z;
+		obj->mTranslate.push_back(
+			Translate(
+				mPositionVec,
+				mRotationVec,
+				mScaleVec,
+				mWorldMat
+			)
+		);
 
-		memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		InstanceIterator++;
+		//memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
 	}
 
+	AnimationClip* clip = new AnimationClip;
+	clip->mClips.resize(mAnimClips.mClips.size());
+	std::copy(mAnimClips.mClips.begin(), mAnimClips.mClips.end(), clip->mClips.begin());
+	mAnimationClips[Name] = clip;
+
+	//mMeshName = obj->mName;
 	int res = Geom.CreateFBXSkinnedModel(
 		meshData,
+		obj->mName,
 		(Path + "\\" + FileName),
 		obj->animNameLists,
 		obj->mStart,
@@ -5234,25 +6759,22 @@ void BoxApp::CreateFBXSkinnedObject(
 		obj->countOfFrame,
 		obj->mAnimVertex,
 		obj->mAnimVertexSize,
-		uvMode
+		mAnimClips
 	);
 
 	assert(!res && "(CreateFBXObject)Failed to create FBX Model on CreateFBXObject.");
 
-	// �� �ִϸ��̼��� �ϳ��� ������ �� �ð�(�� ����)�� �ִϸ��̼��� ��ü �෹�̼� (�� ����)�� ���ɴϴ�.
 	for (int animCount = 0; animCount < obj->countOfFrame.size(); animCount++)
 	{
 		obj->durationPerSec.push_back((float)obj->mStop[animCount].GetSecondDouble());
 		obj->durationOfFrame.push_back(obj->durationPerSec[animCount] / obj->countOfFrame[animCount]);
 	}
 
-	obj->beginAnimIndex = 0;
 	obj->currentFrame = 0;
 	obj->currentDelayPerSec = 0;
-
-	obj->endAnimIndex =
-		(float)obj->durationPerSec[0] /
-		obj->durationOfFrame[0];
+	
+	obj->beginAnimIndex = 0;
+	obj->endAnimIndex = (float)obj->mAnimVertex[0].size();
 
 	std::vector<PxClothParticle> vertices;
 	std::vector<PxU32> primitives;
@@ -5261,7 +6783,6 @@ void BoxApp::CreateFBXSkinnedObject(
 	obj->SubmeshCount = (UINT)meshData.size();
 	obj->mDesc.resize(meshData.size());
 
-	// �� Submesh�� Offset�� �����ϴ� �뵵
 	size_t startV = obj->mVertices.size();
 
 	UINT indexOffset = 0;
@@ -5272,7 +6793,6 @@ void BoxApp::CreateFBXSkinnedObject(
 		SubmeshGeometry mSubmesh;
 		std::string submeshName = Name + std::to_string(subMeshCount);
 
-		// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
 		mSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
 		mSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
 
@@ -5285,37 +6805,31 @@ void BoxApp::CreateFBXSkinnedObject(
 		obj->mDesc[subMeshCount].IndexSize = mSubmesh.IndexSize;
 		obj->mDesc[subMeshCount].VertexSize = mSubmesh.VertexSize;
 
-		// �� ����޽��� Cloth physix �ε����� �ʱ�ȭ
 		obj->isCloth.push_back(false);
 		obj->isRigidBody.push_back(false);
 
-		// Submesh ����
 		r->SubmeshCount += 1;
 
 		obj->mGeometry.subMeshCount += 1;
-		obj->mGeometry.DrawArgs[submeshName] = mSubmesh;
-		obj->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(meshData[subMeshCount].texPath);
-		obj->mGeometry.DrawArgs[submeshName].textureName = meshData[subMeshCount].texPath;
+		obj->mGeometry.DrawArgs.push_back(mSubmesh);
 
-		obj->mGeometry.DrawArgs[submeshName].BaseVertexLocation = vertexOffset;
-		obj->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
+		obj->mGeometry.DrawArgs[subMeshCount].name = d3dUtil::getName(meshData[subMeshCount].texPath);
+		obj->mGeometry.DrawArgs[subMeshCount].textureName = meshData[subMeshCount].texPath;
+		obj->mGeometry.DrawArgs[subMeshCount].BaseVertexLocation = vertexOffset;
+		obj->mGeometry.DrawArgs[subMeshCount].StartIndexLocation = indexOffset;
 
 		////////////////
 
-		// �ش� �̸��� �Ž��� ����Ǿ� ������ �˸��� ���� �̸��� ����
 		obj->mGeometry.meshNames.push_back(submeshName);
-		texturePath.push_back(obj->mGeometry.DrawArgs[submeshName].textureName);
+		texturePath.push_back(obj->mGeometry.DrawArgs[subMeshCount].textureName);
 
 		//memcpy(r->mPhysResources[subMeshCount].Position, &position, sizeof(float) * 3);
 
-		// _Geom ������ �����ϱ⿡ ���ؽ� ������ �������� �̸� ���صд�.
 		startV = (UINT)obj->mVertices.size();
-		// ���ο� Submesh�� �� ������ �����Ѵ�.
+
 		obj->mVertices.resize(startV + meshData[subMeshCount].Vertices.size());
 		Vertex* v = obj->mVertices.data();
 
-		// _Geometry�� �ϳ��� ������ ���� ���� ������ ������Ʈ���� �� �� ���� ���ؽ� ���� �ֱ��Ѵ�.
-		// �̴� ���Ŀ� Deprecated �� ��.
 		for (size_t i = 0; i < (meshData[subMeshCount].Vertices.size()); ++i)
 		{
 			v[i + startV].Pos = meshData[subMeshCount].Vertices[i].Position;
@@ -5343,8 +6857,7 @@ void BoxApp::CreateFBXSkinnedObject(
 
 		// Texture, Material �ڵ� ����
 		{
-			// ���� �ؽ��İ� �����Ѵٸ�
-			if (obj->mGeometry.DrawArgs[submeshName].textureName != "")
+			if (obj->mGeometry.DrawArgs[subMeshCount].textureName != "")
 			{
 				Texture charTex;
 				std::string TexPath;
@@ -5393,8 +6906,6 @@ void BoxApp::CreatePMXObject(
 	bool isDrawTexture
 )
 {
-	// meshData�� 0������ Vertices �迭
-	// meshData�� 1���� ���� ���ʹ� �� Submesh�� ���� Indices
 	std::vector<PxClothParticle> vertices;
 	std::vector<PxU32> primitives;
 
@@ -5437,42 +6948,40 @@ void BoxApp::CreatePMXObject(
 	model->Read(&stream);
 
 	r->mFormat = "PMX";
-	r->isDrawShadow = isDrawShadow;
-	r->isDrawTexture = isDrawTexture;
 
 	// init Boundary(Collider) Box
-	obj->Bounds[0].Center = position;
+	InstanceIterator = obj->mInstances.begin();
+	BoundsIterator = obj->Bounds.begin();
+	(*BoundsIterator).Center = position;
 	//obj->Bounds[0].Extents = scale;
-	obj->Bounds[0].Extents = { 3.0f, 10.0f, 3.0f };
+	(*BoundsIterator).Extents = { 10.0f, 9.0f, 10.0f };
 
-	size_t resourceSize = obj->mPhysResources.size();
+	size_t resourceSize = obj->mInstances.size();
 	for (UINT inst = 0; inst < resourceSize; inst++)
 	{
-		DirectX::XMStoreFloat4x4(&obj->mInstances[inst].World, mWorldMat);
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
 
-		obj->mPhysResources[inst].Position[0]	= position.x;
-		obj->mPhysResources[inst].Position[1]	= position.y;
-		obj->mPhysResources[inst].Position[2]	= position.z;
-		obj->mPhysResources[inst].Rotation[0]	= rotation.x;
-		obj->mPhysResources[inst].Rotation[1]	= rotation.y;
-		obj->mPhysResources[inst].Rotation[2]	= rotation.z;
-		obj->mPhysResources[inst].Scale[0]		= scale.x;
-		obj->mPhysResources[inst].Scale[1]		= scale.y;
-		obj->mPhysResources[inst].Scale[2]		= scale.z;
+		obj->mTranslate.push_back(
+			Translate(
+				mPositionVec,
+				mRotationVec,
+				mScaleVec,
+				mWorldMat
+			)
+		);
 
-		memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
+		InstanceIterator++;
 	}
 
 	// Load Submesh Count
 	int _SubMeshCount = model->material_count;
 
-	// GameObjects Data�� ���� ���� ����
 	obj->InstanceCount = r->InstanceCount;
 	obj->SubmeshCount = _SubMeshCount;
 	obj->mDesc.resize(_SubMeshCount);
 
 	//////////////////////////////////////////////////////////////
-	// �ܺ� �ִϸ��̼� ���� �о� Vertex�� ������Ʈ
+	// 애니메이션 뼈대 버퍼를 로드
 	//////////////////////////////////////////////////////////////
 	std::ifstream animBuffer(std::string("resFile"), std::ios::in | std::ios::binary);
 
@@ -5514,55 +7023,58 @@ void BoxApp::CreatePMXObject(
 		}
 	}
 
-	obj->mAnimationClip.appendClip("IDLE2", 15.0f, 90.0f);
-	obj->mAnimationClip.appendClip("IDLE2toIDLE1", 91.0f, 131.0f);
-	obj->mAnimationClip.appendClip("IDLE1", 132.0f, 232.0f);
-	obj->mAnimationClip.appendClip("IDLE1toIDLE2", 233.0f, 273.0f);
+	AnimationClip* clip = new AnimationClip;
 
-	obj->mAnimationClip.appendClip("JUMP_BACK", 274.0f, 299.0f);
-	obj->mAnimationClip.appendClip("JUMP_LEFT", 300.0f, 325.0f);
-	obj->mAnimationClip.appendClip("JUMP_RIGHT", 326.0f, 351.0f);
+	clip->appendClip("IDLE2", 15.0f, 90.0f);
+	clip->appendClip("IDLE2toIDLE1", 91.0f, 131.0f);
+	clip->appendClip("IDLE1", 132.0f, 232.0f);
+	clip->appendClip("IDLE1toIDLE2", 233.0f, 273.0f);
 
-	obj->mAnimationClip.appendClip("KNOCKED_BACKWARD", 352.0f, 393.0f);
-	obj->mAnimationClip.appendClip("DOWN_BACK", 394.0f, 434.0f);
-	obj->mAnimationClip.appendClip("RECOVER_FROM_KNOCKED_BACKWARD", 435.0f, 475.0f);
+	clip->appendClip("JUMP_BACK", 274.0f, 299.0f);
+	clip->appendClip("JUMP_LEFT", 300.0f, 325.0f);
+	clip->appendClip("JUMP_RIGHT", 326.0f, 351.0f);
 
-	obj->mAnimationClip.appendClip("KNOCKED_FORWARD", 476.0f, 504.0f);
-	obj->mAnimationClip.appendClip("DOWN_FORWARD", 505.0f, 545.0f);
-	obj->mAnimationClip.appendClip("RECOVER_FROM_KNOCKED_FORWARD", 546.0f, 578.0f);
+	clip->appendClip("KNOCKED_BACKWARD", 352.0f, 393.0f);
+	clip->appendClip("DOWN_BACK", 394.0f, 434.0f);
+	clip->appendClip("RECOVER_FROM_KNOCKED_BACKWARD", 435.0f, 475.0f);
 
-	obj->mAnimationClip.appendClip("MAGIC_SHOT_STRIGHT", 666.0f, 701.0f);
+	clip->appendClip("KNOCKED_FORWARD", 476.0f, 504.0f);
+	clip->appendClip("DOWN_FORWARD", 505.0f, 545.0f);
+	clip->appendClip("RECOVER_FROM_KNOCKED_FORWARD", 546.0f, 578.0f);
 
-	obj->mAnimationClip.appendClip("DODGE_BACKWARD", 885.0f, 920.0f);
-	obj->mAnimationClip.appendClip("DODGE_TO_LEFT", 921.0f, 956.0f);
-	obj->mAnimationClip.appendClip("DODGE_TO_RIGHT", 957.0f, 992.0f);
-	obj->mAnimationClip.appendClip("DODGE_TO_BACK", 993.0f, 1028.0f);
-	obj->mAnimationClip.appendClip("DODGE_TO_FRONT", 1029.0f, 1064.0f);
+	clip->appendClip("MAGIC_SHOT_STRIGHT", 666.0f, 701.0f);
 
-	obj->mAnimationClip.appendClip("EARTHQUAKE_SPELL", 1172.0f, 1207.0f);
-	obj->mAnimationClip.appendClip("HIT_STRIGHT_DOWN", 1208.0f, 1243.0f);
-	obj->mAnimationClip.appendClip("HIT_SWING_RIGHT", 1244.0f, 1279.0f);
+	clip->appendClip("DODGE_BACKWARD", 885.0f, 920.0f);
+	clip->appendClip("DODGE_TO_LEFT", 921.0f, 956.0f);
+	clip->appendClip("DODGE_TO_RIGHT", 957.0f, 992.0f);
+	clip->appendClip("DODGE_TO_BACK", 993.0f, 1028.0f);
+	clip->appendClip("DODGE_TO_FRONT", 1029.0f, 1064.0f);
 
-	obj->mAnimationClip.appendClip("DYING_A", 2220.0f, 2260.0f);
-	obj->mAnimationClip.appendClip("DYING_B", 1280.0f, 1345.0f);
+	clip->appendClip("EARTHQUAKE_SPELL", 1172.0f, 1207.0f);
+	clip->appendClip("HIT_STRIGHT_DOWN", 1208.0f, 1243.0f);
+	clip->appendClip("HIT_SWING_RIGHT", 1244.0f, 1279.0f);
 
-	obj->mAnimationClip.appendClip("DRINKING_POTION", 1568.0f, 1623.0f);
+	clip->appendClip("DYING_A", 2220.0f, 2260.0f);
+	clip->appendClip("DYING_B", 1280.0f, 1345.0f);
 
-	obj->mAnimationClip.appendClip("SPELL_CAST_1", 2082.0f, 2117.0f);
-	obj->mAnimationClip.appendClip("SPELL_CAST_2", 2118.0f, 2178.0f);
+	clip->appendClip("DRINKING_POTION", 1568.0f, 1623.0f);
 
-	obj->mAnimationClip.appendClip("WALK", 2309.0f, 2344.0f);
-	obj->mAnimationClip.appendClip("RUN", 2796.0f, 2831.0f);
-	obj->mAnimationClip.appendClip("RUN_A", 2492.0f, 2536.0f);
-	obj->mAnimationClip.appendClip("RUN_B", 2537.0f, 2581.0f);
-	obj->mAnimationClip.appendClip("RUN_C", 2582.0f, 2626.0f);
-	obj->mAnimationClip.appendClip("RUN_D", 2627.0f, 2671.0f);
+	clip->appendClip("SPELL_CAST_1", 2082.0f, 2117.0f);
+	clip->appendClip("SPELL_CAST_2", 2118.0f, 2178.0f);
 
-	obj->mAnimationClip.appendClip("DIAGONAL_LEFT", 2677.0f, 2711.0f);
-	obj->mAnimationClip.appendClip("DIAGONAL_RIGHT", 2717.0f, 2751.0f);
-	obj->mAnimationClip.appendClip("STRIFE_LEFT", 3239.0f, 3273.0f);
-	obj->mAnimationClip.appendClip("STRIFE_RIGHT", 3279.0f, 3313.0f);
+	clip->appendClip("WALK", 2309.0f, 2344.0f);
+	clip->appendClip("RUN", 2796.0f, 2831.0f);
+	clip->appendClip("RUN_A", 2492.0f, 2536.0f);
+	clip->appendClip("RUN_B", 2537.0f, 2581.0f);
+	clip->appendClip("RUN_C", 2582.0f, 2626.0f);
+	clip->appendClip("RUN_D", 2627.0f, 2671.0f);
 
+	clip->appendClip("DIAGONAL_LEFT", 2677.0f, 2711.0f);
+	clip->appendClip("DIAGONAL_RIGHT", 2717.0f, 2751.0f);
+	clip->appendClip("STRIFE_LEFT", 3239.0f, 3273.0f);
+	clip->appendClip("STRIFE_RIGHT", 3279.0f, 3313.0f);
+
+	mAnimationClips[Name] = clip;
 
 	//////////////////////////////////////
 	// Morph
@@ -5604,22 +7116,28 @@ void BoxApp::CreatePMXObject(
 		}
 	}
 
-	std::vector<struct ObjectData::_VERTEX_MORPH_DESCRIPTOR> test = obj->mMorph;
+	std::shared_ptr<ImGuiFrameComponent> mMorphFrame = pushFrame("Morph");
 
-	obj->mMorph[9].mVertWeight = 1.0f;
-	obj->mMorphDirty.push_back(9);
+	obj->mMorphDirty.resize(obj->mMorph.size());
+	for (int i = 0; i < obj->mMorph.size(); i++)
+	{
+		obj->mMorph[i].mVertWeight = 0.0f;
+		obj->mMorphDirty[i] = 0;
 
-	obj->mMorph[19].mVertWeight = 1.0f;
-	obj->mMorphDirty.push_back(19);
+		std::string name = "Morph" + std::to_string(i);
+		std::string hint(obj->mMorph[i].NickName.begin(), obj->mMorph[i].NickName.end());
 
-	obj->mMorph[27].mVertWeight = 1.0f;
-	obj->mMorphDirty.push_back(27);
+		mMorphFrame->pushSliderFloatComponent(obj->mMorph[i].mVertWeight, name, hint);
 
-	obj->mMorph[41].mVertWeight = 1.0f;
-	obj->mMorphDirty.push_back(41);
+		mMorphFrame->mComponents[i]->bindFence(&obj->mMorphDirty.data()[i]);
+	}
 
-	obj->mMorph[52].mVertWeight = 1.0f;
-	obj->mMorphDirty.push_back(52);
+	//for (int i = 0; i < obj->mMorph.size(); i++)
+	//{
+	//	std::string name = "Morph" + std::to_string(i);
+
+	//	mMorphFrame->mComponents[name]->bindFence(&obj->mMorphDirty.data()[i]);
+	//}
 
 	//////////////////////////////////////
 
@@ -6135,27 +7653,25 @@ void BoxApp::CreatePMXObject(
 		r->SubmeshCount += 1;
 
 		obj->mGeometry.subMeshCount += 1;
-		obj->mGeometry.DrawArgs[submeshName] = mSubmesh;
+		obj->mGeometry.DrawArgs.push_back(mSubmesh);
+
 		if (diffuseTextureIDX >= 0) {
-			obj->mGeometry.DrawArgs[submeshName].name = d3dUtil::getName(texturePath[diffuseTextureIDX]);
-			obj->mGeometry.DrawArgs[submeshName].textureName = texturePath[diffuseTextureIDX];
+			obj->mGeometry.DrawArgs[subMeshIDX].name = d3dUtil::getName(texturePath[diffuseTextureIDX]);
+			obj->mGeometry.DrawArgs[subMeshIDX].textureName = texturePath[diffuseTextureIDX];
 		}
 		else {
-			obj->mGeometry.DrawArgs[submeshName].name = "";
-			obj->mGeometry.DrawArgs[submeshName].textureName = "";
+			obj->mGeometry.DrawArgs[subMeshIDX].name = "";
+			obj->mGeometry.DrawArgs[subMeshIDX].textureName = "";
 		}
 
-		obj->mGeometry.DrawArgs[submeshName].BaseVertexLocation = 0;
-		obj->mGeometry.DrawArgs[submeshName].StartIndexLocation = indexOffset;
+		obj->mGeometry.DrawArgs[subMeshIDX].BaseVertexLocation = 0;
+		obj->mGeometry.DrawArgs[subMeshIDX].StartIndexLocation = indexOffset;
 
-		// �ش� �̸��� �Ž��� ����Ǿ� ������ �˸��� ���� �̸��� ����
-		// DrawArgs���� �ٽ� �ش� Submesh�� �ε��� �� �ֵ��� �̸��� ����
 		obj->mGeometry.meshNames.push_back(submeshName);
 
-		// Texture, Material �ڵ� ����
+		// Bind Texture, Material 
 		{
-			// ���� �ؽ��İ� �����Ѵٸ�
-			if (obj->mGeometry.DrawArgs[submeshName].textureName != "")
+			if (obj->mGeometry.DrawArgs[subMeshIDX].textureName != "")
 			{
 				std::string texName = d3dUtil::getName(texturePath[diffuseTextureIDX]);
 				this->BindMaterial(r, texName, false);
@@ -6172,9 +7688,6 @@ void BoxApp::CreatePMXObject(
 		indexOffset += mSubmesh.IndexSize;
 	}
 
-	//memcpy(r->mPhysResources[0].Position, &position, sizeof(float) * 3);
-
-	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
 	obj->mGeometry.IndexSize += (UINT)model->index_count;
 
 	obj->mGeometry.VertexBufferByteSize = model->vertex_count * sizeof(Vertex);
@@ -6199,10 +7712,12 @@ void BoxApp::CreateDebugBoxObject (
 	// input subGeom
 	GeometryGenerator Geom;
 	GeometryGenerator::MeshData Box;
+
+	BoundsIterator = obj->Bounds.begin();
 	Box = Geom.CreateBox(
-		obj->Bounds[0].Extents.x * 2.0f, 
-		obj->Bounds[0].Extents.y,
-		obj->Bounds[0].Extents.z * 2.0f,
+		(*BoundsIterator).Extents.x * 2.0f,
+		(*BoundsIterator).Extents.y,
+		(*BoundsIterator).Extents.z * 2.0f,
 		0
 	);
 
@@ -6214,7 +7729,6 @@ void BoxApp::CreateDebugBoxObject (
 	obj->mDebugBoxData->isCloth.push_back(false);
 	obj->mDebugBoxData->isRigidBody.push_back(false);
 
-	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
 	SubmeshGeometry mSubmesh;
 	mSubmesh.StartIndexLocation = (UINT)obj->mDebugBoxData->mGeometry.IndexBufferByteSize;
 	mSubmesh.BaseVertexLocation = (UINT)obj->mDebugBoxData->mGeometry.VertexBufferByteSize;
@@ -6228,15 +7742,16 @@ void BoxApp::CreateDebugBoxObject (
 	obj->mDebugBoxData->mDesc[0].IndexSize = mSubmesh.IndexSize;
 	obj->mDebugBoxData->mDesc[0].VertexSize = mSubmesh.VertexSize;
 
-	// Submesh ����
+	// Submesh
 	std::string submeshName = "_DEBUG_" + r->mName;
 
-	obj->mDebugBoxData->mGeometry.subMeshCount							+= 1;
-	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].StartIndexLocation	= mSubmesh.StartIndexLocation;
-	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].BaseVertexLocation	= mSubmesh.BaseVertexLocation;
-	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].IndexSize				= mSubmesh.IndexSize;
-	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].VertexSize			= mSubmesh.VertexSize;
-	obj->mDebugBoxData->mGeometry.DrawArgs[submeshName].textureName			= "";
+	SubmeshGeometry mDebugSubmesh;
+	mDebugSubmesh.StartIndexLocation	= mSubmesh.StartIndexLocation;
+	mDebugSubmesh.BaseVertexLocation	= mSubmesh.BaseVertexLocation;
+	mDebugSubmesh.IndexSize				= mSubmesh.IndexSize;
+	mDebugSubmesh.VertexSize			= mSubmesh.VertexSize;
+	mDebugSubmesh.textureName			= "";
+	obj->mDebugBoxData->mGeometry.DrawArgs.push_back(mDebugSubmesh);
 	obj->mDebugBoxData->mGeometry.meshNames.push_back(submeshName);
 
 	size_t startV = obj->mDebugBoxData->mVertices.size();
@@ -6307,10 +7822,19 @@ void BoxApp::SetBoundBoxScale(
 	_In_ XMFLOAT3	scale
 )
 {
+	BoundsIterator = mGameObjectDatas[r->mName]->Bounds.begin();
 	for (UINT inst = 0; inst < r->InstanceCount; inst++)
 	{
-		mGameObjectDatas[r->mName]->Bounds[inst].Extents = scale;
+		(*BoundsIterator).Extents = scale;
+		BoundsIterator++;
 	}
+}
+
+ObjectData* BoxApp::GetData(
+	_In_ std::string mName
+)
+{
+	return mGameObjectDatas[mName];
 }
 
 void BoxApp::uploadTexture(_In_ Texture& tex, _In_ bool isSky) {
@@ -6341,23 +7865,61 @@ void BoxApp::uploadTexture(_In_ Texture& tex, _In_ bool isSky) {
 
 			tex.isCube = isSky;
 
-			// unordered_map�� Index�� �ο��ϱ� ���� �̸� ����Ʈ ���� ����.
+			// Push New TextureName, TextureInfo
 			mTextureList.push_back(tex.Name);
-			mTextures[tex.Name] = tex;
-			mTextures[tex.Name].isCube = isSky;
+			mTextures.push_back(tex);
+			mTextures[mTextures.size() - 1].isCube = isSky;
 		}
 	}
 	catch (std::exception e) {
-		MessageBoxA(nullptr, (LPCSTR)L"DDS �ؽ��ĸ� ã�� ���Ͽ����ϴ�.", (LPCSTR)L"Error", MB_OK);
+		MessageBoxA(nullptr, (LPCSTR)L"Failed to Load DDS File!!", (LPCSTR)L"Error", MB_OK);
+	}
+}
+
+void BoxApp::uploadTexture(_In_ Texture& tex, _In_ int& width, _In_ int& height, _In_ bool isSky) {
+	try {
+		for (int i = 0; i < mTextureList.size(); i++)
+		{
+			if (mTextureList[i] == tex.Name)
+			{
+				return;
+			}
+		}
+
+		// Define Texture
+		{
+			ThrowIfFailed(
+				DirectX::CreateDDSTextureFromFile12(
+					md3dDevice.Get(),
+					mCommandList.Get(),
+					tex.Filename.c_str(),
+					tex.Resource,
+					tex.UploadHeap,
+					&width,
+					&height
+				)
+			);
+
+			tex.isCube = isSky;
+
+			// Push New TextureName, TextureInfo
+			mTextureList.push_back(tex.Name);
+			mTextures.push_back(tex);
+			mTextures[mTextures.size() - 1].isCube = isSky;
+		}
+	}
+	catch (std::exception e) {
+		MessageBoxA(nullptr, (LPCSTR)L"Failed to Load DDS File!!", (LPCSTR)L"Error", MB_OK);
 	}
 }
 
 void BoxApp::uploadMaterial(_In_ std::string name, _In_ bool isSkyTexture) {
-	std::vector<std::pair<std::string, Material>>::iterator& matIDX = mMaterials.begin();
-	std::vector<std::pair<std::string, Material>>::iterator& matEnd = mMaterials.end();
+	std::vector<Material>::iterator& matIDX = mMaterials.begin();
+	std::vector<Material>::iterator& matEnd = mMaterials.end();
+	// When The Material that is getting same name with new Material is existing, creating is will be skipped.
 	for (; matIDX != matEnd; matIDX++)
 	{
-		if (matIDX->second.Name == name)
+		if (matIDX->Name == name)
 			return;
 	}
 
@@ -6373,8 +7935,7 @@ void BoxApp::uploadMaterial(_In_ std::string name, _In_ bool isSkyTexture) {
 		mat.Roughness = 0.1f;
 		mat.isSkyTexture = isSkyTexture;
 
-		std::pair<std::string, Material> res(name.c_str(), mat);
-		mMaterials.push_back(res);
+		mMaterials.push_back(mat);
 	}
 }
 
@@ -6384,11 +7945,11 @@ void BoxApp::uploadMaterial(
 	_In_ bool isSkyTexture
 )
 {
-	std::vector<std::pair<std::string, Material>>::iterator it = mMaterials.begin();
-	std::vector<std::pair<std::string, Material>>::iterator itEnd = mMaterials.end();
+	std::vector<Material>::iterator it = mMaterials.begin();
+	std::vector<Material>::iterator itEnd = mMaterials.end();
 	for (; it != itEnd; it++)
 	{
-		if (it->second.Name == matName)
+		if (it->Name == matName)
 			return;
 	}
 
@@ -6418,14 +7979,13 @@ void BoxApp::uploadMaterial(
 
 	assert(isFound && "Can't find Texture which same with NAME!!");
 
-	// DiffuseSrvHeapIndex�� ������ ���� �Ҵ��� �ް� �Ǹ�, �������� �ִ� mTexture�� Ư������ ���Ͽ� ���� �ؽ��ĸ� ĳ���� �ϰ� �˴ϴ�.
+	// Fill in the DiffuseSrvHeapIndex to Diffuse Texture Index.
 	mat.DiffuseSrvHeapIndex = diffuseIDX;
 	mat.NormalSrvHeapIndex	= diffuseIDX;
 	mat.MaskSrvHeapIndex	= 0;
 	mat.NoiseSrvHeapIndex	= 0;
 
-	std::pair<std::string, Material> res(matName, mat);
-	mMaterials.push_back(res);
+	mMaterials.push_back(mat);
 }
 
 void BoxApp::uploadMaterial(
@@ -6433,33 +7993,36 @@ void BoxApp::uploadMaterial(
 	_In_ std::string tex_Diffuse_Name, 
 	_In_ std::string tex_Mask_Name,
 	_In_ std::string tex_Noise_Name,
-	_In_ bool isSkyTexture
+	_In_ bool isSkyTexture,
+	_In_ DirectX::XMFLOAT2 diffuseCount,
+	_In_ DirectX::XMFLOAT4 diffuseAlbedo,
+	_In_ DirectX::XMFLOAT3 fresnelR0,
+	_In_ float roughness
 )
 {
-	std::vector<std::pair<std::string, Material>>::iterator it = mMaterials.begin();
-	std::vector<std::pair<std::string, Material>>::iterator itEnd = mMaterials.end();
+	std::vector<Material>::iterator it = mMaterials.begin();
+	std::vector<Material>::iterator itEnd = mMaterials.end();
 	for (; it != itEnd; it++)
 	{
-		if (it->second.Name == matName)
+		if (it->Name == matName)
 			return;
 	}
 
 	// Define Material
-
 	Material mat;
-	mat.Name = matName.c_str();
-	mat.MatCBIndex = (int)mMaterials.size();
-	mat.DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	mat.FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	mat.Roughness = 0.1f;
-	mat.isSkyTexture = isSkyTexture;
+	mat.Name			= matName.c_str();
+	mat.MatCBIndex		= (int)mMaterials.size();
+	mat.DiffuseAlbedo	= diffuseAlbedo;
+	mat.FresnelR0		= fresnelR0;
+	mat.Roughness		= roughness;
+	mat.DiffuseCount	= diffuseCount;
+	mat.isSkyTexture	= isSkyTexture;
 
 	// Define Texture
-
-	bool isFound	= false;
-	int diffuseIDX	= -1;
-	int MaskIDX		= -1;
-	int NoiseIDX	= -1;
+	bool isFound		= false;
+	int diffuseIDX		= -1;
+	int MaskIDX			= -1;
+	int NoiseIDX		= -1;
 
 	for (int idx = 0; idx < mTextureList.size(); idx++) {
 		if (mTextureList[idx] == tex_Diffuse_Name)
@@ -6479,14 +8042,13 @@ void BoxApp::uploadMaterial(
 		throw std::runtime_error("이미지 파일을 찾지 못하였습니다.");
 	}
 
-	// DiffuseSrvHeapIndex�� ������ ���� �Ҵ��� �ް� �Ǹ�, �������� �ִ� mTexture�� Ư������ ���Ͽ� ���� �ؽ��ĸ� ĳ���� �ϰ� �˴ϴ�.
+	// Fill in the DiffuseSrvHeapIndex to Diffuse Texture Index.
 	mat.DiffuseSrvHeapIndex = diffuseIDX;
 	mat.NormalSrvHeapIndex	= diffuseIDX;
 	mat.MaskSrvHeapIndex	= MaskIDX;
 	mat.NoiseSrvHeapIndex	= NoiseIDX;
 
-	std::pair<std::string, Material> res(matName, mat);
-	mMaterials.push_back(res);
+	mMaterials.push_back(mat);
 }
 
 void BoxApp::uploadLight(Light light)
@@ -6518,8 +8080,8 @@ void BoxApp::BindTexture(RenderItem* r, std::string name, int idx, bool isCubeMa
 
 		assert(isFound && "Can't find Texture which same with NAME!!");
 
-		obj->Mat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
-		obj->Mat[idx]->NormalSrvHeapIndex = diffuseIDX;
+		obj->Mat[idx].DiffuseSrvHeapIndex = diffuseIDX;
+		obj->Mat[idx].NormalSrvHeapIndex = diffuseIDX;
 	}
 	else
 	{
@@ -6539,8 +8101,8 @@ void BoxApp::BindTexture(RenderItem* r, std::string name, int idx, bool isCubeMa
 
 		assert(isFound && "Can't find Texture which same with NAME!!");
 
-		obj->SkyMat[idx]->DiffuseSrvHeapIndex = diffuseIDX;
-		obj->SkyMat[idx]->NormalSrvHeapIndex = diffuseIDX;
+		obj->SkyMat[idx].DiffuseSrvHeapIndex = diffuseIDX;
+		obj->SkyMat[idx].NormalSrvHeapIndex = diffuseIDX;
 	}
 }
 
@@ -6552,43 +8114,61 @@ void BoxApp::BindMaterial(
 	assert(r && "The RenderItem is NULL");
 
 	ObjectData* obj = mGameObjectDatas[r->mName];
-
-	Material* material = new Material;
-	r->isSky = isCubeMap;
-	material->isSkyTexture = isCubeMap;
+	bool isFind = false;
 
 	for (auto& iter = mMaterials.begin(); iter != mMaterials.end(); iter++) {
-		if (iter->second.Name == name) {
-			//m = &i->second;
+		if (iter->Name == name) {
+			isFind = true;
 
-			material->Name = iter->second.Name;
-			material->DiffuseAlbedo = iter->second.DiffuseAlbedo;
-			material->DiffuseSrvHeapIndex = iter->second.DiffuseSrvHeapIndex;
-			material->FresnelR0 = iter->second.FresnelR0;
-			material->isSkyTexture = iter->second.isSkyTexture;
-			material->MatCBIndex = iter->second.MatCBIndex;
-			material->MatInstIndex = iter->second.MatInstIndex;
-			material->MatTransform = iter->second.MatTransform;
-			material->NormalSrvHeapIndex = iter->second.NormalSrvHeapIndex;
-			material->NoiseSrvHeapIndex = iter->second.NoiseSrvHeapIndex;
-			material->MaskSrvHeapIndex = iter->second.MaskSrvHeapIndex;
-			material->NumFramesDirty = iter->second.NumFramesDirty;
-			material->Roughness = iter->second.Roughness;
+			UINT matSize = 0;
+			if (!isCubeMap)
+			{
+				matSize = (UINT)obj->Mat.size();
+				obj->Mat.resize(matSize + 1);
+
+				obj->Mat[matSize].isSkyTexture = isCubeMap;
+
+				obj->Mat[matSize].Name = iter->Name;
+				obj->Mat[matSize].DiffuseAlbedo = iter->DiffuseAlbedo;
+				obj->Mat[matSize].DiffuseSrvHeapIndex = iter->DiffuseSrvHeapIndex;
+				obj->Mat[matSize].FresnelR0 = iter->FresnelR0;
+				obj->Mat[matSize].isSkyTexture = iter->isSkyTexture;
+				obj->Mat[matSize].MatCBIndex = iter->MatCBIndex;
+				obj->Mat[matSize].MatInstIndex = iter->MatInstIndex;
+				obj->Mat[matSize].MatTransform = iter->MatTransform;
+				obj->Mat[matSize].NormalSrvHeapIndex = iter->NormalSrvHeapIndex;
+				obj->Mat[matSize].NoiseSrvHeapIndex = iter->NoiseSrvHeapIndex;
+				obj->Mat[matSize].MaskSrvHeapIndex = iter->MaskSrvHeapIndex;
+				obj->Mat[matSize].NumFramesDirty = iter->NumFramesDirty;
+				obj->Mat[matSize].Roughness = iter->Roughness;
+			}
+			else
+			{
+				matSize = (UINT)obj->SkyMat.size();
+				obj->SkyMat.resize(matSize + 1);
+
+				obj->SkyMat[matSize].isSkyTexture = isCubeMap;
+
+				obj->SkyMat[matSize].Name = iter->Name;
+				obj->SkyMat[matSize].DiffuseAlbedo = iter->DiffuseAlbedo;
+				obj->SkyMat[matSize].DiffuseSrvHeapIndex = iter->DiffuseSrvHeapIndex;
+				obj->SkyMat[matSize].FresnelR0 = iter->FresnelR0;
+				obj->SkyMat[matSize].isSkyTexture = iter->isSkyTexture;
+				obj->SkyMat[matSize].MatCBIndex = iter->MatCBIndex;
+				obj->SkyMat[matSize].MatInstIndex = iter->MatInstIndex;
+				obj->SkyMat[matSize].MatTransform = iter->MatTransform;
+				obj->SkyMat[matSize].NormalSrvHeapIndex = iter->NormalSrvHeapIndex;
+				obj->SkyMat[matSize].NoiseSrvHeapIndex = iter->NoiseSrvHeapIndex;
+				obj->SkyMat[matSize].MaskSrvHeapIndex = iter->MaskSrvHeapIndex;
+				obj->SkyMat[matSize].NumFramesDirty = iter->NumFramesDirty;
+				obj->SkyMat[matSize].Roughness = iter->Roughness;
+			}
 
 			break;
 		}
 	}
 
-	assert(material && "Can't find Material which same with NAME!!");
-
-	if (!isCubeMap)
-	{
-		obj->Mat.push_back(material);
-	}
-	else
-	{
-		obj->SkyMat.push_back(material);
-	}
+	assert(isFind && "Can't find Material which same with NAME!!");
 }
 
 void BoxApp::BindMaterial(
@@ -6601,41 +8181,61 @@ void BoxApp::BindMaterial(
 	assert(r && "The RenderItem is NULL");
 
 	ObjectData* obj = mGameObjectDatas[r->mName];
+	bool isFind = false;
 
-	Material* m = new Material;
-	r->isSky = isCubeMap;
-	m->isSkyTexture = isCubeMap;
+	for (auto& iter = mMaterials.begin(); iter != mMaterials.end(); iter++) {
+		if (iter->Name == name) {
+			isFind = true;
 
-	for (auto& i = mMaterials.begin(); i != mMaterials.end(); i++) {
-		if (i->second.Name == name) {
-			//m = &i->second;
+			UINT matSize = 0;
+			if (!isCubeMap)
+			{
+				matSize = (UINT)obj->Mat.size();
+				obj->Mat.resize(matSize + 1);
 
-			m->Name = i->second.Name;
-			m->DiffuseAlbedo = i->second.DiffuseAlbedo;
-			m->DiffuseSrvHeapIndex = i->second.DiffuseSrvHeapIndex;
-			m->FresnelR0 = i->second.FresnelR0;
-			m->isSkyTexture = i->second.isSkyTexture;
-			m->MatCBIndex = i->second.MatCBIndex;
-			m->MatInstIndex = i->second.MatInstIndex;
-			m->MatTransform = i->second.MatTransform;
-			m->NormalSrvHeapIndex = i->second.NormalSrvHeapIndex;
-			m->NumFramesDirty = i->second.NumFramesDirty;
-			m->Roughness = i->second.Roughness;
+				obj->Mat[matSize].isSkyTexture = isCubeMap;
+
+				obj->Mat[matSize].Name = iter->Name;
+				obj->Mat[matSize].DiffuseAlbedo = iter->DiffuseAlbedo;
+				obj->Mat[matSize].DiffuseSrvHeapIndex = iter->DiffuseSrvHeapIndex;
+				obj->Mat[matSize].FresnelR0 = iter->FresnelR0;
+				obj->Mat[matSize].isSkyTexture = iter->isSkyTexture;
+				obj->Mat[matSize].MatCBIndex = iter->MatCBIndex;
+				obj->Mat[matSize].MatInstIndex = iter->MatInstIndex;
+				obj->Mat[matSize].MatTransform = iter->MatTransform;
+				obj->Mat[matSize].NormalSrvHeapIndex = iter->NormalSrvHeapIndex;
+				obj->Mat[matSize].NoiseSrvHeapIndex = iter->NoiseSrvHeapIndex;
+				obj->Mat[matSize].MaskSrvHeapIndex = iter->MaskSrvHeapIndex;
+				obj->Mat[matSize].NumFramesDirty = iter->NumFramesDirty;
+				obj->Mat[matSize].Roughness = iter->Roughness;
+			}
+			else
+			{
+				matSize = (UINT)obj->SkyMat.size();
+				obj->SkyMat.resize(matSize + 1);
+
+				obj->SkyMat[matSize].isSkyTexture = isCubeMap;
+
+				obj->SkyMat[matSize].Name = iter->Name;
+				obj->SkyMat[matSize].DiffuseAlbedo = iter->DiffuseAlbedo;
+				obj->SkyMat[matSize].DiffuseSrvHeapIndex = iter->DiffuseSrvHeapIndex;
+				obj->SkyMat[matSize].FresnelR0 = iter->FresnelR0;
+				obj->SkyMat[matSize].isSkyTexture = iter->isSkyTexture;
+				obj->SkyMat[matSize].MatCBIndex = iter->MatCBIndex;
+				obj->SkyMat[matSize].MatInstIndex = iter->MatInstIndex;
+				obj->SkyMat[matSize].MatTransform = iter->MatTransform;
+				obj->SkyMat[matSize].NormalSrvHeapIndex = iter->NormalSrvHeapIndex;
+				obj->SkyMat[matSize].NoiseSrvHeapIndex = iter->NoiseSrvHeapIndex;
+				obj->SkyMat[matSize].MaskSrvHeapIndex = iter->MaskSrvHeapIndex;
+				obj->SkyMat[matSize].NumFramesDirty = iter->NumFramesDirty;
+				obj->SkyMat[matSize].Roughness = iter->Roughness;
+			}
 
 			break;
 		}
 	}
 
-	assert(m && "Can't find Material which same with NAME!!");
-
-	if (!isCubeMap)
-	{
-		obj->Mat.push_back(m);
-	}
-	else
-	{
-		obj->SkyMat.push_back(m);
-	}
+	assert(isFind && "Can't find Material which same with NAME!!");
 }
 
 void BoxApp::BindMaterial(
@@ -6646,13 +8246,11 @@ void BoxApp::BindMaterial(
 ) {
 	assert(r && "The RenderItem is NULL");
 
-	r->isSky = isCubeMap;
-
 	// Define of Material
 	Material* m = NULL;
 	for (auto& i = mMaterials.begin(); i != mMaterials.end(); i++) {
-		if (i->second.Name == matName) {
-			m = &i->second;
+		if (i->Name == matName) {
+			m = i._Ptr;
 			break;
 		}
 	}
@@ -6677,7 +8275,7 @@ void BoxApp::BindMaterial(
 	m->DiffuseSrvHeapIndex = diffuseIDX;
 	m->NormalSrvHeapIndex = diffuseIDX;
 
-	mGameObjectDatas[r->mName]->Mat.push_back(m);
+	mGameObjectDatas[r->mName]->Mat.push_back(*m);
 }
 
 void BoxApp::BindMaterial(
@@ -6690,13 +8288,11 @@ void BoxApp::BindMaterial(
 ) {
 	assert(r && "The RenderItem is NULL");
 
-	r->isSky = isCubeMap;
-
 	// Define of Material
 	Material* m = NULL;
 	for (auto& i = mMaterials.begin(); i != mMaterials.end(); i++) {
-		if (i->second.Name == matName) {
-			m = &i->second;
+		if (i->Name == matName) {
+			m = i._Ptr;
 			break;
 		}
 	}
@@ -6732,19 +8328,195 @@ void BoxApp::BindMaterial(
 	m->MaskSrvHeapIndex		= maskIDX;
 	m->NoiseSrvHeapIndex	= noiseIDX;
 
-	mGameObjectDatas[r->mName]->Mat.push_back(m);
+	mGameObjectDatas[r->mName]->Mat.push_back(*m);
+}
+
+void RenderItem::setOnlySubmesh(
+	std::string mName,
+	int mSubmeshIDX
+) {
+	ObjectData* mData = mGameObjectDatas[mName];
+
+	if (!mData)
+		throw std::runtime_error("");
+
+	if (!mData->onlySubmeshIDXs.size())
+	{
+		mData->InstanceCount = 0;
+	}
+
+	int onlySubmeshInstanceIDX = -1;
+	for (int i = 0; i < mData->onlySubmeshIDXs.size(); i++)
+	{
+		if (mData->onlySubmeshIDXs[i] == mSubmeshIDX)
+			onlySubmeshInstanceIDX = i;
+	}
+
+	if (onlySubmeshInstanceIDX == -1)
+	{
+		mData->onlySubmeshIDXs.push_back(mSubmeshIDX);
+		mData->onlySubmeshInstanceIDXs.resize(mData->onlySubmeshIDXs.size());
+		onlySubmeshInstanceIDX = (int)mData->onlySubmeshIDXs.size() - 1;
+	}
+
+	mData->isOnlySubmesh = true;
+	mData->onlySubmeshInstanceIDXs[onlySubmeshInstanceIDX].push_back(mData->InstanceCount);
+
+	// 인스턴스 추가
+	mData->InstanceCount++;
+	mData->mInstances.resize(mData->InstanceCount);
+	mData->Bounds.resize(mData->InstanceCount);
+	//mData->mPhysResources.resize(mData->InstanceCount);
+
+	mInstanceIsUpdated = 1;
+}
+
+void RenderItem::setOnlySubmesh(
+	std::string mName,
+	std::string mSubmeshName
+) {
+	ObjectData* mData = mGameObjectDatas[mName];
+
+	if (!mData)
+		throw std::runtime_error("");
+
+	int index = -1;
+	for (int i = 0; i < mData->mGeometry.meshNames.size(); i++)
+	{
+		if (mData->mGeometry.meshNames[i] == mSubmeshName)
+		{
+			index = i;
+			break;
+		}
+	}
+
+	if (!mData->onlySubmeshIDXs.size())
+	{
+		mData->InstanceCount = 0;
+	}
+
+	int onlySubmeshInstanceIDX = -1;
+	for (int i = 0; i < mData->onlySubmeshIDXs.size(); i++)
+	{
+		if (mData->onlySubmeshIDXs[i] == index)
+			onlySubmeshInstanceIDX = i;
+	}
+
+	if (onlySubmeshInstanceIDX == -1)
+	{
+		mData->onlySubmeshIDXs.push_back(index);
+		mData->onlySubmeshInstanceIDXs.resize(mData->onlySubmeshIDXs.size());
+		onlySubmeshInstanceIDX = (int)mData->onlySubmeshIDXs.size() - 1;
+	}
+
+	mData->isOnlySubmesh = true;
+	mData->onlySubmeshInstanceIDXs[onlySubmeshInstanceIDX].push_back(mData->InstanceCount);
+
+	// 인스턴스 추가
+	mData->InstanceCount++;
+	mData->mInstances.resize(mData->InstanceCount);
+	mData->Bounds.resize(mData->InstanceCount);
+	//mData->mPhysResources.resize(mData->InstanceCount);
+
+	mInstanceIsUpdated = 1;
+}
+
+void RenderItem::Instantiate(
+	DirectX::XMFLOAT3 mPosition,
+	DirectX::XMFLOAT3 mRotation,
+	DirectX::XMFLOAT3 mScale,
+	DirectX::XMFLOAT3 mBoundScale
+) {
+	ObjectData* mData = mGameObjectDatas[this->mName];
+
+	UINT mInstanceIndex = mData->InstanceCount;
+
+	// 인스턴스 추가
+	mData->InstanceCount++;
+	mData->mInstances.resize(mData->InstanceCount);
+	mData->Bounds.resize(mData->InstanceCount);
+	//mData->mPhysResources.resize(mData->InstanceCount);
+
+	BoundsIterator = std::next(mData->Bounds.begin(), mInstanceIndex);
+
+	(*BoundsIterator).Center.x = mPosition.x;
+	(*BoundsIterator).Center.y = mPosition.y;
+	(*BoundsIterator).Center.z = mPosition.z;
+
+	(*BoundsIterator).Extents.x = mBoundScale.x;
+	(*BoundsIterator).Extents.y = mBoundScale.y;
+	(*BoundsIterator).Extents.z = mBoundScale.z;
+
+	// World 변경
+	mRotation.x = DirectX::XMConvertToRadians(mRotation.x);
+	mRotation.y = DirectX::XMConvertToRadians(mRotation.y);
+	mRotation.z = DirectX::XMConvertToRadians(mRotation.z);
+
+	DirectX::XMVECTOR mPositionVec = DirectX::XMLoadFloat3(&mPosition);
+	DirectX::XMVECTOR mRotationVec = DirectX::XMLoadFloat3(&mRotation);
+	DirectX::XMVECTOR mScaleVec = DirectX::XMLoadFloat3(&mScale);
+
+	DirectX::XMVECTOR mQuaternionVec = DirectX::XMQuaternionRotationRollPitchYawFromVector(mRotationVec);
+	DirectX::XMVECTOR mOrientationVec;
+
+	mOrientationVec.m128_f32[0] = 0.0f;
+	mOrientationVec.m128_f32[1] = 0.0f;
+	mOrientationVec.m128_f32[2] = 0.0f;
+	mOrientationVec.m128_f32[3] = 1.0f;
+
+	DirectX::XMMATRIX mWorldMat = DirectX::XMMatrixAffineTransformation(
+		mScaleVec,
+		mOrientationVec,
+		mQuaternionVec,
+		mPositionVec
+	);
+
+	InstanceIterator = std::next(mData->mInstances.begin(), mInstanceIndex);
+	DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
+
+	mData->mTranslate.push_back(
+		Translate(
+			mPositionVec,
+			mRotationVec,
+			mScaleVec,
+			mWorldMat
+		)
+	);
+
+	mInstanceIsUpdated = 1;
+}
+
+void RenderItem::Destroy (
+	UINT InstanceIDX
+) {
+	ObjectData* mData = mGameObjectDatas[this->mName];
+
+	if (!mData)
+		throw std::runtime_error("");
+
+	UINT mInstanceIndex = mData->InstanceCount;
+
+	mData->InstanceCount--;
+
+	InstanceIterator = std::next(mData->mInstances.begin(), InstanceIDX);
+	BoundsIterator   = std::next(mData->Bounds.begin(), InstanceIDX);
+
+	mData->mInstances.erase(InstanceIterator);
+	mData->Bounds.erase(BoundsIterator);
+
+	mInstanceIsUpdated = 1;
 }
 
 void RenderItem::InitParticleSystem(
 	_In_ float mDurationTime,
 	_In_ bool mOnPlayAwake
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setInstanceCount(InstanceCount);
+	mParticle->setInstanceCount(InstanceCount);
 
-	particle->setDurationTime(mDurationTime);
-	particle->setOnPlayAwake(mOnPlayAwake);
+	mParticle->setDurationTime(mDurationTime);
+	mParticle->setOnPlayAwake(mOnPlayAwake);
 }
 
 void RenderItem::InitParticleSystem(
@@ -6755,52 +8527,296 @@ void RenderItem::InitParticleSystem(
 	_In_ DirectX::XMFLOAT3 mMaxVelo,
 	_In_ bool mOnPlayAwake
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setInstanceCount(mGameObjectDatas[mName]->mBillBoardVertices.size());
+	if ((UINT)mGameObjectDatas[mName]->mBillBoardVertices.size() > 0)
+		mParticle->setInstanceCount((UINT)mGameObjectDatas[mName]->mBillBoardVertices.size());
+	else
+		mParticle->setInstanceCount((UINT)this->InstanceCount);
 
-	particle->setDurationTime(mDurationTime);
-	particle->setMinAcc(mMinAcc);
-	particle->setMaxAcc(mMaxAcc);
-	particle->setMinVelo(mMinVelo);
-	particle->setMaxVelo(mMaxVelo);
-	particle->setOnPlayAwake(mOnPlayAwake);
+	mParticle->setDurationTime(mDurationTime);
+	mParticle->setMinAcc(mMinAcc);
+	mParticle->setMaxAcc(mMaxAcc);
+	mParticle->setMinVelo(mMinVelo);
+	mParticle->setMaxVelo(mMaxVelo);
+	mParticle->setOnPlayAwake(mOnPlayAwake);
+
+
 }
 
 void RenderItem::ParticleGene()
 {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	ObjectData* obj = mGameObjectDatas[mName];
+	Particle* mParticle = mParticles[mName];
 
-	particle->Generator();
+	std::random_device rd;
+
+	DirectX::XMFLOAT3 scaleError = mParticle->mScaleError;
+
+	std::uniform_real_distribution<float> scaleErrorX(-scaleError.x, scaleError.x);
+	std::uniform_real_distribution<float> scaleErrorY(-scaleError.y, scaleError.y);
+	std::uniform_real_distribution<float> scaleErrorZ(-scaleError.z, scaleError.z);
+
+	mParticle->mTime = 0.0f;
+
+	mParticle->Generator();
+
+	for (int i = 0; i < obj->mInstances.size(); i++)
+	{
+		std::mt19937 gen(rd());
+
+		mParticle->mErrorScale[i].m128_f32[0] = scaleErrorX(gen);
+		mParticle->mErrorScale[i].m128_f32[1] = scaleErrorY(gen);
+		mParticle->mErrorScale[i].m128_f32[2] = scaleErrorZ(gen);
+	}
 }
 
-void RenderItem::ParticleUpdate(float delta)
+void RenderItem::ParticleUpdate(float delta, float time)
 {
 	ObjectData* obj = mGameObjectDatas[mName];
+	Particle* mParticle = mParticles[mName];
 
-	obj->isBillBoardDirty = true;
-	obj->mParticle.ParticleUpdate(delta);
+	mParticle->mTime += delta;
+
+	float mStartDelay = mParticle->getStartDelay();
+	if (time < mStartDelay)
+		return;
+
+	bool isScaleUpdated = false;
+	bool isDiffuseUpdated = false;
+	DirectX::XMFLOAT3 position = { 1.0f, 1.0f, 1.0f };
+	DirectX::XMFLOAT3 rotation = { 1.0f, 1.0f, 1.0f };
+	DirectX::XMFLOAT3 scale = { 1.0f, 1.0f, 1.0f };
+	DirectX::XMFLOAT4 diffuse = { 1.0f, 1.0f, 1.0f, 1.0f };
+	std::string mDiffuseMaterialName = "";
+
+	// 스케일 애니메이션 프레임 키가 존재할 경우
+	if (mParticle->mScaleAnimation.size() > 0)
+	{
+		// 현재 진행 시간이 현재 프레임 시간보다 커진다면 프레임과 스케일을 업데이트.
+		if (mParticle->mScaleAnimation[mParticle->mScaleAnimIndex].time <= time)
+		{
+			mParticle->mPreScale = mParticle->mScaleAnimation[mParticle->mScaleAnimIndex].scale;
+			mParticle->mScaleAnimIndex++;
+		}
+
+		// ScaleAnimationIndex가 오버플로 되지 않았으면
+		if (mParticle->mScaleAnimIndex < mParticle->mScaleAnimation.size())
+		{
+			isScaleUpdated = true;
+
+			float timeScale = 
+				(time - mParticle->mScaleAnimation[mParticle->mScaleAnimIndex - 1].time) /
+				(mParticle->mScaleAnimation[mParticle->mScaleAnimIndex].time - mParticle->mScaleAnimation[mParticle->mScaleAnimIndex - 1].time);
+
+			scale = mParticle->mPreScale;
+			DirectX::XMFLOAT3 scale2 = mParticle->mScaleAnimation[mParticle->mScaleAnimIndex].scale;
+
+			scale.x += (scale2.x - scale.x) * timeScale;
+			scale.y += (scale2.y - scale.y) * timeScale;
+			scale.z += (scale2.z - scale.z) * timeScale;
+		}
+		// 오버플로 된다면
+		else
+		{
+			// 오버플로 나지 않도록 프레임을 다시 보간
+			mParticle->mScaleAnimIndex = (int)mParticle->mScaleAnimation.size() - 1;
+		}
+	}
+
+	// 디퓨즈 애니메이션 프레임 키가 존재할 경우
+	if (mParticle->mDiffuseAnimation.size() > 0)
+	{
+		// 현재 진행 시간이 현재 프레임 시간보다 커진다면 프레임과 디퓨즈를 업데이트.
+		if (mParticle->mDiffuseAnimation[mParticle->mDiffuseAnimIndex].time <= time)
+		{
+			mParticle->mPreDiffuse = mParticle->mDiffuseAnimation[mParticle->mDiffuseAnimIndex].color;
+			mParticle->mDiffuseAnimIndex++;
+		}
+
+		// mDiffuseAnimIndex가 오버플로 되지 않았으면
+		if (mParticle->mDiffuseAnimIndex < mParticle->mDiffuseAnimation.size())
+		{
+			isDiffuseUpdated = true;
+
+			float timeDiffuse =
+				(time - mParticle->mDiffuseAnimation[mParticle->mDiffuseAnimIndex - 1].time) /
+				(mParticle->mDiffuseAnimation[mParticle->mDiffuseAnimIndex].time - mParticle->mDiffuseAnimation[mParticle->mDiffuseAnimIndex - 1].time);
+
+			diffuse = mParticle->mPreDiffuse;
+			DirectX::XMFLOAT4 color2 = mParticle->mDiffuseAnimation[mParticle->mDiffuseAnimIndex].color;
+
+			diffuse.x += (color2.x - diffuse.x) * timeDiffuse;
+			diffuse.y += (color2.y - diffuse.y) * timeDiffuse;
+			diffuse.z += (color2.z - diffuse.z) * timeDiffuse;
+			diffuse.w += (color2.w - diffuse.w) * timeDiffuse;
+		}
+		// 오버플로 된다면
+		else
+		{
+			// 오버플로 나지 않도록 프레임을 다시 보간
+			mParticle->mDiffuseAnimIndex = (int)mParticle->mDiffuseAnimation.size() - 1;
+		}
+	}
+
+	if (obj->isTextureSheetAnimation)
+	{
+		DirectX::XMFLOAT4 sprite = mParticle->getSprite();
+		InstanceIterator = obj->mInstances.begin();
+
+		(*InstanceIterator).TopLeftTexCroodPos = { sprite.x, sprite.y };
+		(*InstanceIterator).BottomRightTexCroodPos = { sprite.z, sprite.w };
+
+		// particle->setTextureSheetAnimationFrame
+
+		if (mParticle->mTime > mParticle->getTextureSheetAnimationFrame())
+		{
+			mParticle->mTime = 0.0f;
+			mParticle->mCurrFrame += 1;
+		}
+	}
 
 	std::vector<BillBoardSpriteVertex>::iterator iter = obj->mBillBoardVertices.begin();
 	std::vector<BillBoardSpriteVertex>::iterator mEnd = obj->mBillBoardVertices.end();
-
 	UINT partIDX = 0;
-	while (iter != mEnd)
-	{
-		(*iter).Pos.x += obj->mParticle.mDeltaDist[partIDX].m128_f32[0];
-		(*iter).Pos.y += obj->mParticle.mDeltaDist[partIDX].m128_f32[1];
-		(*iter).Pos.z += obj->mParticle.mDeltaDist[partIDX].m128_f32[2];
 
-		partIDX++;
-		iter++;
+	if (obj->mBillBoardVertices.size() > 0)
+	{
+		obj->isBillBoardDirty = true;
+		mParticle->ParticleUpdate(delta);
+
+		DirectX::XMVECTOR mParentPosition = mParent->mData->mTranslate[0].position;
+		mParentPosition.m128_f32[0] *= 10.0f;
+		mParentPosition.m128_f32[1] *= 10.0f;
+		mParentPosition.m128_f32[2] *= 10.0f;
+
+		while (iter != mEnd)
+		{
+			(*iter).Pos.x =
+
+				mParentPosition.m128_f32[0] +
+				mParticle->mDist[partIDX].m128_f32[0];
+			(*iter).Pos.y =
+				mParentPosition.m128_f32[1] +
+				mParticle->mDist[partIDX].m128_f32[1];
+			(*iter).Pos.z =
+				mParentPosition.m128_f32[2] +
+				mParticle->mDist[partIDX].m128_f32[2];
+
+			(*iter).Norm.x = mParticle->mDeltaDist[partIDX].m128_f32[0];
+			(*iter).Norm.y = mParticle->mDeltaDist[partIDX].m128_f32[1];
+			(*iter).Norm.z = mParticle->mDeltaDist[partIDX].m128_f32[2];
+
+			partIDX++;
+			iter++;
+		}
+	}
+	
+	// 스케일 애니메이션이 업데이트 되었다면
+	if (isScaleUpdated)
+	{
+		if (obj->isBillBoard)
+		{
+			partIDX = 0;
+
+			iter = obj->mBillBoardVertices.begin();
+			mEnd = obj->mBillBoardVertices.end();
+
+			while (iter != mEnd)
+			{
+				if (!mParticle->isUseErrorScale)
+				{
+					(*iter).Size.x = scale.x;
+					(*iter).Size.y = scale.y;
+				}
+				else
+				{
+					(*iter).Size.x = scale.x * mParticle->mErrorScale[partIDX].m128_f32[0];
+					(*iter).Size.y = scale.y * mParticle->mErrorScale[partIDX].m128_f32[1];
+				}
+
+				partIDX++;
+				iter++;
+			}
+		}
+		else
+		{
+			for (int i = 0; i < obj->mInstances.size(); i++)
+			{
+				if (!mParticle->isUseErrorScale)
+				{
+					obj->mTranslate[i].scale.m128_f32[0] = scale.x;
+					obj->mTranslate[i].scale.m128_f32[1] = scale.y;
+					obj->mTranslate[i].scale.m128_f32[2] = scale.z;
+				}
+				else
+				{
+					obj->mTranslate[i].scale.m128_f32[0] =
+						scale.x * mParticle->mErrorScale[partIDX].m128_f32[0];
+					obj->mTranslate[i].scale.m128_f32[1] =
+						scale.y * mParticle->mErrorScale[partIDX].m128_f32[1];
+					obj->mTranslate[i].scale.m128_f32[2] =
+						scale.z;
+				}
+			}
+		}
+	}
+	else
+	{
+		DirectX::XMMATRIX mWorldMat;
+
+		InstanceIterator = obj->mInstances.begin();
+		for (int i = 0; i < obj->mInstances.size(); i++)
+		{
+			mParticle->ParticleUpdate(delta);
+
+			mWorldMat = DirectX::XMLoadFloat4x4(&(*InstanceIterator).World);
+
+			//mWorldMat.r[3].m128_f32[0] = mParent->mData->mTranslate[0].position.m128_f32[0];
+			//mWorldMat.r[3].m128_f32[1] = mParent->mData->mTranslate[0].position.m128_f32[1];
+			//mWorldMat.r[3].m128_f32[2] = mParent->mData->mTranslate[0].position.m128_f32[2];
+
+			obj->mTranslate[i].position.m128_f32[0] = mParticle->mDeltaDist[i].m128_f32[0];
+			obj->mTranslate[i].position.m128_f32[1] = mParticle->mDeltaDist[i].m128_f32[1];
+			obj->mTranslate[i].position.m128_f32[2] = mParticle->mDeltaDist[i].m128_f32[2];
+
+			if (!isScaleUpdated && mParticle->isUseErrorScale)
+			{
+				mWorldMat.r[0].m128_f32[0] *= mParticle->mErrorScale[i].m128_f32[0];
+				mWorldMat.r[1].m128_f32[1] *= mParticle->mErrorScale[i].m128_f32[1];
+				mWorldMat.r[2].m128_f32[2] *= mParticle->mErrorScale[i].m128_f32[2];
+			}
+
+			DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, mWorldMat);
+
+			InstanceIterator++;
+		}
+	}
+
+	if (isDiffuseUpdated)
+	{
+		obj->isDiffuseDirty = true;
+
+		for (int i = 0; i < obj->Mat.size(); i++)
+		{
+			obj->Mat[i].DiffuseAlbedo.x = diffuse.x;
+			obj->Mat[i].DiffuseAlbedo.y = diffuse.y;
+			obj->Mat[i].DiffuseAlbedo.z = diffuse.z;
+			obj->Mat[i].DiffuseAlbedo.w = diffuse.w;
+		}
 	}
 }
 
 void RenderItem::ParticleReset()
 {
 	ObjectData* obj = mGameObjectDatas[mName];
+	Particle* mParticle = mParticles[mName];
 
 	obj->isBillBoardDirty = true;
+	mParticle->mTime = 0.0f;
+	mParticle->mCurrFrame = 0;
+	mParticle->mScaleAnimIndex = 0;
+	mParticle->mDiffuseAnimIndex = 0;
 
 	std::vector<BillBoardSpriteVertex>::iterator iter = obj->mBillBoardVertices.begin();
 	std::vector<BillBoardSpriteVertex>::iterator mEnd = obj->mBillBoardVertices.end();
@@ -6814,80 +8830,165 @@ void RenderItem::ParticleReset()
 		iter++;
 	}
 
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	for (int i = 0; i < mParticle->mDist.size(); i++)
+	{
+		mParticle->mDist[i].m128_f32[0] = 0.0f;
+		mParticle->mDist[i].m128_f32[1] = 0.0f;
+		mParticle->mDist[i].m128_f32[2] = 0.0f;
+		mParticle->mDist[i].m128_f32[3] = 0.0f;
+	}
 
-	particle->Generator();
+	// 파티클 월드 매트릭스 초기화
+	InstanceIterator = obj->mInstances.begin();
+	for (UINT i = 0; i < obj->InstanceCount; i++)
+	{
+		DirectX::XMStoreFloat4x4(&(*InstanceIterator).World, obj->mTranslate[i].mUpdateWorldMat);
+
+		InstanceIterator++;
+	}
+
+	if (mParticle->isUseErrorScale)
+	{
+		std::random_device rd;
+		std::mt19937 gen(rd());
+
+		DirectX::XMFLOAT3 scaleError = mParticle->mScaleError;
+
+		std::uniform_real_distribution<float> scaleErrorX(0.0f, scaleError.x);
+		std::uniform_real_distribution<float> scaleErrorY(0.0f, scaleError.y);
+		std::uniform_real_distribution<float> scaleErrorZ(0.0f, scaleError.z);
+
+		for (UINT i = 0; i < obj->InstanceCount; i++)
+		{
+			mParticle->mErrorScale[i].m128_f32[0] = scaleError.x != 0.0f ? scaleErrorX(gen) : 1.0f;
+			mParticle->mErrorScale[i].m128_f32[1] = scaleError.y != 0.0f ? scaleErrorY(gen) : 1.0f;
+			mParticle->mErrorScale[i].m128_f32[2] = scaleError.z != 0.0f ? scaleErrorZ(gen) : 1.0f;
+		}
+	}
+
+	mParticle->Generator();
 }
 
 void RenderItem::setDurationTime(
 	_In_ float duration
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setDurationTime(duration);
+	mParticle->setDurationTime(duration);
 }
 void RenderItem::setIsLoop(
 	_In_ bool isLoop
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setIsLoop(isLoop);
+	mParticle->setIsLoop(isLoop);
 }
 void RenderItem::setIsFilled(
 	_In_ bool isFilled
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setIsFilled(isFilled);
+	mParticle->setIsFilled(isFilled);
 }
 void RenderItem::setStartDelay(
 	_In_ float startDelay
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setStartDelay(startDelay);
+	mParticle->setStartDelay(startDelay);
 }
 void RenderItem::setStartLifeTime(
 	_In_ float startLifeTime
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setStartLifeTime(startLifeTime);
+	mParticle->setStartLifeTime(startLifeTime);
 }
 void RenderItem::setOnPlayAwake(
 	_In_ bool onPlayAwake
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setOnPlayAwake(onPlayAwake);
+	mParticle->setOnPlayAwake(onPlayAwake);
 }
 void RenderItem::setMinAcc(
 	_In_ DirectX::XMFLOAT3 minAcc
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setMinVelo(minAcc);
+	mParticle->setMinVelo(minAcc);
 }
 void RenderItem::setMaxAcc(
 	_In_ DirectX::XMFLOAT3 maxAcc
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setMaxVelo(maxAcc);
+	mParticle->setMaxVelo(maxAcc);
 }
 void RenderItem::setMinVelo(
 	_In_ DirectX::XMFLOAT3 minVelo
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setMinVelo(minVelo);
+	mParticle->setMinVelo(minVelo);
 }
 void RenderItem::setMaxVelo(
 	_In_ DirectX::XMFLOAT3 maxVelo
 ) {
-	Particle* particle = &mGameObjectDatas[mName]->mParticle;
+	Particle* mParticle = mParticles[mName];
 
-	particle->setMaxVelo(maxVelo);
+	mParticle->setMaxVelo(maxVelo);
+}
+void RenderItem::setTextureSheetAnimationXY(
+	_In_ UINT x,
+	_In_ UINT y
+) {
+	Particle* mParticle = mParticles[mName];
+	mGameObjectDatas[mName]->isTextureSheetAnimation = true;
+
+	mParticle->setTextureSheetAnimationXY(x, y);
+}
+void RenderItem::setTextureSheetAnimationFrame(
+	_In_ float mFrame
+) {
+	Particle* mParticle = mParticles[mName];
+
+	mParticle->setTextureSheetAnimationFrame(mFrame);
+}
+void RenderItem::setIsUsedErrorScale(
+	_In_ DirectX::XMFLOAT3 mErrorScale
+) {
+	Particle* mParticle = mParticles[mName];
+
+	mParticle->isUseErrorScale = true;
+	mParticle->mScaleError = mErrorScale;
+}
+
+void RenderItem::appendScaleAnimation(
+	_In_ float mTime,
+	_In_ DirectX::XMFLOAT3 mScale
+) {
+	Particle* mParticle = mParticles[mName];
+
+	mParticle->mScaleAnimation.push_back (
+		Particle::ScaleAnimation(
+			mTime, 
+			mScale
+		)
+	);
+}
+void RenderItem::appendDiffuseAnimation(
+	_In_ float mTime,
+	_In_ DirectX::XMFLOAT4 mDiffuse
+) {
+	Particle* mParticle = mParticles[mName];
+
+	mParticle->mDiffuseAnimation.push_back(
+		Particle::DiffuseAnimation(
+			mTime,
+			mDiffuse
+		)
+	);
 }
 
 void BoxApp::Pick(int sx, int sy)
@@ -6929,9 +9030,11 @@ void BoxApp::Pick(int sx, int sy)
 		obj = (*iter).second;
 
 		if (
+				obj->Bounds.size()	== 0												||
 				obj->mRenderType	== ObjectData::RenderType::_SKY_FORMAT_RENDER_TYPE	||
 				obj->mRenderType	== ObjectData::RenderType::_DEBUG_BOX_TYPE			||
-				obj->mName			== "BottomGeo"
+				obj->mName			== "BottomGeo"										||
+				obj->isDrawTexture
 			)
 		{
 			iter++;
@@ -6939,9 +9042,11 @@ void BoxApp::Pick(int sx, int sy)
 			continue;
 		}
 
+		InstanceIterator = obj->mInstances.begin();
+		BoundsIterator = obj->Bounds.begin();
 		for (UINT inst = 0; inst < obj->InstanceCount; inst++)
 		{
-			XMMATRIX W = XMLoadFloat4x4(&obj->mInstances[inst].World);
+			XMMATRIX W = XMLoadFloat4x4(&(*InstanceIterator).World);
 			XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
 
 			// Tranform ray to vi space of Mesh.
@@ -6955,14 +9060,11 @@ void BoxApp::Pick(int sx, int sy)
 			rayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
 			rayDir = XMVector3TransformNormal(rayDir, toLocal);
 
-			//rayOrigin = XMVector3TransformCoord(rayOrigin, invView);
-			//rayDir = XMVector3TransformNormal(rayDir, invView);
-
 			// Make the ray direction unit length for the intersection tests.
 			rayDir = XMVector3Normalize(rayDir);
 
 			float tmin = 0.0f;
-			if (obj->Bounds[inst].Intersects(rayOrigin, rayDir, tmin))
+			if ((*BoundsIterator).Intersects(rayOrigin, rayDir, tmin))
 			{
 				// 경계 박스에 광선이 접촉한다면, 해당 오브젝트를 선택한다.
 				// tmin는 접촉한 경계 박스 중 가장 거리가 작은 박스의 거리를 저장한다.
@@ -6970,6 +9072,9 @@ void BoxApp::Pick(int sx, int sy)
 
 				printf("");
 			}
+
+			InstanceIterator++;
+			BoundsIterator++;
 		}
 
 		iter++;
@@ -7021,9 +9126,11 @@ void BoxApp::PickBrush(int sx, int sy)
 			continue;
 		}
 
+		InstanceIterator = obj->mInstances.begin();
+		BoundsIterator = obj->Bounds.begin();
 		for (UINT inst = 0; inst < obj->InstanceCount; inst++)
 		{
-			XMMATRIX W = XMLoadFloat4x4(&obj->mInstances[inst].World);
+			XMMATRIX W = XMLoadFloat4x4(&(*InstanceIterator).World);
 			XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
 
 			// Tranform ray to vi space of Mesh.
@@ -7041,20 +9148,20 @@ void BoxApp::PickBrush(int sx, int sy)
 			rayDir = XMVector3Normalize(rayDir);
 
 			float tmin = 0.0f;
-			if (obj->Bounds[inst].Intersects(rayOrigin, rayDir, tmin))
+			if ((*BoundsIterator).Intersects(rayOrigin, rayDir, tmin))
 			{
 				XMVECTOR hitPos = rayOrigin + rayDir * tmin;
 
-				XMVECTOR mBoundPos[2] = {};
+				XMVECTOR mBoundPos[2];
 
-				mBoundPos[0].m128_f32[0] = obj->Bounds[inst].Center.x - obj->Bounds[inst].Extents.x;
+				mBoundPos[0].m128_f32[0] = (*BoundsIterator).Center.x - (*BoundsIterator).Extents.x;
 				mBoundPos[0].m128_f32[1] = 0.0;
-				mBoundPos[0].m128_f32[2] = obj->Bounds[inst].Center.z - obj->Bounds[inst].Extents.z;
+				mBoundPos[0].m128_f32[2] = (*BoundsIterator).Center.z - (*BoundsIterator).Extents.z;
 				mBoundPos[0].m128_f32[3] = 1.0f;
 
-				mBoundPos[1].m128_f32[0] = obj->Bounds[inst].Center.x + obj->Bounds[inst].Extents.x;
+				mBoundPos[1].m128_f32[0] = (*BoundsIterator).Center.x + (*BoundsIterator).Extents.x;
 				mBoundPos[1].m128_f32[1] = 0.0;
-				mBoundPos[1].m128_f32[2] = obj->Bounds[inst].Center.z + obj->Bounds[inst].Extents.z;
+				mBoundPos[1].m128_f32[2] = (*BoundsIterator).Center.z + (*BoundsIterator).Extents.z;
 				mBoundPos[1].m128_f32[3] = 1.0f;
 
 				float mTexCroodX, mTexCroodY;
@@ -7080,8 +9187,8 @@ void BoxApp::PickBrush(int sx, int sy)
 
 				for (UINT i = 0; i < mBrushThreadNum; i++)
 				{
-					mScreenWidth[i] = mClientWidth;
-					mScreenHeight[i] = mClientHeight;
+					mScreenWidth[i] = (float)mClientWidth;
+					mScreenHeight[i] = (float)mClientHeight;
 
 					mClickedPosX[i] = hitPos.m128_f32[0];
 					mClickedPosY[i] = hitPos.m128_f32[2];
@@ -7099,6 +9206,9 @@ void BoxApp::PickBrush(int sx, int sy)
 					};
 				}
 			}
+
+			InstanceIterator++;
+			BoundsIterator++;
 		}
 
 		iter++;
@@ -7110,39 +9220,39 @@ void BoxApp::PickBrush(int sx, int sy)
 //////////////////////////////////
 
 void RenderItem::setPosition(_In_ XMFLOAT3 pos) {
-	XMVECTOR vec = DirectX::XMLoadFloat3(&pos);
+	//XMVECTOR vec = DirectX::XMLoadFloat3(&pos);
 
-	for (UINT i = 0; i < InstanceCount; i++) {
-		//mPhysResources[i].Position[0] = pos.x;
-		//mPhysResources[i].Position[1] = pos.y;
-		//mPhysResources[i].Position[2] = pos.z;
+	//for (UINT i = 0; i < InstanceCount; i++) {
+	//	//mPhysResources[i].Position[0] = pos.x;
+	//	//mPhysResources[i].Position[1] = pos.y;
+	//	//mPhysResources[i].Position[2] = pos.z;
 
-		memcpy(mGameObjectDatas[mName]->mPhysResources[i].Position, vec.m128_f32, sizeof(float) * 3);
+	//	memcpy(mGameObjectDatas[mName]->mPhysResources[i].Position, vec.m128_f32, sizeof(float) * 3);
 
-		mPhys.setPosition(mGameObjectDatas[mName]->mPhyxRigidBody[i], pos.x, pos.y, pos.z);
-	}
+	//	mPhys.setPosition(mGameObjectDatas[mName]->mPhysRigidBody[i], pos.x, pos.y, pos.z);
+	//}
 }
 void RenderItem::setRotation(_In_ XMFLOAT3 rot) {
-	XMVECTOR vec = DirectX::XMLoadFloat3(&rot);
+	//XMVECTOR vec = DirectX::XMLoadFloat3(&rot);
 
-	for (UINT i = 0; i < InstanceCount; i++) {
-		//mPhysResources[i].Rotation[0] = rot.x;
-		//mPhysResources[i].Rotation[1] = rot.y;
-		//mPhysResources[i].Rotation[2] = rot.z;
+	//for (UINT i = 0; i < InstanceCount; i++) {
+	//	//mPhysResources[i].Rotation[0] = rot.x;
+	//	//mPhysResources[i].Rotation[1] = rot.y;
+	//	//mPhysResources[i].Rotation[2] = rot.z;
 
-		memcpy(mGameObjectDatas[mName]->mPhysResources[i].Rotation, vec.m128_f32, sizeof(float) * 3);
+	//	memcpy(mGameObjectDatas[mName]->mPhysResources[i].Rotation, vec.m128_f32, sizeof(float) * 3);
 
-		mPhys.setRotation(mGameObjectDatas[mName]->mPhyxRigidBody[i], rot.x, rot.y, rot.z);
-	}
+	//	mPhys.setRotation(mGameObjectDatas[mName]->mPhysRigidBody[i], rot.x, rot.y, rot.z);
+	//}
 }
 
 void RenderItem::setVelocity(_In_ XMFLOAT3 vel) {
-	for (UINT i = 0; i < InstanceCount; i++)
-		mPhys.setVelocity(mGameObjectDatas[mName]->mPhyxRigidBody[i], vel.x, vel.y, vel.z);
+	//for (UINT i = 0; i < InstanceCount; i++)
+	//	mPhys.setVelocity(mGameObjectDatas[mName]->mPhysRigidBody[i], vel.x, vel.y, vel.z);
 }
 void RenderItem::setTorque(_In_ XMFLOAT3 torq) {
-	for (UINT i = 0; i < InstanceCount; i++)
-		mPhys.setTorque(mGameObjectDatas[mName]->mPhyxRigidBody[i], torq.x, torq.y, torq.z);
+	//for (UINT i = 0; i < InstanceCount; i++)
+	//	mPhys.setTorque(mGameObjectDatas[mName]->mPhysRigidBody[i], torq.x, torq.y, torq.z);
 }
 
 void RenderItem::setInstancePosition(_In_ XMFLOAT3 pos, _In_ UINT idx) {
@@ -7201,15 +9311,19 @@ int RenderItem::getAnimIsLoop() {
 	return mGameObjectDatas[mName]->isLoop;
 }
 
-void RenderItem::setAnimClip(_In_ std::string mClipName) {
-	int res = mGameObjectDatas[mName]->mAnimationClip.setCurrentClip(mClipName);
+void RenderItem::setAnimClip (
+	_In_ std::string mClipName, 
+	_In_  bool isCompression) 
+{
+	int res = mAnimationClips[mName]->setCurrentClip(mClipName);
 
 	// 애니메이션 클립 정보를 업데이트
 	if (!res)
 	{
-		mGameObjectDatas[mName]->mAnimationClip.getCurrentClip(
+		mAnimationClips[mName]->getCurrentClip(
 			mGameObjectDatas[mName]->beginAnimIndex,
-			mGameObjectDatas[mName]->endAnimIndex
+			mGameObjectDatas[mName]->endAnimIndex,
+			isCompression
 		);
 
 		mGameObjectDatas[mName]->currentDelayPerSec =
@@ -7219,5 +9333,5 @@ void RenderItem::setAnimClip(_In_ std::string mClipName) {
 
 const std::string RenderItem::getAnimClip() const 
 {
-	return mGameObjectDatas[mName]->mAnimationClip.getCurrentClipName();
+	return  mAnimationClips[mName]->getCurrentClipName();
 }

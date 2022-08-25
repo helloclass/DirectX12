@@ -7,20 +7,18 @@ Particle::Particle() :
 	mStartDelay(0.0f),
 	mStartLifeTime(0.0f),
 	mPlayOnAwake(false),
-	mIsFilled(true)
+	mIsFilled(true),
+	x(1), y(1),
+	mFrame(0),
+	mCurrFrame(0)
 {}
 
 Particle::~Particle()
 {
-	try {
-		this->mBeginAcc.clear();
-		this->mBeginVelo.clear();
-		this->mDeltaDist.clear();
-	}
-	catch (std::exception& e)
-	{
-		throw std::runtime_error("소멸 실패");
-	}
+	this->mBeginAcc.clear();
+	this->mBeginVelo.clear();
+	this->mDeltaDist.clear();
+	this->mDist.clear();
 }
 
 void Particle::setInstanceCount(UINT instCount)
@@ -30,6 +28,8 @@ void Particle::setInstanceCount(UINT instCount)
 	this->mBeginAcc.resize(instCount);
 	this->mBeginVelo.resize(instCount);
 	this->mDeltaDist.resize(instCount);
+	this->mDist.resize(instCount);
+	this->mErrorScale.resize(instCount);
 }
 
 void Particle::setDurationTime(float duration)
@@ -115,12 +115,10 @@ void Particle::Generator()
 	std::uniform_real_distribution<float> veloY(this->mMinVelo.y, this->mMaxVelo.y);
 	std::uniform_real_distribution<float> veloZ(this->mMinVelo.z, this->mMaxVelo.z);
 
-	// 난수
 	if (this->mIsFilled)
 	{
 		for (int i = 0; i < this->mInstanceCount; i++)
 		{
-			// 중력
 			this->mBeginAcc[i].m128_f32[0] = accX(gen);
 			this->mBeginAcc[i].m128_f32[1] = accY(gen);
 			this->mBeginAcc[i].m128_f32[2] = accZ(gen);
@@ -138,7 +136,6 @@ void Particle::Generator()
 
 		for (int i = 0; i < quarter; i++)
 		{
-			// 중력
 			this->mBeginAcc[i].m128_f32[0] = accX(gen);
 			this->mBeginAcc[i].m128_f32[1] = accY(gen);
 			this->mBeginAcc[i].m128_f32[2] = accZ(gen);
@@ -152,7 +149,6 @@ void Particle::Generator()
 
 		for (int i = quarter; i < quarter * 2; i++)
 		{
-			// 중력
 			this->mBeginAcc[i].m128_f32[0] = accX(gen);
 			this->mBeginAcc[i].m128_f32[1] = accY(gen);
 			this->mBeginAcc[i].m128_f32[2] = accZ(gen);
@@ -166,7 +162,6 @@ void Particle::Generator()
 
 		for (int i = quarter * 2; i < quarter * 3; i++)
 		{
-			// 중력
 			this->mBeginAcc[i].m128_f32[0] = accX(gen);
 			this->mBeginAcc[i].m128_f32[1] = accY(gen);
 			this->mBeginAcc[i].m128_f32[2] = accZ(gen);
@@ -180,7 +175,6 @@ void Particle::Generator()
 
 		for (int i = quarter * 3; i < quarter * 4; i++)
 		{
-			// 중력
 			this->mBeginAcc[i].m128_f32[0] = accX(gen);
 			this->mBeginAcc[i].m128_f32[1] = accY(gen);
 			this->mBeginAcc[i].m128_f32[2] = accZ(gen);
@@ -207,5 +201,10 @@ void Particle::ParticleUpdate(float delta)
 		this->mDeltaDist[i].m128_f32[1] = this->mBeginVelo[i].m128_f32[1] * delta;
 		this->mDeltaDist[i].m128_f32[2] = this->mBeginVelo[i].m128_f32[2] * delta;
 		this->mDeltaDist[i].m128_f32[3] = this->mBeginVelo[i].m128_f32[3] * delta;
+
+		this->mDist[i].m128_f32[0] += this->mDeltaDist[i].m128_f32[0];
+		this->mDist[i].m128_f32[1] += this->mDeltaDist[i].m128_f32[1];
+		this->mDist[i].m128_f32[2] += this->mDeltaDist[i].m128_f32[2];
+		this->mDist[i].m128_f32[3] += this->mDeltaDist[i].m128_f32[3];
 	}
 }

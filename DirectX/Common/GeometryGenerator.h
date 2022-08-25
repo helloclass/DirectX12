@@ -7,9 +7,9 @@
 #include <array>
 #include <string>
 #include <filesystem>
-#include "fbxsdk.h"
-#include "Pmx.h"
-#include "EncodingHelper.h"
+
+#include "d3dUtil.h"
+#include "../MyDemos/MyD3D12Project/Animation.h"
 
 #pragma comment(lib, "libfbxsdk.lib")
 
@@ -57,10 +57,11 @@ public:
 
 	struct MeshData
 	{
+		std::string mName;
+		std::string texPath;
+
 		std::vector<Vertex> Vertices;
         std::vector<uint32> Indices32;
-
-		std::string texPath;
 
         std::vector<uint16>& GetIndices16()
         {
@@ -136,14 +137,15 @@ public:
 	);
 	int CreateFBXSkinnedModel(
 		std::vector<GeometryGenerator::MeshData>& meshData,
+		_In_ std::string mName,
 		_In_ std::string Path,
 		_Out_ FbxArray<FbxString*>& animNameLists,
 		_Out_ std::vector<FbxTime>& mStarts,
 		_Out_ std::vector<FbxTime>& mStops,
 		_Out_ std::vector<long long>& countOfFrame,
 		_Out_ std::vector<std::vector<float*>>& animVertexArrays,
-		_Out_ std::vector<std::vector<FbxUInt>>& mAnimVertexSizes,
-		_In_ bool uvMode
+		_Out_ std::vector<FbxUInt>& mAnimVertexSizes,
+		_In_ AnimationClip& mAnimClips
 	);
 
 	int CreatePMXModel(
@@ -207,13 +209,12 @@ void DrawNodeRecursive(
 	std::vector<FbxTime> mStarts,
 	std::vector<FbxTime> mStops,
 	FbxTime& pTime,
-	FbxAnimLayer* pAnimLayer,
 	std::vector<FbxAMatrix>& pParentGlobalPositions,
 	FbxPose* pPose,
 	std::vector<GeometryGenerator::MeshData>& meshData,
 	std::vector<std::vector<float*>>& animVertexArrays,
-	std::vector<std::vector<FbxUInt>>& mAnimVertexSizes,
-	bool uvMode
+	std::vector<FbxUInt>& mAnimVertexSizes,
+	AnimationClip& mAnimClips
 );
 
 void DrawBoneRecursive(
@@ -237,15 +238,11 @@ void DrawNode(
 	FbxNode* pNode,
 	std::vector<FbxTime> mStarts,
 	std::vector<FbxTime> mStops,
-	FbxTime& pTime,
-	FbxAnimLayer* pAnimLayer,
-	FbxAMatrix& pParentGlobalPosition,
 	FbxAMatrix& pGlobalPosition,
-	FbxPose* pPose,
 	std::vector<GeometryGenerator::MeshData>& meshDatas,
 	std::vector<std::vector<float*>>& animVertexArrays,
-	std::vector<std::vector<FbxUInt>>& mAnimVertexSizes,
-	bool uvMode
+	std::vector<FbxUInt>& mAnimVertexSizes,
+	AnimationClip& mAnimClips
 );
 
 void DrawBone(
@@ -269,17 +266,6 @@ void ComputeClusterDeformation(
 	FbxAMatrix& pVertexTransformMatrix,
 	FbxTime pTime);
 void ComputeLinearDeformation(
-	FbxAMatrix& pGlobalPosition,
-	FbxMesh* pMesh,
-	FbxTime& pTime,
-	FbxVector4* pVertexArray);
-void ComputeDualQuaternionDeformation(
-	FbxAMatrix& pGlobalPosition,
-	FbxMesh* pMesh,
-	FbxTime& pTime,
-	FbxVector4* pVertexArray,
-	FbxPose* pPose);
-void ComputeSkinDeformation(
 	FbxAMatrix& pGlobalPosition,
 	FbxMesh* pMesh,
 	FbxTime& pTime,

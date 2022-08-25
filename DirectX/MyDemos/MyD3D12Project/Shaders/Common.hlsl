@@ -10,6 +10,8 @@ struct InstanceData
     float4x4 World;
     float4x4 TexTransform;
     uint MaterialIndex;
+	float2 TopLeftTexCroodPos;
+	float2 BottomRightTexCroodPos;
 };
 
 struct pmxBoneData
@@ -27,6 +29,7 @@ cbuffer cbPass : register(b0)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+	float4x4 gViewProjTex;
 	float4x4 gShadowViewProj;
 	float4x4 gShadowViewProjNDC;
 
@@ -61,7 +64,8 @@ Texture2D gMaskMap										: register(t1, space1);
 Texture2D gNoiseMap										: register(t1, space2);
 TextureCube gCubeMap									: register(t2, space0);
 Texture2D gShadowMap									: register(t2, space1);
-Texture2D gDrawTexMap									: register(t2, space2);
+Texture2D gSsaoMap										: register(t2, space2);
+Texture2D gDrawTexMap									: register(t2, space3);
 
 SamplerState gsamPointWrap								: register(s0);
 SamplerState gsamPointClamp								: register(s1);
@@ -133,9 +137,6 @@ float CalcShadowFactor(float4 shadowPosH)
 		float2(-dx,  +dx), float2(0.0f,  +dx), float2(dx,  +dx)
 	};
 
-	// depth가 늘어나야 검은색
-	// 모든 맵은 검은색이 되어야 함.
-
 	[unroll]
 	for (int i = 0; i < 9; ++i)
 	{
@@ -147,8 +148,6 @@ float CalcShadowFactor(float4 shadowPosH)
 			).r;
 	}
 
-	// 그림자 요소 값을 주는 것이 아닌, 
-	// 그림자가 적용된 밝기 값을 주는 것.
 	return percentLit / 9.0f;
 }
 

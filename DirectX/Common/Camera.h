@@ -11,7 +11,9 @@
 #ifndef CAMERA_H
 #define CAMERA_H
 
-#include "d3dUtil.h"
+#pragma once
+#include "../MyDemos/MyD3D12Project/GUI.h"
+#include "../MyDemos/MyD3D12Project/ODBC.h"
 
 class Camera
 {
@@ -25,6 +27,7 @@ public:
 	DirectX::XMFLOAT3 GetPosition3f()const;
 	void SetPosition(float x, float y, float z);
 	void SetPosition(const DirectX::XMFLOAT3& v);
+	void SetPosition(const DirectX::XMVECTOR& v);
 	
 	// Get camera basis vectors.
 	DirectX::XMVECTOR GetRight()const;

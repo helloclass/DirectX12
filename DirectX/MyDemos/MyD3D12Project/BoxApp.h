@@ -5,8 +5,6 @@
 #include "../../Common/d3dApp.h"
 #include "../../Common/GeometryGenerator.h"
 #include "../../Common/MathHelper.h"
-#include "../../Common/UploadBuffer.h"
-#include "../../Common/Camera.h"
 
 #include "_physx.h"
 
@@ -15,423 +13,28 @@
 #include "RenderTarget.h"
 #include "CubeRenderTarget.h"
 #include "ShadowMap.h"
+#include "Ssao.h"
 #include "DrawTexture.h"
 #include "Animation.h"
 #include "Particle.h"
+#include "MapGenerator.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
 
-typedef struct Vertex
-{
-	XMFLOAT3 Pos;
-	XMFLOAT3 Normal;
-	XMFLOAT3 Tangent;
-	XMFLOAT2 TexC;
-
-	XMFLOAT4 BoneWeights;
-	XMINT4 BoneIndices;
-}Vertex;
-
-typedef struct BillBoardSpriteVertex
-{
-	XMFLOAT3 Pos;
-	XMFLOAT2 Size;
-}BillBoardSpriteVertex;
-
-
-struct InstanceData
-{
-	DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-	UINT MaterialIndex=0;
-};
-
-struct MaterialData
-{
-	DirectX::XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 0.0f };
-	DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
-	float Roughness = 64.0f;
-
-	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
-
-	UINT DiffuseMapIndex = 0;
-};
-
-struct PmxAnimationData
-{
-	DirectX::XMFLOAT4X4 mOriginMatrix;
-	DirectX::XMFLOAT4X4 mMatrix;
-};
-
-struct RateOfAnimTimeConstants
-{
-	float rateOfAnimTime;
-};
-
-class ObjectData
-{
-public:
-	ObjectData():
-		isDebugBox(false)
-	{}
-	~ObjectData() {
-		try {
-			Mat.clear();
-
-			mVertices.resize(0);
-			mBillBoardVertices.resize(0);
-			mIndices.resize(0);
-
-			mVertices.clear();
-			mBillBoardVertices.clear();
-			mIndices.clear();
-		}
-		catch (std::exception&)
-		{
-			throw std::runtime_error("");
-		}
-	}
-
-	typedef enum RenderType {
-		_OPAQUE_RENDER_TYPE,
-		_ALPHA_RENDER_TYPE,
-		_PMX_FORMAT_RENDER_TYPE,
-		_OPAQUE_SHADOW_MAP_RENDER_TYPE,
-		_OPAQUE_PICK_UP_MAP_RENDER_TYPE,
-		_SKY_FORMAT_RENDER_TYPE,
-		_OPAQUE_SKINNED_RENDER_TYPE,
-		_DRAW_MAP_RENDER_TYPE,
-		_POST_PROCESSING_PIPELINE,
-		_BLUR_HORZ_COMPUTE_TYPE,
-		_BLUR_VERT_COMPUTE_TYPE,
-		_SOBEL_COMPUTE_TYPE,
-		_COMPOSITE_COMPUTE_TYPE,
-		_DEBUG_BOX_TYPE,
-		_DRAW_MAP_TYPE,
-
-		_SKILL_TONADO_SPLASH_TYPE
-	}RenderType;
-
-	std::string		mName;
-	std::string		mFormat;
-	RenderType		mRenderType;
-
-	std::vector<struct Vertex> mVertices;
-	std::vector<struct BillBoardSpriteVertex> mBillBoardVertices;
-	std::vector<std::uint32_t> mIndices;
-
-	// 하나의 게임 오브젝트 내, 서브매쉬들을 해당 지오메트리에서 같이 공유한다.
-	MeshGeometry mGeometry;
-
-	// 모든 서브메쉬의 인덱스가 저장
-	std::vector<std::set<int>> vertBySubmesh;
-	// weight == 0.0
-	std::vector<std::vector<int>> srcFixVertexSubmesh;
-	std::vector<std::vector<DirectX::XMFLOAT3*>> dstFixVertexSubmesh;
-	// weight != 0.0
-	std::vector<std::vector<int>> srcDynamicVertexSubmesh;
-	std::vector<std::vector<DirectX::XMFLOAT3*>> dstDynamicVertexSubmesh;
-
-	// 여러개의 서브메쉬를 갖으므로 여러 개(서브매쉬 개수 만큼)의 Texture, Material을 표현 할 수 있다. 
-	std::vector<Material*> Mat;
-	std::vector<Material*> SkyMat;
-
-	// This BoundingBox will be used to checked that is in the FRUSTUM BOX or not.
-	DirectX::XMFLOAT3 mColliderOffset;
-	std::vector<BoundingBox> Bounds;
-
-	UINT SubmeshCount = 0;
-	UINT InstanceCount = 0;
-	std::vector<InstanceData>		mInstances;
-
-	std::vector<PhysResource>		mPhysResources;
-	std::vector<PxRigidDynamic*>	mPhyxRigidBody;
-
-	AnimationClip	mAnimationClip;
-	Particle			mParticle;
-
-	struct _OBJECT_DATA_DESCRIPTOR {
-		// Offset of Vertex
-		UINT BaseVertexLocation = 0;
-		// Offset of Index
-		UINT StartIndexLocation = 0;
-
-		// Size of Vertex by Submesh
-		UINT VertexSize = 0;
-		// Size of Index by Submesh
-		UINT IndexSize = 0;
-	};
-
-	struct _VERTEX_MORPH_DESCRIPTOR {
-		std::wstring	Name;
-		std::wstring	NickName;
-		float			mVertWeight;
-
-		std::vector<int>						mVertIndices;
-		std::vector<std::array<float, 3>>		mVertOffset;
-	};
-
-	std::vector<struct _OBJECT_DATA_DESCRIPTOR> mDesc;
-	std::vector<bool>							isCloth;
-	std::vector<bool>							isRigidBody;
-	std::vector<PxCloth*>						mClothes;
-	std::vector< PxRigidDynamic*>				mRigidbody;
-	std::vector<float>							mClothWeights;
-	std::vector<int>							mClothBinedBoneIDX;
-
-	std::vector<int>								mMorphDirty;
-	std::vector<struct _VERTEX_MORPH_DESCRIPTOR>	mMorph;
-
-	bool isDirty = false;
-	bool isBillBoardDirty = false;
-
-	bool isSky			= false;
-	bool isDrawShadow	= false;
-	bool isDrawTexture	= false;
-	bool isBillBoard	= false;
-
-// Debug Box
-public:
-	bool isDebugBox = false;
-	std::unique_ptr<ObjectData> mDebugBoxData = nullptr;
-
-// Animation Kit
-public:
-	// 애니메이션이 실행 중인가
-	bool isAnim = false;
-	// 애니메이션이 무한 루프 인가?
-	bool isLoop = false;
-	// 현재 애니메이션 인덱스
-	float currentAnimIdx = 0;
-
-	// Begin Anim Index
-	float beginAnimIndex = 0;
-	// End Anim index
-	float endAnimIndex = 0;
-
-	/*
-		현재 애니메이션 인덱스에서 다음 인덱스로 넘어가기 까지의 진행률,
-		선형 보간을 위한 변수
-	 */
-	float mAnimResidueTime = 0.0f;
-
-	// 해당 아이템의 애니메이션 이름 리스트
-	FbxArray<FbxString*> animNameLists;
-	// 각 애니메이션의 시작, 끝 시간
-	std::vector<FbxTime> mStart, mStop, mFrame;
-	// 애니메이션의 전체 프레임 개수
-	std::vector<long long> countOfFrame;
-
-	// FBX
-	// Animation Kit (Per Frame(Per Bone))
-	std::vector<std::vector<float*>>	mAnimVertex;
-
-	// PMX
-	// 다음 애니메이션을 위한 기존 뼈대 역 행렬
-	std::vector<DirectX::XMFLOAT4X4>		mOriginRevMatrix;
-	std::vector<std::vector<DirectX::XMFLOAT4X4>>	mBoneMatrix;
-
-	// [Current Frame] [Deform(Submesh)IDX]
-	std::vector<std::vector<FbxUInt>> mAnimVertexSize;
-
-	int currentFrame = -1;
-	bool updateCurrentFrame = false;
-	// 애니메이션이 지난 시간 (초 분위)
-	float currentDelayPerSec = 0;
-	// 애니메이션의 전체 듀레이션 (초 분위)
-	std::vector<float> durationPerSec;
-	// 한 프레임 당 듀레이션 (초 분위)
-	std::vector<float> durationOfFrame;
-
-public:
-	pmx::PmxModel mModel;
-};
-
-class RenderItem
-{
-public:
-	RenderItem():
-		mFormat(""),
-		ObjCBIndex(0),
-		PrimitiveType(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST),
-		InstanceCount(0) 
-	{}
-
-	RenderItem(std::string mName, UINT instance):
-		mName(mName),
-		mFormat(""),
-		ObjCBIndex(0),
-		PrimitiveType(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST),
-		InstanceCount(instance)
-	{
-		isDirty.resize(instance);
-	}
-
-	~RenderItem() {}
-
-	std::string mName;
-	std::string mFormat;
-
-	// Physx와 동기화가 되어야함.
-	// Instance 당 하나의 PhtxResource를 부여받을 수 있음.
-	//std::vector<int>				physxIdx;
-	//std::vector<PhysResource*>	physx;
-
-	XMFLOAT4X4 mTexTransform = MathHelper::Identity4x4();
-
-	int NumFrameDirty = 3;
-
-	UINT ObjCBIndex = -1;
-	UINT MatCBIndex = -1;
-
-	UINT SubmeshCount = 0;
-	UINT InstanceCount = 0;
-
-	UINT offset = 0;
-
-	UINT StartIndexLocation = 0;
-	UINT BaseVertexLocation = 0;
-
-	// 해당 오브젝트가 카메라 프러스텀 내에 있다면 true.
-	std::vector<bool> isDirty;
-
-	bool isSky = false;
-	bool isDrawShadow = false;
-	bool isDrawTexture = false;
-
-	UINT mSkyCubeIndex = -1;
-
-	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
-public:
-	RenderItem* mParent;
-	std::unordered_map<std::string, RenderItem*> mChilds;
-
-public:
-	inline RenderItem* getParentRenderItem()
-	{
-		return mParent;
-	}
-	inline RenderItem* getChildRenderItem(std::string mName)
-	{
-		return mChilds[mName];
-	}
-	inline void setParentRenderItem(RenderItem* model)
-	{
-		mParent = model;
-	}
-	inline void appendChildRenderItem(RenderItem* model)
-	{
-		mChilds[model->mName] = model;
-	}
-	inline void removeChildRenderItem(RenderItem* model)
-	{
-		mChilds.erase(model->mName);
-	}
-
-public:
-	void setPosition(_In_ XMFLOAT3 pos);
-	void setRotation(_In_ XMFLOAT3 rot);
-
-	void setVelocity(_In_ XMFLOAT3 vel);
-	void setTorque(_In_ XMFLOAT3 torq);
-
-	void setInstancePosition(_In_ XMFLOAT3 pos, _In_ UINT idx = 0);
-	void setInstanceRotation(_In_ XMFLOAT3 rot, _In_ UINT idx = 0);
-
-	void setInstanceVelocity(_In_ XMFLOAT3 vel, _In_ UINT idx = 0);
-	void setInstanceTorque(_In_ XMFLOAT3 torq, _In_ UINT idx = 0);
-
-	void setAnimIndex(_In_ int animIndex);
-	float getAnimIndex();
-	void setAnimBeginIndex(_In_ int animBeginIndex);
-	float getAnimBeginIndex();
-	void setAnimEndIndex(_In_ int animEndIndex);
-	float getAnimEndIndex();
-	void setAnimIsLoop(_In_ bool animLoop);
-	int getAnimIsLoop();
-
-	void setAnimClip(_In_ std::string mClipName);
-	const std::string getAnimClip() const;
-
-	public:
-		void InitParticleSystem(
-			_In_ float mDurationTime,
-			_In_ bool mOnPlayAwake = true
-		);
-
-		void InitParticleSystem(
-			_In_ float mDurationTime,
-			_In_ DirectX::XMFLOAT3 mMinAcc,
-			_In_ DirectX::XMFLOAT3 mMaxAcc,
-			_In_ DirectX::XMFLOAT3 mMinVelo,
-			_In_ DirectX::XMFLOAT3 mMaxVelo,
-			_In_ bool mOnPlayAwake = true
-		);
-
-		void ParticleGene();
-		void ParticleUpdate(float delta);
-		void ParticleReset();
-
-		void setDurationTime(
-			_In_ float duration
-		);
-		void setIsLoop(
-			_In_ bool isLoop
-		);
-		void setIsFilled(
-			_In_ bool isFilled
-		);
-		void setStartDelay(
-			_In_ float startDelay
-		);
-		void setStartLifeTime(
-			_In_ float startLifeTime
-		);
-		void setOnPlayAwake(
-			_In_ bool onPlayAwake
-		);
-		void setMinAcc(
-			_In_ DirectX::XMFLOAT3 minAcc
-		);
-		void setMaxAcc(
-			_In_ DirectX::XMFLOAT3 maxAcc
-		);
-		void setMinVelo(
-			_In_ DirectX::XMFLOAT3 minVelo
-		);
-		void setMaxVelo(
-			_In_ DirectX::XMFLOAT3 maxVelo
-		);
-};
-
-// GameObjects Resources
-static std::list<RenderItem*> mGameObjects;
-// The variable Has a Vertex, Index datas of each GameObjects
-static std::unordered_map<std::string, ObjectData*> mGameObjectDatas;
-
 // A Tasks list that is on the Frustum.
 static std::vector<ObjectData*>			mRenderTasks;
-static std::vector<std::vector<UINT>>	mRenderInstTasks;
-// 전체 인스턴스 개수
-static UINT mInstanceCount = 0;
 
-// 멀티 스레딩을 이용하여 오브젝트를 그릴 때,
-// 하나의 스레드가 그려야 할 게임 오브젝트와 인스턴스의 시작, 끝 인덱스를 정의
-struct PieceOfRenderItemByThread
-{
-	ObjectData* mObjPTR;
-	UINT mInstanceOffset;
-};
+// AnimationClip, Particle Storage
+static std::unordered_map<std::string, AnimationClip*>	mAnimationClips;
+static std::unordered_map<std::string, Particle*>		mParticles;
 
-/*
-	mGameObejcts를 List로 구현 한 이유는
-	1. 리스트 내의 모든 원소들을 순차적으로 자주 꺼내기 때문에 원소들이 순차성을 가지고 있어야 함.
-	2. 리스트 내에 존재하는 원소가 자주 생성 되고 지워짐. (생성이야 스택으로 넣으면 되지만, 
-	중간에 있는 원소가 제거되는 경우에는 리스트 만한 자료구조가 없음.) 
-*/
+// Alter Instance is Updated
+static int mInstanceIsUpdated;
+
+// Stop Object movement while calculating initializing window.
+static int isBegining = 0;
 
 class BoxApp : public D3DApp
 {
@@ -454,6 +57,7 @@ private:
 	virtual void OnMouseMove(_In_ WPARAM btnState, _In_ int x, _In_ int y)override;
 
 	static void InitSwapChain(_In_ int numThread);
+	static DWORD WINAPI DrawShadowThread(_In_ LPVOID temp);
 	static DWORD WINAPI DrawThread(_In_ LPVOID temp);
 
 	void RecursionChildItem(
@@ -470,20 +74,34 @@ private:
 	void BuildRootSignature(void);
 	void BuildBlurRootSignature(void);
 	void BuildSobelRootSignature(void);
+	void BuildSsaoRootSignature(void);
 	void BuildDrawMapSignature(void);
 	void BuildShadersAndInputLayout(void);
 	void BuildRenderItem(void);
 	void BuildFrameResource(void);
 	void BuildPSO(void);
+	void BuildGUIFrame(void);
 
 	void OnKeyboardInput(_In_ const GameTimer& gt);
 	void AnimationMaterials(_In_ const GameTimer& gt);
+	void UpdateMaterialBuffer(_In_ const GameTimer& gt);
 	void UpdateInstanceData(_In_ const GameTimer& gt);
-	//void UpdateMaterialBuffer(_In_ const GameTimer& gt);
+	void UpdateInstanceDataWithBaked(_In_ const GameTimer& gt);
 	void UpdateMainPassCB(_In_ const GameTimer& gt);
 	void UpdateAnimation(_In_ const GameTimer& gt);
+	void UpdateSsaoCB(_In_ const GameTimer& gt);
+
+	void UpdateInstanceBuffer(void);
+
+	void UpdateQuestUI(_In_ const GameTimer& gt);
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
+
+public:
+	// InputVector
+	std::unordered_map<char, char> mInputVector;
+	// If Object is on the this Bound, The Object will be drawn shadow.
+	DirectX::BoundingSphere mSceneBounds;
 
 public:
 	void Pick(int sx, int sy);
@@ -499,84 +117,84 @@ public:
 
 	// Manipulate GameObject Function
 public:
-	RenderItem* CreateGameObject(_In_ std::string Name, _In_ int instance=1);
-	RenderItem* CreateStaticGameObject(_In_ std::string Name, _In_ int instance=1);
-	RenderItem* CreateKinematicGameObject(_In_ std::string Name, _In_ int instance=1);
-	RenderItem* CreateDynamicGameObject(_In_ std::string Name, _In_ int instance=1);
+	RenderItem* CreateGameObject(_In_ std::string Name, _In_ int instance = 1);
+	RenderItem* CreateStaticGameObject(_In_ std::string Name, _In_ int instance = 1);
+	RenderItem* CreateKinematicGameObject(_In_ std::string Name, _In_ int instance = 1);
+	RenderItem* CreateDynamicGameObject(_In_ std::string Name, _In_ int instance = 1);
 
 	void CreateBoxObject(
-		_In_ std::string Name, 
-		_In_ std::string textuerName, 
+		_In_ std::string Name,
+		_In_ std::string textuerName,
 		_In_ std::string Format,
-		_Out_ RenderItem* r, 
-		_In_ float x, 
-		_In_ float y, 
-		_In_ float z, 
-		_In_ DirectX::XMFLOAT3 position, 
-		_In_ DirectX::XMFLOAT3 rotation, 
-		_In_ DirectX::XMFLOAT3 scale, 
+		_Out_ RenderItem* r,
+		_In_ float x,
+		_In_ float y,
+		_In_ float z,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
+		_In_ DirectX::XMFLOAT3 scale,
 		_In_ int subDividNum,
 		ObjectData::RenderType renderType,
 		bool isDrawShadow = true,
 		bool isDrawTexture = false
 	);
 	void CreateSphereObject(
-		_In_ std::string Name, 
-		_In_ std::string textuerName, 
+		_In_ std::string Name,
+		_In_ std::string textuerName,
 		_In_ std::string Format,
-		_Out_ RenderItem* r, 
-		_In_ float rad, 
-		_In_ int sliceCount, 
-		_In_ int stackCount, 
-		_In_ DirectX::XMFLOAT3 position, 
-		_In_ DirectX::XMFLOAT3 rotation, 
+		_Out_ RenderItem* r,
+		_In_ float rad,
+		_In_ int sliceCount,
+		_In_ int stackCount,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
 		_In_ DirectX::XMFLOAT3 scale,
 		ObjectData::RenderType renderType,
 		bool isDrawShadow = true,
 		bool isDrawTexture = false
 	);
 	void CreateGeoSphereObject(
-		_In_ std::string Name, 
-		_In_ std::string textuerName, 
+		_In_ std::string Name,
+		_In_ std::string textuerName,
 		_In_ std::string Format,
-		_Out_ RenderItem* r, 
-		_In_ float rad, 
-		_In_ DirectX::XMFLOAT3 position, 
-		_In_ DirectX::XMFLOAT3 rotation, 
-		_In_ DirectX::XMFLOAT3 scale, 
+		_Out_ RenderItem* r,
+		_In_ float rad,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
+		_In_ DirectX::XMFLOAT3 scale,
 		_In_ int subdivid,
 		ObjectData::RenderType renderType,
 		bool isDrawShadow = true,
 		bool isDrawTexture = false
 	);
 	void CreateCylinberObject(
-		_In_ std::string Name, 
-		_In_ std::string textuerName, 
+		_In_ std::string Name,
+		_In_ std::string textuerName,
 		_In_ std::string Format,
-		_Out_ RenderItem* r, 
-		_In_ float bottomRad, 
-		_In_ float topRad, 
-		_In_ float height, 
-		_In_ int sliceCount, 
-		_In_ int stackCount, 
-		_In_ DirectX::XMFLOAT3 position, 
-		_In_ DirectX::XMFLOAT3 rotation, 
+		_Out_ RenderItem* r,
+		_In_ float bottomRad,
+		_In_ float topRad,
+		_In_ float height,
+		_In_ int sliceCount,
+		_In_ int stackCount,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
 		_In_ DirectX::XMFLOAT3 scale,
 		ObjectData::RenderType renderType,
 		bool isDrawShadow = true,
 		bool isDrawTexture = false
 	);
 	void CreateGridObject(
-		_In_ std::string Name, 
-		_In_ std::string textuerName, 
+		_In_ std::string Name,
+		_In_ std::string textuerName,
 		_In_ std::string Format,
-		_Out_ RenderItem* r, 
-		_In_ float w, 
-		_In_ float h, 
-		_In_ int wc, 
-		_In_ int hc, 
-		_In_ DirectX::XMFLOAT3 position, 
-		_In_ DirectX::XMFLOAT3 rotation, 
+		_Out_ RenderItem* r,
+		_In_ float w,
+		_In_ float h,
+		_In_ int wc,
+		_In_ int hc,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
 		_In_ DirectX::XMFLOAT3 scale,
 		ObjectData::RenderType renderType,
 		bool isDrawShadow = true,
@@ -594,42 +212,58 @@ public:
 		_In_ bool isDrawShadow = false
 	);
 	void CreateFBXObject(
-		_In_ std::string Name, 
+		_In_ std::string Name,
 		_In_ std::string Path,
-		_In_ std::string FileName, 
-		_Out_ std::vector<std::string>& Textures, 
-		_Out_ RenderItem* r, 
-		_In_ DirectX::XMFLOAT3 position, 
-		_In_ DirectX::XMFLOAT3 rotation, 
+		_In_ std::string FileName,
+		_Out_ std::vector<std::string>& Textures,
+		_Out_ RenderItem* r,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
 		_In_ DirectX::XMFLOAT3 scale,
+		_In_ ObjectData::RenderType renderType,
 		_In_ bool uvMode = true,
-		bool isDrawShadow = true,
-		bool isDrawTexture = false
+		_In_ bool isDrawShadow = true,
+		_In_ bool isDrawTexture = false
+	);
+	void CreateFBXObjectSplitSubmeshs(
+		_In_ std::string Name,
+		_In_ std::string Path,
+		_In_ std::string FileName,
+		_Out_ RenderItem* r,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
+		_In_ DirectX::XMFLOAT3 scale,
+		_In_ ObjectData::RenderType renderType,
+		_In_ UINT submeshIDX,
+		_In_ bool uvMode = true,
+		_In_ bool isDrawShadow = true,
+		_In_ bool isDrawTexture = false
 	);
 	void CreateFBXSkinnedObject(
-		_In_ std::string Name, 
+		_In_ std::string Name,
 		_In_ std::string Path,
-		_In_ std::string FileName, 
-		_Out_ std::vector<std::string>& Textures, 
-		_Out_ RenderItem* r, 
-		_In_ DirectX::XMFLOAT3 position, 
-		_In_ DirectX::XMFLOAT3 rotation, 
+		_In_ std::string FileName,
+		_Out_ std::vector<std::string>& Textures,
+		_Out_ RenderItem* r,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
 		_In_ DirectX::XMFLOAT3 scale,
+		_In_ AnimationClip& mAnimClips,
 		_In_ bool uvMode = true,
-		bool isDrawShadow = true,
-		bool isDrawTexture = false
+		_In_ bool isDrawShadow = true,
+		_In_ bool isDrawTexture = false
 	);
 	void CreatePMXObject(
-		_In_ std::string Name, 
-		_In_ std::string Path, 
-		_In_ std::string FileName, 
-		_Out_ std::vector<std::string>& Textures, 
-		_Out_ RenderItem* r, 
-		_In_ DirectX::XMFLOAT3 position, 
-		_In_ DirectX::XMFLOAT3 rotation, 
+		_In_ std::string Name,
+		_In_ std::string Path,
+		_In_ std::string FileName,
+		_Out_ std::vector<std::string>& Textures,
+		_Out_ RenderItem* r,
+		_In_ DirectX::XMFLOAT3 position,
+		_In_ DirectX::XMFLOAT3 rotation,
 		_In_ DirectX::XMFLOAT3 scale,
-		bool isDrawShadow = true,
-		bool isDrawTexture = false
+		_In_ bool isDrawShadow = true,
+		_In_ bool isDrawTexture = false
 	);
 	void CreateDebugBoxObject(
 		_In_ RenderItem* r
@@ -646,13 +280,20 @@ public:
 		_In_ XMFLOAT3	scale
 	);
 
+public:
+	ObjectData* GetData(
+		_In_ std::string mName
+	);
+
 private:
 	static ComPtr<ID3D12RootSignature> mRootSignature;
 	static ComPtr<ID3D12RootSignature> mBlurRootSignature;
 	static ComPtr<ID3D12RootSignature> mSobelRootSignature;
+	static ComPtr<ID3D12RootSignature> mSsaoRootSignature;
 	static ComPtr<ID3D12RootSignature> mDrawMapSignature;
 
 	static ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap;
+	static ComPtr<ID3D12DescriptorHeap> mGUIDescriptorHeap;
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mSkinnedInputLayout;
@@ -673,16 +314,19 @@ private:
 	static std::unique_ptr<BlurFilter>	mBlurFilter;
 	static std::unique_ptr<SobelFilter> mSobelFilter;
 	static std::unique_ptr<ShadowMap>	mShadowMap;
+	static std::unique_ptr<Ssao>		mSsao;
 	static std::unique_ptr<DrawTexture> mDrawTexture;
 
+public:
 	BoundingFrustum				mCamFrustum;
 	PassConstants				mMainPassCB;
 	Camera						mCamera;
 
+	float mMainCameraDeltaRotationY = 0.0f;
+
 	static UINT mFilterCount;
 
 private:
-	// 텍스쳐 CPU 힙 공간
 	static CD3DX12_CPU_DESCRIPTOR_HANDLE mTextureHeapDescriptor;
 	static CD3DX12_GPU_DESCRIPTOR_HANDLE mTextureHeapGPUDescriptor;
 
@@ -690,55 +334,70 @@ private:
 
 public:
 	std::vector<std::string>							mTextureList;
-	std::unordered_map<std::string, Texture>			mTextures;
-	std::vector<std::pair<std::string, Material>>		mMaterials;
+	std::vector<Texture>								mTextures;
+	std::unordered_map<std::string, UINT64>				mGUIResources;
+	std::vector<Material>								mMaterials;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>>	mShaders;
 	std::vector<Light>									mLights;
 	std::vector<LightDataConstants>						mLightDatas;
 
 public:
+	// Generator Map
+	MapGenerator mMapGene;
+	// Genetator DB
+	ODBC		 mODBC;
+
+	// GUI for Quest
+	std::shared_ptr<ImGuiFrameComponent> mQuestParamComp;
+	ODBC::UserData mQuestData;
+
+public:
 	std::vector<Texture> texList;
-	// 새로운 DDS 텍스쳐를 로드
+
 	void uploadTexture(
-		_In_ Texture& t, 
-		_In_ bool isCube=false
+		_In_ Texture& t,
+		_In_ bool isCube = false
 	);
-	// 새로운 머테리얼을 로드
-	void uploadMaterial(
-		_In_ std::string name, 
-		_In_ bool isSkyTexture=false
+	void uploadTexture(
+		_In_ Texture& tex, 
+		_In_ int& width, 
+		_In_ int& height, 
+		_In_ bool isCube = false
 	);
-	// 새로운 머테리얼을 로드하고 텍스쳐를 바인드
 	void uploadMaterial(
-		_In_ std::string matName, 
-		_In_ std::string texName, 
-		_In_ bool isSkyTexture=false
+		_In_ std::string name,
+		_In_ bool isSkyTexture = false
+	);
+	void uploadMaterial(
+		_In_ std::string matName,
+		_In_ std::string texName,
+		_In_ bool isSkyTexture = false
 	);
 	void BoxApp::uploadMaterial(
 		_In_ std::string matName,
 		_In_ std::string tex_Diffuse_Name,
 		_In_ std::string tex_Mask_Name,
 		_In_ std::string tex_Noise_Name,
-		_In_ bool isSkyTexture
+		_In_ bool isSkyTexture = false,
+		_In_ DirectX::XMFLOAT2 diffuseCount = { 1.0f, 1.0f },
+		_In_ DirectX::XMFLOAT4 diffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f },
+		_In_ DirectX::XMFLOAT3 fresnelR0 = { 0.02f, 0.02f, 0.02f },
+		_In_ float roughness = 0.1f
 	);
-	// 새로운 라이트 바인드
 	void uploadLight(
 		_In_ Light light
 	);
-	// 오브젝트에 텍스쳐를 바인드
 	void BindTexture(
 		_Out_ RenderItem* r, 
 		_In_ std::string name, 
 		int idx, 
 		_In_ bool isCubeMap = false
 	);
-	// 오브젝트에 머테리얼을 바인드
 	void BindMaterial(
 		_Out_ RenderItem* r,
 		_In_ std::string name,
 		_In_ bool isCubeMap = false
 	);
-	// 오브젝트에 머테리얼을 바인드
 	void BindMaterial(
 		_Out_ RenderItem* r, 
 		_In_ std::string name, 
@@ -746,14 +405,12 @@ public:
 		_In_ std::string noiseTexName, 
 		_In_ bool isCubeMap				= false
 	);
-	// 오브젝트에 머테리얼과 텍스쳐를 바인드
 	void BindMaterial(
 		_Out_ RenderItem* r,
 		_In_ std::string matName,
 		_In_ std::string texName,
 		_In_ bool isCubeMap = false
 	);
-	// 오브젝트에 머테리얼과 텍스쳐를 바인드
 	void BindMaterial(
 		_Out_ RenderItem* r, 
 		_In_ std::string matName, 
@@ -765,13 +422,49 @@ public:
 
 private:
 	// Draw Thread Resource
-	static UINT numThread;
+	static UINT numGlobalThread;
 
-	static HANDLE renderTargetEvent[3];
-	static HANDLE recordingDoneEvents[3];
-	static HANDLE drawThreads[3];
-	static LPDWORD ThreadIndex[3];
+	static HANDLE shadowRenderTargetEvent[8];
+	static HANDLE shadowRecordingDoneEvents[8];
+	static HANDLE renderTargetEvent[8];
+	static HANDLE recordingDoneEvents[8];
+
+	static HANDLE shadowDrawThreads[8];
+	static LPDWORD shadowThreadIndex[8];
+
+	static HANDLE drawThreads[8]; 
+	static LPDWORD ThreadIndex[8];
 }; 
+
+typedef struct ThreadDrawRenderItem
+{
+	ThreadDrawRenderItem() : 
+		mObject(nullptr),
+		mInstanceIDX(0),
+		mOnlySubmeshIDX(0),
+		mOnTheFrustumCount(0)
+	{}
+
+	ThreadDrawRenderItem(
+		ObjectData* Object,
+		UINT InstanceIDX,
+		UINT OnlySubmeshIDX,
+		UINT OnTheFrustumCount
+	) : mObject(Object), 
+		mInstanceIDX(InstanceIDX), 
+		mOnlySubmeshIDX(OnlySubmeshIDX), 
+		mOnTheFrustumCount(OnTheFrustumCount)
+	{}
+
+	ObjectData* mObject = nullptr;
+	UINT mInstanceIDX = 0;
+	UINT mOnlySubmeshIDX = 0;
+	UINT mOnTheFrustumCount = 0;
+
+}ThreadDrawRenderItem;
+
+static std::vector<struct ThreadDrawRenderItem> mThreadDrawRenderItem;
+static std::vector<struct ThreadDrawRenderItem> mThreadDrawRenderItems[8];
 
 // Corroutine
 class Corroutine {

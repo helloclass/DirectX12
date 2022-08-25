@@ -15,34 +15,40 @@ Camera::~Camera()
 {
 }
 
-XMVECTOR Camera::GetPosition()const
+DirectX::XMVECTOR Camera::GetPosition()const
 {
 	return XMLoadFloat3(&mPosition);
 }
 
-XMFLOAT3 Camera::GetPosition3f()const
+DirectX::XMFLOAT3 Camera::GetPosition3f()const
 {
 	return mPosition;
 }
 
 void Camera::SetPosition(float x, float y, float z)
 {
-	mPosition = XMFLOAT3(x, y, z);
+	mPosition = DirectX::XMFLOAT3(x, y, z);
 	mViewDirty = true;
 }
 
-void Camera::SetPosition(const XMFLOAT3& v)
+void Camera::SetPosition(const DirectX::XMFLOAT3& v)
 {
 	mPosition = v;
 	mViewDirty = true;
 }
 
-XMVECTOR Camera::GetRight()const
+void Camera::SetPosition(const DirectX::XMVECTOR& v)
+{
+	mPosition = DirectX::XMFLOAT3(v.m128_f32[0], v.m128_f32[1], v.m128_f32[2]);
+	mViewDirty = true;
+}
+
+DirectX::XMVECTOR Camera::GetRight()const
 {
 	return XMLoadFloat3(&mRight);
 }
 
-XMFLOAT3 Camera::GetRight3f()const
+DirectX::XMFLOAT3 Camera::GetRight3f()const
 {
 	return mRight;
 }

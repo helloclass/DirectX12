@@ -4,14 +4,18 @@
 
 #include "GeometryGenerator.h"
 #include <algorithm>
+#include <omp.h>
 
 using namespace DirectX;
 
+std::string mStaticName;
+std::string mStaticNumber;
+
 GeometryGenerator::MeshData GeometryGenerator::CreateBox(float width, float height, float depth, uint32 numSubdivisions)
 {
-    MeshData meshData;
+	MeshData meshData;
 
-    //
+	//
 	// Create the vertices.
 	//
 
@@ -20,7 +24,7 @@ GeometryGenerator::MeshData GeometryGenerator::CreateBox(float width, float heig
 	float w2 = 0.5f*width;
 	float h2 = 0.5f*height;
 	float d2 = 0.5f*depth;
-    
+
 	// Fill in the front face vertex data.
 	v[0] = Vertex(-w2, -h2, -d2, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
 	v[1] = Vertex(-w2, +h2, -d2, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
@@ -34,8 +38,8 @@ GeometryGenerator::MeshData GeometryGenerator::CreateBox(float width, float heig
 	v[7] = Vertex(-w2, +h2, +d2, 0.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 
 	// Fill in the top face vertex data.
-	v[8]  = Vertex(-w2, +h2, -d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-	v[9]  = Vertex(-w2, +h2, +d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+	v[8] = Vertex(-w2, +h2, -d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+	v[9] = Vertex(-w2, +h2, +d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 	v[10] = Vertex(+w2, +h2, +d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 	v[11] = Vertex(+w2, +h2, -d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f);
 
@@ -58,23 +62,23 @@ GeometryGenerator::MeshData GeometryGenerator::CreateBox(float width, float heig
 	v[23] = Vertex(+w2, -h2, +d2, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
 
 	meshData.Vertices.assign(&v[0], &v[24]);
- 
+
 	//
 	// Create the indices.
 	//
 
-	 uint32 i[36];
+	uint32 i[36];
 
 	// Fill in the front face index data
 	i[0] = 0; i[1] = 1; i[2] = 2;
 	i[3] = 0; i[4] = 2; i[5] = 3;
 
 	// Fill in the back face index data
-	i[6] = 4; i[7]  = 5; i[8]  = 6;
+	i[6] = 4; i[7] = 5; i[8] = 6;
 	i[9] = 4; i[10] = 6; i[11] = 7;
 
 	// Fill in the top face index data
-	i[12] = 8; i[13] =  9; i[14] = 10;
+	i[12] = 8; i[13] = 9; i[14] = 10;
 	i[15] = 8; i[16] = 10; i[17] = 11;
 
 	// Fill in the bottom face index data
@@ -89,20 +93,20 @@ GeometryGenerator::MeshData GeometryGenerator::CreateBox(float width, float heig
 	i[30] = 20; i[31] = 21; i[32] = 22;
 	i[33] = 20; i[34] = 22; i[35] = 23;
 
-	 meshData.Indices32.assign(&i[0], &i[36]);
+	meshData.Indices32.assign(&i[0], &i[36]);
 
-    // Put a cap on the number of subdivisions.
-    numSubdivisions = std::min<uint32>(numSubdivisions, 6u);
+	// Put a cap on the number of subdivisions.
+	numSubdivisions = std::min<uint32>(numSubdivisions, 6u);
 
-    for(uint32 i = 0; i < numSubdivisions; ++i)
-        Subdivide(meshData);
+	for (uint32 i = 0; i < numSubdivisions; ++i)
+		Subdivide(meshData);
 
-    return meshData;
+	return meshData;
 }
 
 GeometryGenerator::MeshData GeometryGenerator::CreateSphere(float radius, uint32 sliceCount, uint32 stackCount)
 {
-    MeshData meshData;
+	MeshData meshData;
 
 	//
 	// Compute the vertices stating at the top pole and moving down the stacks.
@@ -114,32 +118,32 @@ GeometryGenerator::MeshData GeometryGenerator::CreateSphere(float radius, uint32
 	Vertex topVertex(0.0f, +radius, 0.0f, 0.0f, +1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 	Vertex bottomVertex(0.0f, -radius, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
 
-	meshData.Vertices.push_back( topVertex );
+	meshData.Vertices.push_back(topVertex);
 
-	float phiStep   = XM_PI/stackCount;
-	float thetaStep = 2.0f*XM_PI/sliceCount;
+	float phiStep = XM_PI / stackCount;
+	float thetaStep = 2.0f*XM_PI / sliceCount;
 
 	// Compute vertices for each stack ring (do not count the poles as rings).
-	for(uint32 i = 1; i <= stackCount-1; ++i)
+	for (uint32 i = 1; i <= stackCount - 1; ++i)
 	{
-		float phi = i*phiStep;
+		float phi = i * phiStep;
 
 		// Vertices of ring.
-        for(uint32 j = 0; j <= sliceCount; ++j)
+		for (uint32 j = 0; j <= sliceCount; ++j)
 		{
-			float theta = j*thetaStep;
+			float theta = j * thetaStep;
 
 			Vertex v;
 
 			// spherical to cartesian
-			v.Position.x = radius*sinf(phi)*cosf(theta);
-			v.Position.y = radius*cosf(phi);
-			v.Position.z = radius*sinf(phi)*sinf(theta);
+			v.Position.x = radius * sinf(phi)*cosf(theta);
+			v.Position.y = radius * cosf(phi);
+			v.Position.z = radius * sinf(phi)*sinf(theta);
 
 			// Partial derivative of P with respect to theta
-			v.TangentU.x = -radius*sinf(phi)*sinf(theta);
+			v.TangentU.x = -radius * sinf(phi)*sinf(theta);
 			v.TangentU.y = 0.0f;
-			v.TangentU.z = +radius*sinf(phi)*cosf(theta);
+			v.TangentU.z = +radius * sinf(phi)*cosf(theta);
 
 			XMVECTOR T = XMLoadFloat3(&v.TangentU);
 			DirectX::XMStoreFloat3(&v.TangentU, XMVector3Normalize(T));
@@ -150,43 +154,43 @@ GeometryGenerator::MeshData GeometryGenerator::CreateSphere(float radius, uint32
 			v.TexC.x = theta / XM_2PI;
 			v.TexC.y = phi / XM_PI;
 
-			meshData.Vertices.push_back( v );
+			meshData.Vertices.push_back(v);
 		}
 	}
 
-	meshData.Vertices.push_back( bottomVertex );
+	meshData.Vertices.push_back(bottomVertex);
 
 	//
 	// Compute indices for top stack.  The top stack was written first to the vertex buffer
 	// and connects the top pole to the first ring.
 	//
 
-    for(uint32 i = 1; i <= sliceCount; ++i)
+	for (uint32 i = 1; i <= sliceCount; ++i)
 	{
 		meshData.Indices32.push_back(0);
-		meshData.Indices32.push_back(i+1);
+		meshData.Indices32.push_back(i + 1);
 		meshData.Indices32.push_back(i);
 	}
-	
+
 	//
 	// Compute indices for inner stacks (not connected to poles).
 	//
 
 	// Offset the indices to the index of the first vertex in the first ring.
 	// This is just skipping the top pole vertex.
-    uint32 baseIndex = 1;
-    uint32 ringVertexCount = sliceCount + 1;
-	for(uint32 i = 0; i < stackCount-2; ++i)
+	uint32 baseIndex = 1;
+	uint32 ringVertexCount = sliceCount + 1;
+	for (uint32 i = 0; i < stackCount - 2; ++i)
 	{
-		for(uint32 j = 0; j < sliceCount; ++j)
+		for (uint32 j = 0; j < sliceCount; ++j)
 		{
-			meshData.Indices32.push_back(baseIndex + i*ringVertexCount + j);
-			meshData.Indices32.push_back(baseIndex + i*ringVertexCount + j+1);
-			meshData.Indices32.push_back(baseIndex + (i+1)*ringVertexCount + j);
+			meshData.Indices32.push_back(baseIndex + i * ringVertexCount + j);
+			meshData.Indices32.push_back(baseIndex + i * ringVertexCount + j + 1);
+			meshData.Indices32.push_back(baseIndex + (i + 1)*ringVertexCount + j);
 
-			meshData.Indices32.push_back(baseIndex + (i+1)*ringVertexCount + j);
-			meshData.Indices32.push_back(baseIndex + i*ringVertexCount + j+1);
-			meshData.Indices32.push_back(baseIndex + (i+1)*ringVertexCount + j+1);
+			meshData.Indices32.push_back(baseIndex + (i + 1)*ringVertexCount + j);
+			meshData.Indices32.push_back(baseIndex + i * ringVertexCount + j + 1);
+			meshData.Indices32.push_back(baseIndex + (i + 1)*ringVertexCount + j + 1);
 		}
 	}
 
@@ -196,23 +200,23 @@ GeometryGenerator::MeshData GeometryGenerator::CreateSphere(float radius, uint32
 	//
 
 	// South pole vertex was added last.
-	uint32 southPoleIndex = (uint32)meshData.Vertices.size()-1;
+	uint32 southPoleIndex = (uint32)meshData.Vertices.size() - 1;
 
 	// Offset the indices to the index of the first vertex in the last ring.
 	baseIndex = southPoleIndex - ringVertexCount;
-	
-	for(uint32 i = 0; i < sliceCount; ++i)
+
+	for (uint32 i = 0; i < sliceCount; ++i)
 	{
 		meshData.Indices32.push_back(southPoleIndex);
-		meshData.Indices32.push_back(baseIndex+i);
-		meshData.Indices32.push_back(baseIndex+i+1);
+		meshData.Indices32.push_back(baseIndex + i);
+		meshData.Indices32.push_back(baseIndex + i + 1);
 	}
 
-    return meshData;
+	return meshData;
 }
 
 int GeometryGenerator::CreateFBXModel(
-	std::vector<GeometryGenerator::MeshData>& meshData, 
+	std::vector<GeometryGenerator::MeshData>& meshData,
 	std::string Path,
 	bool uvMode
 )
@@ -235,7 +239,7 @@ int GeometryGenerator::CreateFBXModel(
 	loadRes = importer->Initialize(Path.c_str(), -1, manager->GetIOSettings());
 
 	if (!loadRes)
-		throw std::runtime_error("FBX MODELÀ» ·ÎµåÇÏ´Âµ¥ ½ÇÆÐ ÇÏ¿´½À´Ï´Ù.");
+		throw std::runtime_error("FBX MODELï¿½ï¿½ ï¿½Îµï¿½ï¿½Ï´Âµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ï¿ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.");
 
 	importer->Import(scene);
 	importer->Destroy();
@@ -246,7 +250,7 @@ int GeometryGenerator::CreateFBXModel(
 	{
 		DrawNodeRecursive(
 			node,
-			meshData, 
+			meshData,
 			uvMode
 		);
 
@@ -257,15 +261,16 @@ int GeometryGenerator::CreateFBXModel(
 
 int GeometryGenerator::CreateFBXSkinnedModel(
 	std::vector<GeometryGenerator::MeshData>& meshData,
+	std::string mName,
 	std::string Path,
 	FbxArray<FbxString*>& animNameLists,
 	std::vector<FbxTime>& mStarts,
 	std::vector<FbxTime>& mStops,
 	std::vector<long long>& countOfFrame,
 	std::vector<std::vector<float*>>& animVertexArrays,
-	std::vector<std::vector<FbxUInt>>& mAnimVertexSizes,
-	bool uvMode
-	)
+	std::vector<FbxUInt>& mAnimVertexSizes,
+	AnimationClip& mAnimClips
+)
 {
 	// Fbx Kit
 	FbxIOSettings* ios = NULL;
@@ -276,11 +281,13 @@ int GeometryGenerator::CreateFBXSkinnedModel(
 	FbxTime time;
 
 	FbxAnimStack* currAnimStack = NULL;
+	FbxAnimLayer* currAnimLayer = NULL;
 
 	FbxTakeInfo* currTakeInfo = NULL;
 
 	int size = sizeof(fbxsdk::FbxVector4);
 
+	mStaticName = mName;
 
 	fbxsdk::FbxManager* manager = FbxManager::Create();
 	fbxsdk::FbxScene* scene = FbxScene::Create(manager, "scene");
@@ -294,7 +301,7 @@ int GeometryGenerator::CreateFBXSkinnedModel(
 	loadRes = importer->Initialize(Path.c_str(), -1, manager->GetIOSettings());
 
 	if (!loadRes)
-		throw std::runtime_error("Path¿¡ Á¤ÀÇµÈ ¾ÆÀÌÅÛÀ» Ã£À» ¼ö ¾ø½À´Ï´Ù.");
+		throw std::runtime_error("Pathï¿½ï¿½ ï¿½ï¿½ï¿½Çµï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ã£ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.");
 
 	importer->Import(scene);
 
@@ -303,82 +310,75 @@ int GeometryGenerator::CreateFBXSkinnedModel(
 
 	node = scene->GetRootNode();
 
+	// LoadFile
+	scene->FillAnimStackNameArray(animNameLists);
+
+	const int poseCount = scene->GetPoseCount();
+	for (int i = 0; i < poseCount; i++)
+		pPoseArray.Add(scene->GetPose(i));
+
+	time.SetTime(0, 0, 0, 1, 0, scene->GetGlobalSettings().GetTimeMode());
+
+	if (animNameLists.Size() > 0)
+		currAnimStack = scene->FindMember<FbxAnimStack>(animNameLists[0]->Buffer());
+
+	if (currAnimStack == NULL)
+		return 1;
+
+	currAnimLayer = currAnimStack->GetMember<FbxAnimLayer>();
+
+	scene->SetCurrentAnimationStack(currAnimStack);
+
+	// Get Anim Time
+	FbxTime mStart, mStop;
+
+	for (int i = 0; i < animNameLists.Size(); i++)
 	{
-		// LoadFile
-		scene->FillAnimStackNameArray(animNameLists);
-
-		const int poseCount = scene->GetPoseCount();
-		for (int i = 0; i < poseCount; i++)
-			pPoseArray.Add(scene->GetPose(i));
-
-		time.SetTime(0, 0, 0, 1, 0, scene->GetGlobalSettings().GetTimeMode());
-
-		// Curr Anim Stack (¿ì¼± 0)
-		FbxAnimStack* currAnimStack = NULL;
-		FbxAnimLayer* currAnimLayer = NULL;
-
-		if (animNameLists.Size() > 0)
-			currAnimStack = scene->FindMember<FbxAnimStack>(animNameLists[0]->Buffer());
-
-		if (currAnimStack == NULL)
-			return 1;
-
-		currAnimLayer = currAnimStack->GetMember<FbxAnimLayer>();
-
-		scene->SetCurrentAnimationStack(currAnimStack);
-
-		// Get Anim Time
-		FbxTime mStart, mStop;
-
-		for (int i = 0; i < animNameLists.Size(); i++) {
-			currTakeInfo = scene->GetTakeInfo(*(animNameLists[i]));
-			if (currTakeInfo)
-			{
-				mStart = currTakeInfo->mLocalTimeSpan.GetStart();
-				mStop = currTakeInfo->mLocalTimeSpan.GetStop();
-			}
-			else
-			{
-				continue;
-			}
-
-			mStarts.push_back(mStart);
-			mStops.push_back(mStop);
-
-			// countOfFrame.push_back(mStops[i].GetFrameCount() / 2);
-			countOfFrame.push_back(mStops[i].GetFrameCount());
+		currTakeInfo = scene->GetTakeInfo(*(animNameLists[i]));
+		if (currTakeInfo)
+		{
+			mStart = currTakeInfo->mLocalTimeSpan.GetStart();
+			mStop = currTakeInfo->mLocalTimeSpan.GetStop();
 		}
-		
-		/*long long halfFrame = mStops[0].GetFrameCount() / 2;*/
-		long long halfFrame = mStops[0].GetFrameCount();
+		else
+		{
+			continue;
+		}
 
-		animVertexArrays.resize(halfFrame);
-		mAnimVertexSizes.resize(halfFrame);
+		mStarts.push_back(mStart);
+		mStops.push_back(mStop);
 
-		DrawNodeRecursive(
-			node,
-			mStarts,
-			mStops,
-			mCurrentTime,
-			currAnimLayer,
-			pParentGlobalPosition,
-			NULL,
-			meshData,
-			animVertexArrays,
-			mAnimVertexSizes,
-			uvMode
-		);
-
+		// countOfFrame.push_back(mStops[i].GetFrameCount() / 2);
+		countOfFrame.push_back(mStops[i].GetFrameCount());
 	}
+
+	/*long long halfFrame = mStops[0].GetFrameCount() / 2;*/
+	long long halfFrame = mStops[0].GetFrameCount();
+
+	FbxTime pTime;
+	std::vector<FbxAMatrix> mBoneHierarchy;
+
+	DrawNodeRecursive(
+		node,
+		mStarts,
+		mStops,
+		pTime,
+		mBoneHierarchy,
+		NULL,
+		meshData,
+		animVertexArrays,
+		mAnimVertexSizes,
+		mAnimClips
+	);
 
 	return 0;
 }
 
-// meshDataÀÇ 0¹øÁö¿¡´Â Vertex ¸®½ºÆ®°¡ Âß ³ª¿­µÇ¾î ÀÖ°í
-// meshDataÀÇ 1¹øÁö ÀÌÈÄ ºÎÅÍ´Â Submesh IndicesÀÇ Á¤º¸°¡ ³ª¿­µÇ¾î ÀÖÀ½.
+// meshDataï¿½ï¿½ 0ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Vertex ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½Ö°ï¿½
+// meshDataï¿½ï¿½ 1ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Í´ï¿½ Submesh Indicesï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½.
 int GeometryGenerator::CreatePMXModel(
-	std::vector<GeometryGenerator::MeshData>& meshData, 
-	std::string Path, 
+	std::vector<GeometryGenerator::MeshData>& meshData,
+	std::string Path,
 	std::vector<std::wstring>& texturePaths)
 {
 	// Read PMX
@@ -392,7 +392,7 @@ int GeometryGenerator::CreatePMXModel(
 		texturePaths.push_back(model.textures[i]);
 	}
 
-	// 0¹øÁö Mesh¿¡ Vertices ÀúÀå
+	// 0ï¿½ï¿½ï¿½ï¿½ Meshï¿½ï¿½ Vertices ï¿½ï¿½ï¿½ï¿½
 	GeometryGenerator::MeshData mesh;
 	pmx::PmxVertex* cv = NULL;
 
@@ -435,7 +435,7 @@ int GeometryGenerator::CreatePMXModel(
 }
 
 // Extract Animation Bone
-int GeometryGenerator::ExtractedAnimationBone (
+int GeometryGenerator::ExtractedAnimationBone(
 	std::string Path,
 	std::string targetPath,
 	FbxArray<FbxString*>& animNameLists,
@@ -527,7 +527,7 @@ int GeometryGenerator::ExtractedAnimationBone (
 	loadRes = importer->Initialize(Path.c_str(), -1, manager->GetIOSettings());
 
 	if (!loadRes)
-		throw std::runtime_error("Path¿¡ Á¤ÀÇµÈ ¾ÆÀÌÅÛÀ» Ã£À» ¼ö ¾ø½À´Ï´Ù.");
+		throw std::runtime_error("Pathï¿½ï¿½ ï¿½ï¿½ï¿½Çµï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ã£ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.");
 
 	importer->Import(scene);
 
@@ -555,7 +555,7 @@ int GeometryGenerator::ExtractedAnimationBone (
 
 		time.SetTime(0, 0, 0, 1, 0, scene->GetGlobalSettings().GetTimeMode());
 
-		// Curr Anim Stack (¿ì¼± 0)
+		// Curr Anim Stack (ï¿½ì¼± 0)
 		FbxAnimStack* currAnimStack = NULL;
 		FbxAnimLayer* currAnimLayer = NULL;
 
@@ -623,7 +623,7 @@ int GeometryGenerator::ExtractedAnimationBone (
 	}
 
 	{
-		// Pmx¿¡ Hello ÆÄÀÏ ¹ÙÀÎµù
+		// Pmxï¿½ï¿½ Hello ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½
 		std::ifstream inFile(std::string("Hello"), std::ios::in | std::ios::binary);
 		if (!inFile.is_open())
 			throw std::runtime_error("");
@@ -637,11 +637,21 @@ int GeometryGenerator::ExtractedAnimationBone (
 		char Name[10][30];
 		char Buffer;
 
-		while (true) 
+		int i = 0;
+
+		std::vector<int> targetBoneIDX;
+		bool test = false;
+
+		std::string findBoneName;
+
+		int bIDX = 0;
+		int scaling = 0;
+
+		while (true)
 		{
 			inFile.read((char*)&targetCount, sizeof(int));
 
-			for (int i = 0; i < targetCount; i++)
+			for (i = 0; i < targetCount; i++)
 			{
 				nameIDX = 0;
 
@@ -655,24 +665,20 @@ int GeometryGenerator::ExtractedAnimationBone (
 			}
 
 			if (
-					Name[0][0] == 'F' &&
-					Name[0][1] == 'I' &&
-					Name[0][2] == 'N' &&
-					Name[0][3] == '\n'
+				Name[0][0] == 'F' &&
+				Name[0][1] == 'I' &&
+				Name[0][2] == 'N' &&
+				Name[0][3] == '\n'
 				) break;
 
-			std::vector<int> targetBoneIDX;
-
-			bool test = false;
-
-			for (int i = 0; i < targetCount; i++)
+			for (i = 0; i < targetCount; i++)
 			{
 				std::string findTargetBoneName(Name[i], nameIDX - 1);
 
 				// find bone by name
-				for (int i = 0; i < target.bone_count; i++)
+				for (i = 0; i < target.bone_count; i++)
 				{
-					std::string findBoneName;
+					findBoneName.clear();
 
 					findBoneName.assign(
 						target.bones[i].bone_english_name.begin(),
@@ -697,9 +703,9 @@ int GeometryGenerator::ExtractedAnimationBone (
 				(sizeof(DirectX::XMFLOAT4) * 2) * mAnimFrameCount
 			);
 
-			for (int bIDX = 0; bIDX < targetBoneIDX.size(); bIDX++) {
-				int i = targetBoneIDX[bIDX];
-				for (int scaling = 0; scaling < bones[i].size(); scaling++) {
+			for (bIDX = 0; bIDX < targetBoneIDX.size(); bIDX++) {
+				i = targetBoneIDX[bIDX];
+				for (scaling = 0; scaling < bones[i].size(); scaling++) {
 					bones[i][scaling][0].x = _CopyData[scaling * 2].x;
 					bones[i][scaling][0].y = _CopyData[scaling * 2].y;
 					bones[i][scaling][0].z = _CopyData[scaling * 2].z;
@@ -718,7 +724,7 @@ int GeometryGenerator::ExtractedAnimationBone (
 		int rootIDX = 0;
 		bool isUpdate = false;
 
-		// ¾Ö´Ï¸ÞÀÌ¼ÇÀÇ Root index¸¦ Ã£´Â´Ù
+		// ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ï¿½ï¿½ Root indexï¿½ï¿½ Ã£ï¿½Â´ï¿½
 		for (int i = 0; i < bones.size(); i++)
 		{
 			if (bones[i].size() > 2)
@@ -728,7 +734,7 @@ int GeometryGenerator::ExtractedAnimationBone (
 			}
 		}
 
-		// ·çÆ®´Â ºÎ¸ð°¡ ¾ø±â¿¡ µû·Î ¸ÅÇÎ
+		// ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Î¸ï¿½ ï¿½ï¿½ï¿½â¿¡ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		bones[0].resize(mAnimFrameCount);
 		for (int anim = 0; anim < mAnimFrameCount; anim++)
 		{
@@ -750,16 +756,20 @@ int GeometryGenerator::ExtractedAnimationBone (
 				bones[rootIDX][anim][1].w;
 		}
 
-		for (int i = 1; i < target.bone_count; i++)
+		i = 1;
+		int j = 0;
+		int parentIDX = 0;
+		int anim = 0;
+		for (i = 1; i < target.bone_count; i++)
 		{
 			if (bones[i].size() < 2)
 			{
 				if (isUpdate)
 				{
-					int parentIDX = target.bones[i].parent_index;
+					parentIDX = target.bones[i].parent_index;
 					bones[i].resize(mAnimFrameCount);
 
-					for (int anim = 0; anim < bones[parentIDX].size(); anim++)
+					for (anim = 0; anim < bones[parentIDX].size(); anim++)
 					{
 						bones[i][anim][0].x =
 							bones[parentIDX][anim][0].x;
@@ -781,26 +791,26 @@ int GeometryGenerator::ExtractedAnimationBone (
 				}
 				else
 				{
-					// ¾Ö´Ï¸ÞÀÌ¼Ç¿¡ µû¶ó ¿òÁ÷ÀÓÀÌ ¾øÀ» °æ¿ì (°íÁ¤ÀÏ °æ¿ì)
+					// ï¿½Ö´Ï¸ï¿½ï¿½Ì¼Ç¿ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½)
 					bones[i].resize(mAnimFrameCount);
 
-					for (int anim = 0; anim < mAnimFrameCount; anim++)
+					for (anim = 0; anim < mAnimFrameCount; anim++)
 					{
-						bones[i][anim][0].x = 
+						bones[i][anim][0].x =
 							bones[rootIDX][anim][0].x;
-						bones[i][anim][0].y = 
+						bones[i][anim][0].y =
 							bones[rootIDX][anim][0].y;
-						bones[i][anim][0].z = 
+						bones[i][anim][0].z =
 							bones[rootIDX][anim][0].z;
 						bones[i][anim][0].w = 1.0f;
 
-						bones[i][anim][1].x = 
+						bones[i][anim][1].x =
 							bones[rootIDX][anim][1].x;
-						bones[i][anim][1].y = 
+						bones[i][anim][1].y =
 							bones[rootIDX][anim][1].y;
-						bones[i][anim][1].z = 
+						bones[i][anim][1].z =
 							bones[rootIDX][anim][1].z;
-						bones[i][anim][1].w = 
+						bones[i][anim][1].w =
 							bones[rootIDX][anim][1].w;
 					}
 				}
@@ -812,12 +822,12 @@ int GeometryGenerator::ExtractedAnimationBone (
 
 		// Transpose Bones
 		std::vector<std::vector<std::array<DirectX::XMFLOAT4, 2>>> transposeBones(mAnimFrameCount);
-		for (int i = 0; i < mAnimFrameCount; i++)
+		for (i = 0; i < mAnimFrameCount; i++)
 			transposeBones[i].resize(target.bone_count);
 
-		for (int i = 0; i < target.bone_count; i++)
+		for (i = 0; i < target.bone_count; i++)
 		{
-			for (int j = 0; j < mAnimFrameCount; j++)
+			for (j = 0; j < mAnimFrameCount; j++)
 			{
 				// Transpose Mat
 				transposeBones[j][i][0] = bones[i][j][0];
@@ -833,9 +843,9 @@ int GeometryGenerator::ExtractedAnimationBone (
 
 		outFile.write((char*)&mAnimFrameCount, sizeof(int));
 
-		for (int i = 0; i < mAnimFrameCount; i++)
+		for (i = 0; i < mAnimFrameCount; i++)
 		{
-			for (int j = 0; j < target.bone_count; j++)
+			for (j = 0; j < target.bone_count; j++)
 			{
 				outFile.write((char*)&transposeBones[i][j][0].x, sizeof(float));
 				outFile.write((char*)&transposeBones[i][j][0].y, sizeof(float));
@@ -878,24 +888,26 @@ void GeometryGenerator::Subdivide(MeshData& meshData)
 	// *-----*-----*
 	// v0    m2     v2
 
-	uint32 numTris = (uint32)inputCopy.Indices32.size()/3;
-	for(uint32 i = 0; i < numTris; ++i)
+	uint32 i = 0;
+	uint32 numTris = (uint32)inputCopy.Indices32.size() / 3;
+
+	Vertex v0;
+	Vertex v1;
+	Vertex v2;
+
+	Vertex m0;
+	Vertex m1;
+	Vertex m2;
+
+	for (i = 0; i < numTris; ++i)
 	{
-		Vertex v0 = inputCopy.Vertices[ inputCopy.Indices32[i*3+0] ];
-		Vertex v1 = inputCopy.Vertices[ inputCopy.Indices32[i*3+1] ];
-		Vertex v2 = inputCopy.Vertices[ inputCopy.Indices32[i*3+2] ];
+		v0 = inputCopy.Vertices[inputCopy.Indices32[i * 3 + 0]];
+		v1 = inputCopy.Vertices[inputCopy.Indices32[i * 3 + 1]];
+		v2 = inputCopy.Vertices[inputCopy.Indices32[i * 3 + 2]];
 
-		//
-		// Generate the midpoints.
-		//
-
-        Vertex m0 = MidPoint(v0, v1);
-        Vertex m1 = MidPoint(v1, v2);
-        Vertex m2 = MidPoint(v0, v2);
-
-		//
-		// Add new geometry.
-		//
+		m0 = MidPoint(v0, v1);
+		m1 = MidPoint(v1, v2);
+		m2 = MidPoint(v0, v2);
 
 		meshData.Vertices.push_back(v0); // 0
 		meshData.Vertices.push_back(v1); // 1
@@ -903,133 +915,138 @@ void GeometryGenerator::Subdivide(MeshData& meshData)
 		meshData.Vertices.push_back(m0); // 3
 		meshData.Vertices.push_back(m1); // 4
 		meshData.Vertices.push_back(m2); // 5
- 
-		meshData.Indices32.push_back(i*6+0);
-		meshData.Indices32.push_back(i*6+3);
-		meshData.Indices32.push_back(i*6+5);
 
-		meshData.Indices32.push_back(i*6+3);
-		meshData.Indices32.push_back(i*6+4);
-		meshData.Indices32.push_back(i*6+5);
+		meshData.Indices32.push_back(i * 6 + 0);
+		meshData.Indices32.push_back(i * 6 + 3);
+		meshData.Indices32.push_back(i * 6 + 5);
 
-		meshData.Indices32.push_back(i*6+5);
-		meshData.Indices32.push_back(i*6+4);
-		meshData.Indices32.push_back(i*6+2);
+		meshData.Indices32.push_back(i * 6 + 3);
+		meshData.Indices32.push_back(i * 6 + 4);
+		meshData.Indices32.push_back(i * 6 + 5);
 
-		meshData.Indices32.push_back(i*6+3);
-		meshData.Indices32.push_back(i*6+1);
-		meshData.Indices32.push_back(i*6+4);
+		meshData.Indices32.push_back(i * 6 + 5);
+		meshData.Indices32.push_back(i * 6 + 4);
+		meshData.Indices32.push_back(i * 6 + 2);
+
+		meshData.Indices32.push_back(i * 6 + 3);
+		meshData.Indices32.push_back(i * 6 + 1);
+		meshData.Indices32.push_back(i * 6 + 4);
 	}
 }
 
 GeometryGenerator::Vertex GeometryGenerator::MidPoint(const Vertex& v0, const Vertex& v1)
 {
-    XMVECTOR p0 = XMLoadFloat3(&v0.Position);
-    XMVECTOR p1 = XMLoadFloat3(&v1.Position);
+	XMVECTOR p0 = XMLoadFloat3(&v0.Position);
+	XMVECTOR p1 = XMLoadFloat3(&v1.Position);
 
-    XMVECTOR n0 = XMLoadFloat3(&v0.Normal);
-    XMVECTOR n1 = XMLoadFloat3(&v1.Normal);
+	XMVECTOR n0 = XMLoadFloat3(&v0.Normal);
+	XMVECTOR n1 = XMLoadFloat3(&v1.Normal);
 
-    XMVECTOR tan0 = XMLoadFloat3(&v0.TangentU);
-    XMVECTOR tan1 = XMLoadFloat3(&v1.TangentU);
+	XMVECTOR tan0 = XMLoadFloat3(&v0.TangentU);
+	XMVECTOR tan1 = XMLoadFloat3(&v1.TangentU);
 
-    XMVECTOR tex0 = XMLoadFloat2(&v0.TexC);
-    XMVECTOR tex1 = XMLoadFloat2(&v1.TexC);
+	XMVECTOR tex0 = XMLoadFloat2(&v0.TexC);
+	XMVECTOR tex1 = XMLoadFloat2(&v1.TexC);
 
-    // Compute the midpoints of all the attributes.  Vectors need to be normalized
-    // since linear interpolating can make them not unit length.  
-    XMVECTOR pos = 0.5f*(p0 + p1);
-    XMVECTOR normal = XMVector3Normalize(0.5f*(n0 + n1));
-    XMVECTOR tangent = XMVector3Normalize(0.5f*(tan0+tan1));
-    XMVECTOR tex = 0.5f*(tex0 + tex1);
+	// Compute the midpoints of all the attributes.  Vectors need to be normalized
+	// since linear interpolating can make them not unit length.  
+	XMVECTOR pos = 0.5f*(p0 + p1);
+	XMVECTOR normal = XMVector3Normalize(0.5f*(n0 + n1));
+	XMVECTOR tangent = XMVector3Normalize(0.5f*(tan0 + tan1));
+	XMVECTOR tex = 0.5f*(tex0 + tex1);
 
-    Vertex v;
+	Vertex v;
 	DirectX::XMStoreFloat3(&v.Position, pos);
 	DirectX::XMStoreFloat3(&v.Normal, normal);
 	DirectX::XMStoreFloat3(&v.TangentU, tangent);
 	DirectX::XMStoreFloat2(&v.TexC, tex);
 
-    return v;
+	return v;
 }
 
 GeometryGenerator::MeshData GeometryGenerator::CreateGeosphere(float radius, uint32 numSubdivisions)
 {
-    MeshData meshData;
+	MeshData meshData;
 
 	// Put a cap on the number of subdivisions.
-    numSubdivisions = std::min<uint32>(numSubdivisions, 6u);
+	numSubdivisions = std::min<uint32>(numSubdivisions, 6u);
 
 	// Approximate a sphere by tessellating an icosahedron.
 
-	const float X = 0.525731f; 
+	const float X = 0.525731f;
 	const float Z = 0.850651f;
 
-	XMFLOAT3 pos[12] = 
+	XMFLOAT3 pos[12] =
 	{
-		XMFLOAT3(-X, 0.0f, Z),  XMFLOAT3(X, 0.0f, Z),  
-		XMFLOAT3(-X, 0.0f, -Z), XMFLOAT3(X, 0.0f, -Z),    
-		XMFLOAT3(0.0f, Z, X),   XMFLOAT3(0.0f, Z, -X), 
-		XMFLOAT3(0.0f, -Z, X),  XMFLOAT3(0.0f, -Z, -X),    
-		XMFLOAT3(Z, X, 0.0f),   XMFLOAT3(-Z, X, 0.0f), 
-		XMFLOAT3(Z, -X, 0.0f),  XMFLOAT3(-Z, -X, 0.0f)
+		{ -X, 0.0f, Z },  { X, 0.0f, Z },
+		{ -X, 0.0f, -Z }, { X, 0.0f, -Z },
+		{ 0.0f, Z, X }, { 0.0f, Z, -X },
+		{ 0.0f, -Z, X },  { 0.0f, -Z, -X },
+		{ Z, X, 0.0f }, { -Z, X, 0.0f },
+		{ Z, -X, 0.0f }, { -Z, -X, 0.0f }
 	};
 
-    uint32 k[60] =
+	uint32 k[60] =
 	{
-		1,4,0,  4,9,0,  4,5,9,  8,5,4,  1,8,4,    
-		1,10,8, 10,3,8, 8,3,5,  3,2,5,  3,7,2,    
-		3,10,7, 10,6,7, 6,11,7, 6,0,11, 6,1,0, 
-		10,1,6, 11,0,9, 2,11,9, 5,2,9,  11,2,7 
+		1,4,0,  4,9,0,  4,5,9,  8,5,4,  1,8,4,
+		1,10,8, 10,3,8, 8,3,5,  3,2,5,  3,7,2,
+		3,10,7, 10,6,7, 6,11,7, 6,0,11, 6,1,0,
+		10,1,6, 11,0,9, 2,11,9, 5,2,9,  11,2,7
 	};
 
-    meshData.Vertices.resize(12);
-    meshData.Indices32.assign(&k[0], &k[60]);
+	meshData.Vertices.resize(12);
+	meshData.Indices32.assign(&k[0], &k[60]);
 
-	for(uint32 i = 0; i < 12; ++i)
+	uint32 i = 0;
+
+	for (i = 0; i < 12; ++i)
 		meshData.Vertices[i].Position = pos[i];
 
-	for(uint32 i = 0; i < numSubdivisions; ++i)
+	for (i = 0; i < numSubdivisions; ++i)
 		Subdivide(meshData);
 
 	// Project vertices onto sphere and scale.
-	for(uint32 i = 0; i < meshData.Vertices.size(); ++i)
+	XMVECTOR n, p, T;
+	float theta, phi;
+
+	for (i = 0; i < meshData.Vertices.size(); ++i)
 	{
 		// Project onto unit sphere.
-		XMVECTOR n = XMVector3Normalize(XMLoadFloat3(&meshData.Vertices[i].Position));
+		n = XMVector3Normalize(XMLoadFloat3(&meshData.Vertices[i].Position));
 
 		// Project onto sphere.
-		XMVECTOR p = radius*n;
+		p = radius * n;
 
 		DirectX::XMStoreFloat3(&meshData.Vertices[i].Position, p);
 		DirectX::XMStoreFloat3(&meshData.Vertices[i].Normal, n);
 
 		// Derive texture coordinates from spherical coordinates.
-        float theta = atan2f(meshData.Vertices[i].Position.z, meshData.Vertices[i].Position.x);
+		theta = atan2f(meshData.Vertices[i].Position.z, meshData.Vertices[i].Position.x);
 
-        // Put in [0, 2pi].
-        if(theta < 0.0f)
-            theta += XM_2PI;
+		// Put in [0, 2pi].
+		if (theta < 0.0f)
+			theta += XM_2PI;
 
-		float phi = acosf(meshData.Vertices[i].Position.y / radius);
+		phi = acosf(meshData.Vertices[i].Position.y / radius);
 
-		meshData.Vertices[i].TexC.x = theta/XM_2PI;
-		meshData.Vertices[i].TexC.y = phi/XM_PI;
+		meshData.Vertices[i].TexC.x = theta / XM_2PI;
+		meshData.Vertices[i].TexC.y = phi / XM_PI;
 
 		// Partial derivative of P with respect to theta
-		meshData.Vertices[i].TangentU.x = -radius*sinf(phi)*sinf(theta);
+		meshData.Vertices[i].TangentU.x = -radius * sinf(phi)*sinf(theta);
 		meshData.Vertices[i].TangentU.y = 0.0f;
-		meshData.Vertices[i].TangentU.z = +radius*sinf(phi)*cosf(theta);
+		meshData.Vertices[i].TangentU.z = +radius * sinf(phi)*cosf(theta);
 
-		XMVECTOR T = XMLoadFloat3(&meshData.Vertices[i].TangentU);
+		T = XMLoadFloat3(&meshData.Vertices[i].TangentU);
 		DirectX::XMStoreFloat3(&meshData.Vertices[i].TangentU, XMVector3Normalize(T));
 	}
 
-    return meshData;
+	return meshData;
 }
 
 GeometryGenerator::MeshData GeometryGenerator::CreateCylinder(float bottomRadius, float topRadius, float height, uint32 sliceCount, uint32 stackCount)
 {
-    MeshData meshData;
+	MeshData meshData;
 
 	//
 	// Build Stacks.
@@ -1040,27 +1057,39 @@ GeometryGenerator::MeshData GeometryGenerator::CreateCylinder(float bottomRadius
 	// Amount to increment radius as we move up each stack level from bottom to top.
 	float radiusStep = (topRadius - bottomRadius) / stackCount;
 
-	uint32 ringCount = stackCount+1;
+	uint32 i = 0;
+	uint32 j = 0;
+	uint32 ringCount = stackCount + 1;
 
 	// Compute vertices for each stack ring starting at the bottom and moving up.
-	for(uint32 i = 0; i < ringCount; ++i)
+	float y;
+	float r;
+	float dTheta;
+	Vertex vertex;
+	float c, s;
+	float dr;
+	XMFLOAT3 bitangent;
+
+	XMVECTOR T;
+	XMVECTOR B;
+	XMVECTOR N;
+
+	for (i = 0; i < ringCount; ++i)
 	{
-		float y = -0.5f*height + i*stackHeight;
-		float r = bottomRadius + i*radiusStep;
+		y = -0.5f*height + i * stackHeight;
+		r = bottomRadius + i * radiusStep;
 
 		// vertices of ring
-		float dTheta = 2.0f*XM_PI/sliceCount;
-		for(uint32 j = 0; j <= sliceCount; ++j)
+		dTheta = 2.0f*XM_PI / sliceCount;
+		for (j = 0; j <= sliceCount; ++j)
 		{
-			Vertex vertex;
+			c = cosf(j*dTheta);
+			s = sinf(j*dTheta);
 
-			float c = cosf(j*dTheta);
-			float s = sinf(j*dTheta);
+			vertex.Position = { r*c, y, r*s };
 
-			vertex.Position = XMFLOAT3(r*c, y, r*s);
-
-			vertex.TexC.x = (float)j/sliceCount;
-			vertex.TexC.y = 1.0f - (float)i/stackCount;
+			vertex.TexC.x = (float)j / sliceCount;
+			vertex.TexC.y = 1.0f - (float)i / stackCount;
 
 			// Cylinder can be parameterized as follows, where we introduce v
 			// parameter that goes in the same direction as the v tex-coord
@@ -1084,12 +1113,12 @@ GeometryGenerator::MeshData GeometryGenerator::CreateCylinder(float bottomRadius
 			// This is unit length.
 			vertex.TangentU = XMFLOAT3(-s, 0.0f, c);
 
-			float dr = bottomRadius-topRadius;
-			XMFLOAT3 bitangent(dr*c, -height, dr*s);
+			dr = bottomRadius - topRadius;
+			bitangent = { dr*c, -height, dr*s };
 
-			XMVECTOR T = XMLoadFloat3(&vertex.TangentU);
-			XMVECTOR B = XMLoadFloat3(&bitangent);
-			XMVECTOR N = XMVector3Normalize(XMVector3Cross(T, B));
+			T = XMLoadFloat3(&vertex.TangentU);
+			B = XMLoadFloat3(&bitangent);
+			N = XMVector3Normalize(XMVector3Cross(T, B));
 			DirectX::XMStoreFloat3(&vertex.Normal, N);
 
 			meshData.Vertices.push_back(vertex);
@@ -1098,67 +1127,74 @@ GeometryGenerator::MeshData GeometryGenerator::CreateCylinder(float bottomRadius
 
 	// Add one because we duplicate the first and last vertex per ring
 	// since the texture coordinates are different.
-	uint32 ringVertexCount = sliceCount+1;
+	uint32 ringVertexCount = sliceCount + 1;
 
 	// Compute indices for each stack.
-	for(uint32 i = 0; i < stackCount; ++i)
+	for (i = 0; i < stackCount; ++i)
 	{
-		for(uint32 j = 0; j < sliceCount; ++j)
+		for (j = 0; j < sliceCount; ++j)
 		{
 			meshData.Indices32.push_back(i*ringVertexCount + j);
-			meshData.Indices32.push_back((i+1)*ringVertexCount + j);
-			meshData.Indices32.push_back((i+1)*ringVertexCount + j+1);
+			meshData.Indices32.push_back((i + 1)*ringVertexCount + j);
+			meshData.Indices32.push_back((i + 1)*ringVertexCount + j + 1);
 
 			meshData.Indices32.push_back(i*ringVertexCount + j);
-			meshData.Indices32.push_back((i+1)*ringVertexCount + j+1);
-			meshData.Indices32.push_back(i*ringVertexCount + j+1);
+			meshData.Indices32.push_back((i + 1)*ringVertexCount + j + 1);
+			meshData.Indices32.push_back(i*ringVertexCount + j + 1);
 		}
 	}
 
 	BuildCylinderTopCap(bottomRadius, topRadius, height, sliceCount, stackCount, meshData);
 	BuildCylinderBottomCap(bottomRadius, topRadius, height, sliceCount, stackCount, meshData);
 
-    return meshData;
+	return meshData;
 }
 
 void GeometryGenerator::BuildCylinderTopCap(float bottomRadius, float topRadius, float height,
-											uint32 sliceCount, uint32 stackCount, MeshData& meshData)
+	uint32 sliceCount, uint32 stackCount, MeshData& meshData)
 {
 	uint32 baseIndex = (uint32)meshData.Vertices.size();
 
 	float y = 0.5f*height;
-	float dTheta = 2.0f*XM_PI/sliceCount;
+	float dTheta = 2.0f*XM_PI / sliceCount;
+
+	uint32 i = 0;
+
+	float x;
+	float z;
+	float u;
+	float v;
 
 	// Duplicate cap ring vertices because the texture coordinates and normals differ.
-	for(uint32 i = 0; i <= sliceCount; ++i)
+	for (i = 0; i <= sliceCount; ++i)
 	{
-		float x = topRadius*cosf(i*dTheta);
-		float z = topRadius*sinf(i*dTheta);
+		x = topRadius * cosf(i*dTheta);
+		z = topRadius * sinf(i*dTheta);
 
 		// Scale down by the height to try and make top cap texture coord area
 		// proportional to base.
-		float u = x/height + 0.5f;
-		float v = z/height + 0.5f;
+		u = x / height + 0.5f;
+		v = z / height + 0.5f;
 
-		meshData.Vertices.push_back( Vertex(x, y, z, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, u, v) );
+		meshData.Vertices.push_back(Vertex(x, y, z, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, u, v));
 	}
 
 	// Cap center vertex.
-	meshData.Vertices.push_back( Vertex(0.0f, y, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.5f, 0.5f) );
+	meshData.Vertices.push_back(Vertex(0.0f, y, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.5f, 0.5f));
 
 	// Index of center vertex.
-	uint32 centerIndex = (uint32)meshData.Vertices.size()-1;
+	uint32 centerIndex = (uint32)meshData.Vertices.size() - 1;
 
-	for(uint32 i = 0; i < sliceCount; ++i)
+	for (i = 0; i < sliceCount; ++i)
 	{
 		meshData.Indices32.push_back(centerIndex);
-		meshData.Indices32.push_back(baseIndex + i+1);
+		meshData.Indices32.push_back(baseIndex + i + 1);
 		meshData.Indices32.push_back(baseIndex + i);
 	}
 }
 
 void GeometryGenerator::BuildCylinderBottomCap(float bottomRadius, float topRadius, float height,
-											   uint32 sliceCount, uint32 stackCount, MeshData& meshData)
+	uint32 sliceCount, uint32 stackCount, MeshData& meshData)
 {
 	// 
 	// Build bottom cap.
@@ -1167,110 +1203,125 @@ void GeometryGenerator::BuildCylinderBottomCap(float bottomRadius, float topRadi
 	uint32 baseIndex = (uint32)meshData.Vertices.size();
 	float y = -0.5f*height;
 
+	uint32 i = 0;
+	uint32 j = 0;
+
+	float x;
+	float z;
+	float u;
+	float v;
+
 	// vertices of ring
-	float dTheta = 2.0f*XM_PI/sliceCount;
-	for(uint32 i = 0; i <= sliceCount; ++i)
+	float dTheta = 2.0f*XM_PI / sliceCount;
+	for (i = 0; i <= sliceCount; ++i)
 	{
-		float x = bottomRadius*cosf(i*dTheta);
-		float z = bottomRadius*sinf(i*dTheta);
+		x = bottomRadius * cosf(i*dTheta);
+		z = bottomRadius * sinf(i*dTheta);
 
 		// Scale down by the height to try and make top cap texture coord area
 		// proportional to base.
-		float u = x/height + 0.5f;
-		float v = z/height + 0.5f;
+		u = x / height + 0.5f;
+		v = z / height + 0.5f;
 
-		meshData.Vertices.push_back( Vertex(x, y, z, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, u, v) );
+		meshData.Vertices.push_back({ x, y, z, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, u, v });
 	}
 
 	// Cap center vertex.
-	meshData.Vertices.push_back( Vertex(0.0f, y, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.5f, 0.5f) );
+	meshData.Vertices.push_back({ 0.0f, y, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.5f, 0.5f
+		});
 
 	// Cache the index of center vertex.
-	uint32 centerIndex = (uint32)meshData.Vertices.size()-1;
+	uint32 centerIndex = (uint32)meshData.Vertices.size() - 1;
 
-	for(uint32 i = 0; i < sliceCount; ++i)
+	for (i = 0; i < sliceCount; ++i)
 	{
 		meshData.Indices32.push_back(centerIndex);
 		meshData.Indices32.push_back(baseIndex + i);
-		meshData.Indices32.push_back(baseIndex + i+1);
+		meshData.Indices32.push_back(baseIndex + i + 1);
 	}
 }
 
 GeometryGenerator::MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32 m, uint32 n)
 {
-    MeshData meshData;
+	MeshData meshData;
 
-	uint32 vertexCount = m*n;
-	uint32 faceCount   = (m-1)*(n-1)*2;
+	uint32 vertexCount = m * n;
+	uint32 faceCount = (m - 1)*(n - 1) * 2;
 
 	//
 	// Create the vertices.
 	//
 
+	uint32 i = 0;
+	uint32 j = 0;
+
+	float x;
+	float z;
+
 	float halfWidth = 0.5f*width;
 	float halfDepth = 0.5f*depth;
 
-	float dx = width / (n-1);
-	float dz = depth / (m-1);
+	float dx = width / (n - 1);
+	float dz = depth / (m - 1);
 
-	float du = 1.0f / (n-1);
-	float dv = 1.0f / (m-1);
+	float du = 1.0f / (n - 1);
+	float dv = 1.0f / (m - 1);
 
 	meshData.Vertices.resize(vertexCount);
-	for(uint32 i = 0; i < m; ++i)
+	for (i = 0; i < m; ++i)
 	{
-		float z = halfDepth - i*dz;
-		for(uint32 j = 0; j < n; ++j)
+		z = halfDepth - i * dz;
+		for (j = 0; j < n; ++j)
 		{
-			float x = -halfWidth + j*dx;
+			x = -halfWidth + j * dx;
 
-			meshData.Vertices[i*n+j].Position = XMFLOAT3(x, 0.0f, z);
-			meshData.Vertices[i*n+j].Normal   = XMFLOAT3(0.0f, 1.0f, 0.0f);
-			meshData.Vertices[i*n+j].TangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
+			meshData.Vertices[i*n + j].Position = XMFLOAT3(x, 0.0f, z);
+			meshData.Vertices[i*n + j].Normal = XMFLOAT3(0.0f, 1.0f, 0.0f);
+			meshData.Vertices[i*n + j].TangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
 
 			// Stretch texture over grid.
-			meshData.Vertices[i*n+j].TexC.x = j*du;
-			meshData.Vertices[i*n+j].TexC.y = i*dv;
+			meshData.Vertices[i*n + j].TexC.x = j * du;
+			meshData.Vertices[i*n + j].TexC.y = i * dv;
 		}
 	}
- 
-    //
+
+	//
 	// Create the indices.
 	//
 
-	meshData.Indices32.resize(faceCount*3); // 3 indices per face
+	meshData.Indices32.resize(faceCount * 3); // 3 indices per face
 
 	// Iterate over each quad and compute indices.
 	uint32 k = 0;
-	for(uint32 i = 0; i < m-1; ++i)
+	for (i = 0; i < m - 1; ++i)
 	{
-		for(uint32 j = 0; j < n-1; ++j)
+		for (j = 0; j < n - 1; ++j)
 		{
-			meshData.Indices32[k]   = i*n+j;
-			meshData.Indices32[k+1] = i*n+j+1;
-			meshData.Indices32[k+2] = (i+1)*n+j;
+			meshData.Indices32[k] = i * n + j;
+			meshData.Indices32[k + 1] = i * n + j + 1;
+			meshData.Indices32[k + 2] = (i + 1)*n + j;
 
-			meshData.Indices32[k+3] = (i+1)*n+j;
-			meshData.Indices32[k+4] = i*n+j+1;
-			meshData.Indices32[k+5] = (i+1)*n+j+1;
+			meshData.Indices32[k + 3] = (i + 1)*n + j;
+			meshData.Indices32[k + 4] = i * n + j + 1;
+			meshData.Indices32[k + 5] = (i + 1)*n + j + 1;
 
 			k += 6; // next quad
 		}
 	}
 
-    return meshData;
+	return meshData;
 }
 
 GeometryGenerator::MeshData GeometryGenerator::CreateQuad(float x, float y, float w, float h, float depth)
 {
-    MeshData meshData;
+	MeshData meshData;
 
 	meshData.Vertices.resize(4);
 	meshData.Indices32.resize(6);
 
 	// Position coordinates specified in NDC space.
 	meshData.Vertices[0] = Vertex(
-        x, y - h, depth,
+		x, y - h, depth,
 		0.0f, 0.0f, -1.0f,
 		1.0f, 0.0f, 0.0f,
 		0.0f, 1.0f);
@@ -1282,13 +1333,13 @@ GeometryGenerator::MeshData GeometryGenerator::CreateQuad(float x, float y, floa
 		0.0f, 0.0f);
 
 	meshData.Vertices[2] = Vertex(
-		x+w, y, depth,
+		x + w, y, depth,
 		0.0f, 0.0f, -1.0f,
 		1.0f, 0.0f, 0.0f,
 		1.0f, 0.0f);
 
 	meshData.Vertices[3] = Vertex(
-		x+w, y-h, depth,
+		x + w, y - h, depth,
 		0.0f, 0.0f, -1.0f,
 		1.0f, 0.0f, 0.0f,
 		1.0f, 1.0f);
@@ -1301,7 +1352,7 @@ GeometryGenerator::MeshData GeometryGenerator::CreateQuad(float x, float y, floa
 	meshData.Indices32[4] = 2;
 	meshData.Indices32[5] = 3;
 
-    return meshData;
+	return meshData;
 }
 
 
@@ -1309,7 +1360,7 @@ GeometryGenerator::MeshData GeometryGenerator::CreateQuad(float x, float y, floa
 
 // Get the matrix of the given pose
 FbxAMatrix GetPoseMatrix(
-	FbxPose* pPose, 
+	FbxPose* pPose,
 	int pNodeIndex
 )
 {
@@ -1322,7 +1373,7 @@ FbxAMatrix GetPoseMatrix(
 }
 
 FbxAMatrix GetGlobalPosition(
-	FbxNode* pNode, 
+	FbxNode* pNode,
 	const FbxTime& pTime,
 	FbxPose* pPose,
 	FbxAMatrix* pParentGlobalPosition
@@ -1417,21 +1468,20 @@ void DrawNodeRecursive(
 	std::vector<FbxTime> mStarts,
 	std::vector<FbxTime> mStops,
 	FbxTime& pTime,
-	FbxAnimLayer* pAnimLayer,
 	std::vector<FbxAMatrix>& pParentGlobalPositions,
 	FbxPose* pPose,
 	std::vector<GeometryGenerator::MeshData>& meshData,
 	std::vector<std::vector<float*>>& animVertexArrays,
-	std::vector<std::vector<FbxUInt>>& mAnimVertexSizes,
-	bool uvMode
+	std::vector<FbxUInt>& mAnimVertexSizes,
+	AnimationClip& mAnimClips
 ) {
 	FbxAMatrix pParentGlobalPosition;
 
-	FbxAMatrix globalPosition = 
+	FbxAMatrix globalPosition =
 		GetGlobalPosition(
-			pNode, 
-			pTime, 
-			pPose, 
+			pNode,
+			pTime,
+			pPose,
 			&pParentGlobalPosition
 		);
 
@@ -1453,15 +1503,11 @@ void DrawNodeRecursive(
 			pNode,
 			mStarts,
 			mStops,
-			pTime,
-			pAnimLayer,
-			pParentGlobalPosition,
 			gOffPosition,
-			pPose,
 			meshData,
 			animVertexArrays,
 			mAnimVertexSizes,
-			uvMode
+			mAnimClips
 		);
 	}
 
@@ -1473,18 +1519,17 @@ void DrawNodeRecursive(
 			mStarts,
 			mStops,
 			pTime,
-			pAnimLayer,
 			pParentGlobalPositions,
 			pPose,
 			meshData,
 			animVertexArrays,
 			mAnimVertexSizes,
-			uvMode
+			mAnimClips
 		);
 	}
 }
 
-void DrawBoneRecursive (
+void DrawBoneRecursive(
 	FbxNode* pNode,
 	std::vector<FbxTime> mStops,
 	FbxTime& pTime,
@@ -1493,7 +1538,7 @@ void DrawBoneRecursive (
 	FbxPose* pPose,
 	long long perFrame,
 	std::ofstream& outFile
-) 
+)
 {
 	FbxAMatrix pParentGlobalPosition;
 
@@ -1539,10 +1584,10 @@ void DrawBoneRecursive (
 	}
 }
 
-// Draw Skeleton °¡ÀÌµå ¶óÀÎ
+// Draw Skeleton ï¿½ï¿½ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½
 void DrawSkeleton(
-	FbxNode* pNode, 
-	FbxSkeleton* skeleton, 
+	FbxNode* pNode,
+	FbxSkeleton* skeleton,
 	int targetBoneCount,
 	pmx::PmxBone* targetBone,
 	std::vector<FbxTime> mStarts,
@@ -1560,10 +1605,10 @@ void DrawSkeleton(
 		pNode->GetParent()->GetNodeAttribute() &&
 		pNode->GetParent()->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eSkeleton)
 	{
-		std::string boneName (pNode->GetName());
+		std::string boneName(pNode->GetName());
 
 		try {
-			int transSkeletonPairSize = transSkeletonPairs.at(boneName).size();
+			int transSkeletonPairSize = (int)transSkeletonPairs.at(boneName).size();
 			if (transSkeletonPairSize == 0)
 				return;
 		}
@@ -1591,18 +1636,18 @@ void DrawSkeleton(
 		FbxVector4 globalR;
 		FbxVector4 fbxMatT;
 
-		// Pmx¿¡ Hello ÆÄÀÏ ¹ÙÀÎµù
-		int transSkeletonPairsSize = transSkeletonPairs.at(boneName).size();
+		// Pmxï¿½ï¿½ Hello ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½
+		int transSkeletonPairsSize = (int)transSkeletonPairs.at(boneName).size();
 
 		outFile.write((char*)&transSkeletonPairsSize, sizeof(int));
 
-		for (int i = 0; i < transSkeletonPairsSize; i++) 
+		for (int i = 0; i < transSkeletonPairsSize; i++)
 		{
 			outFile.write((const char*)transSkeletonPairs.at(boneName)[i].c_str(), transSkeletonPairs.at(boneName)[i].size());
 			outFile.write("\n", 1);
 		}
 
-		int frameCount = mStops[0].GetFrameCount(FbxTime::eFrames30);
+		int frameCount = (int)mStops[0].GetFrameCount(FbxTime::eFrames30);
 
 		float convBuf;
 		for (int animFrame = 0; animFrame < frameCount; animFrame++)
@@ -1796,64 +1841,44 @@ void ComputeClusterDeformation(
 	FbxAMatrix lClusterRelativeInitPosition;
 	FbxAMatrix lClusterRelativeCurrentPositionInverse;
 
-	if (lClusterMode == FbxCluster::eAdditive && pCluster->GetAssociateModel())
-	{
-		pCluster->GetTransformAssociateModelMatrix(lAssociateGlobalInitPosition);
-		// Geometric transform of the model
-		lAssociateGeometry = GetGeometry(pCluster->GetAssociateModel());
-		lAssociateGlobalInitPosition *= lAssociateGeometry;
-		lAssociateGlobalCurrentPosition = GetGlobalPosition(pCluster->GetAssociateModel(), pTime, NULL);
+	// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½(Tï¿½ï¿½) Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½
+	pCluster->GetTransformMatrix(lReferenceGlobalInitPosition);
+	lReferenceGlobalCurrentPosition = pGlobalPosition;
+	// Multiply lReferenceGlobalInitPosition by Geometric Transformation
+	// ï¿½Ê±ï¿½ Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ìµï¿½ ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+	FbxNode* pNode = pMesh->GetNode();
 
-		pCluster->GetTransformMatrix(lReferenceGlobalInitPosition);
-		// Multiply lReferenceGlobalInitPosition by Geometric Transformation
-		lReferenceGeometry = GetGeometry(pMesh->GetNode());
-		lReferenceGlobalInitPosition *= lReferenceGeometry;
-		lReferenceGlobalCurrentPosition = pGlobalPosition;
+	lReferenceGeometry = FbxAMatrix(
+		pNode->GetGeometricTranslation(FbxNode::eSourcePivot),
+		pNode->GetGeometricRotation(FbxNode::eSourcePivot),
+		pNode->GetGeometricScaling(FbxNode::eSourcePivot)
+	);
 
-		// Get the link initial global position and the link current global position.
-		pCluster->GetTransformLinkMatrix(lClusterGlobalInitPosition);
-		// Multiply lClusterGlobalInitPosition by Geometric Transformation
-		lClusterGeometry = GetGeometry(pCluster->GetLink());
-		lClusterGlobalInitPosition *= lClusterGeometry;
-		lClusterGlobalCurrentPosition = GetGlobalPosition(pCluster->GetLink(), pTime, NULL);
+	lReferenceGlobalInitPosition *= lReferenceGeometry;
 
-		// Compute the shift of the link relative to the reference.
-		//ModelM-1 * AssoM * AssoGX-1 * LinkGX * LinkM-1*ModelM
-		pVertexTransformMatrix = lReferenceGlobalInitPosition.Inverse() * lAssociateGlobalInitPosition * lAssociateGlobalCurrentPosition.Inverse() *
-			lClusterGlobalCurrentPosition * lClusterGlobalInitPosition.Inverse() * lReferenceGlobalInitPosition;
-	}
-	// Non-Addictive ÀÎ °æ¿ì°¡ ¸¹À½
-	else
-	{
-		// Å¬·¯½ºÅÍÀÇ ÃÊ±â(TÀÚ) Æ®·»½ºÆû ¸ÞÆ®¸¯½º¸¦ ¾ò¾î ¿È
-		pCluster->GetTransformMatrix(lReferenceGlobalInitPosition);
-		lReferenceGlobalCurrentPosition = pGlobalPosition;
-		// Multiply lReferenceGlobalInitPosition by Geometric Transformation
-		// ÃÊ±â Æ®·»½ºÆû¿¡ ÀÌµ¿ º¤ÅÍ¸¦ °öÇÔ
-		lReferenceGeometry = GetGeometry(pMesh->GetNode());
-		lReferenceGlobalInitPosition *= lReferenceGeometry;
+	// Get the link initial global position and the link current global position.
+	// ï¿½Ê±ï¿½ ï¿½Û·Î¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½Û·Î¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+	pCluster->GetTransformLinkMatrix(lClusterGlobalInitPosition);
 
-		// Get the link initial global position and the link current global position.
-		// ÃÊ±â ±Û·Î¹ú Æ÷Áö¼ÇÀ» ¾ò°í ±Û·Î¹ú Æ÷Áö¼Ç ¸µÅ©¸¦ ¾ò¾î¿È
-		pCluster->GetTransformLinkMatrix(lClusterGlobalInitPosition);
-		lClusterGlobalCurrentPosition = GetGlobalPosition(pCluster->GetLink(), pTime, NULL);
+	// lClusterGlobalCurrentPosition = GetGlobalPosition(pCluster->GetLink(), pTime, NULL);
+	lClusterGlobalCurrentPosition = pCluster->GetLink()->EvaluateGlobalTransform(pTime);
 
-		// Compute the initial position of the link relative to the reference.
-		// ¸µÅ©¿Í °ü·ÃµÈ ·¹ÆÛ·±½ºÀÇ "ÃÊ±â"(T) Æ÷Áö¼ÇÀ» °è»ê
-		lClusterRelativeInitPosition = 
-			lClusterGlobalInitPosition.Inverse() * 
-			lReferenceGlobalInitPosition;
 
-		// Compute the current position of the link relative to the reference.
-		// ¸µÅ©ÀÇ ·¹ÆÛ·±½º¿Í °ü·ÃµÈ "ÇöÀç" Æ÷Áö¼ÇÀ» °è»ê
-		lClusterRelativeCurrentPositionInverse = 
-			lReferenceGlobalCurrentPosition.Inverse() * 
-			lClusterGlobalCurrentPosition;
+	// Compute the initial position of the link relative to the reference.
+	// ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½Ãµï¿½ ï¿½ï¿½ï¿½Û·ï¿½ï¿½ï¿½ï¿½ï¿½ "ï¿½Ê±ï¿½"(T) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+	lClusterRelativeInitPosition =
+		lClusterGlobalInitPosition.Inverse() *
+		lReferenceGlobalInitPosition;
 
-		// Compute the shift of the link relative to the reference.
-		// ÇöÀç Æ÷Áî¿¡¼­ ´ÙÀ½ Æ÷Áî¸¦ °è»êÇÏ´Â ÃÖÁ¾ ¸ÅÆ®¸¯½º °è»ê
-		pVertexTransformMatrix = lClusterRelativeCurrentPositionInverse * lClusterRelativeInitPosition;
-	}
+	// Compute the current position of the link relative to the reference.
+	// ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½Û·ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ãµï¿½ "ï¿½ï¿½ï¿½ï¿½" ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+	lClusterRelativeCurrentPositionInverse =
+		lReferenceGlobalCurrentPosition.Inverse() *
+		lClusterGlobalCurrentPosition;
+
+	// Compute the shift of the link relative to the reference.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½î¿¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½î¸¦ ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+	pVertexTransformMatrix = lClusterRelativeCurrentPositionInverse * lClusterRelativeInitPosition;
 }
 
 void MatrixScale(FbxAMatrix& pMatrix, double pValue)
@@ -1892,7 +1917,7 @@ void MatrixAdd(FbxAMatrix& pDstMatrix, FbxAMatrix& pSrcMatrix)
 
 // Deform the vertex array in classic linear way.
 
-// lClusterDeformation, lWeight¸¦ ¸Å¹ø VBV¿¡ ¾÷µ¥ÀÌÆ® ½ÃÅ°ÀÚ
+// lClusterDeformation, lWeightï¿½ï¿½ ï¿½Å¹ï¿½ VBVï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½Å°ï¿½ï¿½
 
 void ComputeLinearDeformation(
 	FbxAMatrix& pGlobalPosition,
@@ -1921,33 +1946,45 @@ void ComputeLinearDeformation(
 	// For all skins and all clusters, accumulate their deformation and weight
 	// on each vertices and store them in lClusterDeformation and lClusterWeight.
 	int lSkinCount = pMesh->GetDeformerCount(FbxDeformer::eSkin);
-	for (int lSkinIndex = 0; lSkinIndex < lSkinCount; ++lSkinIndex)
-	{
-		// ½ºÅ²À» ¾ò¾î¿È
-		FbxSkin* lSkinDeformer = (FbxSkin*)pMesh->GetDeformer(lSkinIndex, FbxDeformer::eSkin);
+	int lSkinIndex = 0;
+	FbxSkin* lSkinDeformer = nullptr;
+	int lClusterCount = 0;
+	int lClusterIndex = 0;
+	FbxCluster* lCluster = nullptr;
+	// ï¿½Ö´Ï¸ï¿½ï¿½Ì¼Ç¿ï¿½ ï¿½ï¿½ï¿½ï¿½ Diff ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½
+	FbxAMatrix lVertexTransformMatrix;
+	int lVertexIndexCount;
+	int i = 0;
+	int k = 0;
+	int lIndex = 0;
+	double lWeight = 0.0;
+	FbxAMatrix lInfluence;
 
-		// Å¬·¯½ºÅÍ °³¼ö (»À´ë °³¼ö)¸¦ ¾ò¾î¿È
-		int lClusterCount = lSkinDeformer->GetClusterCount();
-		for (int lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex)
+	for (lSkinIndex = 0; lSkinIndex < lSkinCount; ++lSkinIndex)
+	{
+		// ï¿½ï¿½Å²ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+		lSkinDeformer = (FbxSkin*)pMesh->GetDeformer(lSkinIndex, FbxDeformer::eSkin);
+
+		// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+		lClusterCount = lSkinDeformer->GetClusterCount();
+		for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex)
 		{
-			// Å¬·¯½ºÅÍ¸¦ ¾ò¾î¿È
-			FbxCluster* lCluster = lSkinDeformer->GetCluster(lClusterIndex);
-			// Çö Å¬·¯½ºÅÍ¿Í ¸ÅÄªÇÏ´Â µðÆ÷¸Ó°¡ ¾øÀ» ½Ã
+			// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+			lCluster = lSkinDeformer->GetCluster(lClusterIndex);
+			// ï¿½ï¿½ Å¬ï¿½ï¿½ï¿½ï¿½ï¿½Í¿ï¿½ ï¿½ï¿½Äªï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ó°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½
 			if (!lCluster->GetLink())
 				continue;
 
-			// ¾Ö´Ï¸ÞÀÌ¼Ç¿¡ µû¸¥ Diff Æ÷Áö¼Ç ¸ÞÆ®¸¯½º
-			FbxAMatrix lVertexTransformMatrix;
-			// ¹öÅØ½º°¡ ÀÌµ¿ÇØ¾ß ÇÒ ¸ÅÆ®¸¯½º¸¦ ±¸ÇÏ´Â ÇÔ¼ö
+			// ï¿½ï¿½ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½Ìµï¿½ï¿½Ø¾ï¿½ ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½Ô¼ï¿½
 			ComputeClusterDeformation(pGlobalPosition, pMesh, lCluster, lVertexTransformMatrix, pTime);
 
-			// ÀÎµ¦½º ´ÜÀ§·Î ¹öÅØ½º¸¦ ¾÷µ¥ÀÌÆ® ½ÃÅ³ °Å½Ã´Ù!
-			int lVertexIndexCount = lCluster->GetControlPointIndicesCount();
+			// ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½Å³ ï¿½Å½Ã´ï¿½!
+			lVertexIndexCount = lCluster->GetControlPointIndicesCount();
 
-			for (int k = 0; k < lVertexIndexCount; ++k)
+			for (k = 0; k < lVertexIndexCount; ++k)
 			{
-				// ½ÇÁ¦ ÀÎµ¦½º À§Ä¡
-				int lIndex = lCluster->GetControlPointIndices()[k];
+				// ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡
+				lIndex = lCluster->GetControlPointIndices()[k];
 
 				// Sometimes, the mesh can have less points than at the time of the skinning
 				// because a smooth operator was active when skinning but has been deactivated during export.
@@ -1955,17 +1992,15 @@ void ComputeLinearDeformation(
 					continue;
 
 				// Get Bone Weight
-				double lWeight = lCluster->GetControlPointWeights()[k];
-				// Weight°¡ 0 ÀÌ¸é »ó¼â µÇ¹Ç·Î ÆÐ½º
+				lWeight = lCluster->GetControlPointWeights()[k];
+				// Weightï¿½ï¿½ 0 ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ ï¿½Ç¹Ç·ï¿½ ï¿½Ð½ï¿½
 				if (lWeight == 0.0)
-				{
 					continue;
-				}
 
 				// Compute the influence of the link on the vertex.
-				// °¢ ¹öÅØ½º¸¦ ÀÌ¾îÁÖ´Â ¿µÇâ·ÂÀ» °è»êÇÕ´Ï´Ù
-				FbxAMatrix lInfluence = lVertexTransformMatrix;
-				// ¿µÇâ·Â * °¡ÁßÄ¡
+				// ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½Ì¾ï¿½ï¿½Ö´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Õ´Ï´ï¿½
+				lInfluence = lVertexTransformMatrix;
+				// ï¿½ï¿½ï¿½ï¿½ï¿½ * ï¿½ï¿½ï¿½ï¿½Ä¡
 				MatrixScale(lInfluence, lWeight);
 
 
@@ -1991,18 +2026,22 @@ void ComputeLinearDeformation(
 	}
 
 	//Actually deform each vertices here by information stored in lClusterDeformation and lClusterWeight
-	for (int i = 0; i < lVertexCount; i++)
+	FbxVector4 lSrcVertex;
+	lWeight = 0;
+	//double lWeight = 0;
+
+	for (i = 0; i < lVertexCount; i++)
 	{
-		FbxVector4 lSrcVertex = pVertexArray[i];
+		lSrcVertex = pVertexArray[i];
 		FbxVector4& lDstVertex = pVertexArray[i];
 
 		// count of weight == controlPointVertexCount
-		double lWeight = lClusterWeight[i];
+		lWeight = lClusterWeight[i];
 
 		// Deform the vertex if there was at least a link with an influence on the vertex,
 		if (lWeight != 0.0)
 		{
-			// lClusterDeformationÀ» »À ´ÜÀ§·Î ¾ò¾î¿À´Â ¹æ¹ý
+			// lClusterDeformationï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 			lDstVertex = lClusterDeformation[i].MultT(lSrcVertex);
 
 			if (lClusterMode == FbxCluster::eNormalize)
@@ -2023,185 +2062,6 @@ void ComputeLinearDeformation(
 	delete[] lClusterWeight;
 }
 
-// Deform the vertex array in Dual Quaternion Skinning way.
-void ComputeDualQuaternionDeformation(FbxAMatrix& pGlobalPosition,
-	FbxMesh* pMesh,
-	FbxTime& pTime,
-	FbxVector4* pVertexArray,
-	FbxPose* pPose)
-{
-	// All the links must have the same link mode.
-	FbxCluster::ELinkMode lClusterMode = ((FbxSkin*)pMesh->GetDeformer(0, FbxDeformer::eSkin))->GetCluster(0)->GetLinkMode();
-
-	int lVertexCount = pMesh->GetControlPointsCount();
-	int lSkinCount = pMesh->GetDeformerCount(FbxDeformer::eSkin);
-
-	FbxDualQuaternion* lDQClusterDeformation = new FbxDualQuaternion[lVertexCount];
-	memset(lDQClusterDeformation, 0, lVertexCount * sizeof(FbxDualQuaternion));
-
-	double* lClusterWeight = new double[lVertexCount];
-	memset(lClusterWeight, 0, lVertexCount * sizeof(double));
-
-	// For all skins and all clusters, accumulate their deformation and weight
-	// on each vertices and store them in lClusterDeformation and lClusterWeight.
-	for (int lSkinIndex = 0; lSkinIndex < lSkinCount; ++lSkinIndex)
-	{
-		FbxSkin* lSkinDeformer = (FbxSkin*)pMesh->GetDeformer(lSkinIndex, FbxDeformer::eSkin);
-		int lClusterCount = lSkinDeformer->GetClusterCount();
-		for (int lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex)
-		{
-			FbxCluster* lCluster = lSkinDeformer->GetCluster(lClusterIndex);
-			if (!lCluster->GetLink())
-				continue;
-
-			FbxAMatrix lVertexTransformMatrix;
-			ComputeClusterDeformation(pGlobalPosition, pMesh, lCluster, lVertexTransformMatrix, pTime);
-
-			FbxQuaternion lQ = lVertexTransformMatrix.GetQ();
-			FbxVector4 lT = lVertexTransformMatrix.GetT();
-			FbxDualQuaternion lDualQuaternion(lQ, lT);
-
-			int lVertexIndexCount = lCluster->GetControlPointIndicesCount();
-			for (int k = 0; k < lVertexIndexCount; ++k)
-			{
-				int lIndex = lCluster->GetControlPointIndices()[k];
-
-				// Sometimes, the mesh can have less points than at the time of the skinning
-				// because a smooth operator was active when skinning but has been deactivated during export.
-				if (lIndex >= lVertexCount)
-					continue;
-
-				double lWeight = lCluster->GetControlPointWeights()[k];
-
-				if (lWeight == 0.0)
-					continue;
-
-				// Compute the influence of the link on the vertex.
-				FbxDualQuaternion lInfluence = lDualQuaternion * lWeight;
-				if (lClusterMode == FbxCluster::eAdditive)
-				{
-					// Simply influenced by the dual quaternion.
-					lDQClusterDeformation[lIndex] = lInfluence;
-
-					// Set the link to 1.0 just to know this vertex is influenced by a link.
-					lClusterWeight[lIndex] = 1.0;
-				}
-				else // lLinkMode == FbxCluster::eNormalize || lLinkMode == FbxCluster::eTotalOne
-				{
-					if (lClusterIndex == 0)
-					{
-						lDQClusterDeformation[lIndex] = lInfluence;
-					}
-					else
-					{
-						// Add to the sum of the deformations on the vertex.
-						// Make sure the deformation is accumulated in the same rotation direction. 
-						// Use dot product to judge the sign.
-						double lSign = lDQClusterDeformation[lIndex].GetFirstQuaternion().DotProduct(lDualQuaternion.GetFirstQuaternion());
-						if (lSign >= 0.0)
-						{
-							lDQClusterDeformation[lIndex] += lInfluence;
-						}
-						else
-						{
-							lDQClusterDeformation[lIndex] -= lInfluence;
-						}
-					}
-					// Add to the sum of weights to either normalize or complete the vertex.
-					lClusterWeight[lIndex] += lWeight;
-				}
-			}//For each vertex
-		}//lClusterCount
-	}
-
-	//Actually deform each vertices here by information stored in lClusterDeformation and lClusterWeight
-	for (int i = 0; i < lVertexCount; i++)
-	{
-		FbxVector4 lSrcVertex = pVertexArray[i];
-		FbxVector4& lDstVertex = pVertexArray[i];
-		double lWeightSum = lClusterWeight[i];
-
-		// Deform the vertex if there was at least a link with an influence on the vertex,
-		if (lWeightSum != 0.0)
-		{
-			lDQClusterDeformation[i].Normalize();
-			lDstVertex = lDQClusterDeformation[i].Deform(lDstVertex);
-
-			if (lClusterMode == FbxCluster::eNormalize)
-			{
-				// In the normalized link mode, a vertex is always totally influenced by the links. 
-				lDstVertex /= lWeightSum;
-			}
-			else if (lClusterMode == FbxCluster::eTotalOne)
-			{
-				// In the total 1 link mode, a vertex can be partially influenced by the links. 
-				lSrcVertex *= (1.0 - lWeightSum);
-				lDstVertex += lSrcVertex;
-			}
-		}
-	}
-
-	delete[] lDQClusterDeformation;
-	delete[] lClusterWeight;
-}
-
-// Deform the vertex array according to the links contained in the mesh and the skinning type.
-void ComputeSkinDeformation(
-	FbxAMatrix& pGlobalPosition,
-	FbxMesh* pMesh,
-	FbxTime& pTime,
-	FbxVector4* pVertexArray
-)
-{
-	FbxSkin* lSkinDeformer = (FbxSkin*)pMesh->GetDeformer(0, FbxDeformer::eSkin);
-	if (!lSkinDeformer)
-		return;
-
-	FbxSkin::EType lSkinningType = lSkinDeformer->GetSkinningType();
-
-	if (lSkinningType == FbxSkin::eLinear || lSkinningType == FbxSkin::eRigid)
-	{
-		ComputeLinearDeformation(
-			pGlobalPosition, 
-			pMesh, 
-			pTime,
-			pVertexArray
-		);
-	}
-	else if (lSkinningType == FbxSkin::eDualQuaternion)
-	{
-		throw std::runtime_error("ÇØ´ç ºÎºÐÀº ¾ÆÁ÷ ¹Ìºôµå");
-
-		/*ComputeDualQuaternionDeformation(pGlobalPosition, pMesh, pTime, pVertexArray, NULL);*/
-	}
-	else if (lSkinningType == FbxSkin::eBlend)
-	{
-		throw std::runtime_error("ÇØ´ç ºÎºÐÀº ¾ÆÁ÷ ¹Ìºôµå");
-
-		//int lVertexCount = pMesh->GetControlPointsCount();
-
-		//FbxVector4* lVertexArrayLinear = new FbxVector4[lVertexCount];
-		//memcpy(lVertexArrayLinear, pMesh->GetControlPoints(), lVertexCount * sizeof(FbxVector4));
-
-		//FbxVector4* lVertexArrayDQ = new FbxVector4[lVertexCount];
-		//memcpy(lVertexArrayDQ, pMesh->GetControlPoints(), lVertexCount * sizeof(FbxVector4));
-
-		//ComputeLinearDeformation(pGlobalPosition, pMesh, pTime, pVertexArray, NULL, lClusterDeformation, lClusterIndices, lClusterWeight);
-		//ComputeDualQuaternionDeformation(pGlobalPosition, pMesh, pTime, lVertexArrayDQ, NULL);
-
-		//// To blend the skinning according to the blend weights
-		//// Final vertex = DQSVertex * blend weight + LinearVertex * (1- blend weight)
-		//// DQSVertex: vertex that is deformed by dual quaternion skinning method;
-		//// LinearVertex: vertex that is deformed by classic linear skinning method;
-		//int lBlendWeightsCount = lSkinDeformer->GetControlPointIndicesCount();
-		//for (int lBWIndex = 0; lBWIndex < lBlendWeightsCount; ++lBWIndex)
-		//{
-		//	double lBlendWeight = lSkinDeformer->GetControlPointBlendWeights()[lBWIndex];
-		//	pVertexArray[lBWIndex] = lVertexArrayDQ[lBWIndex] * lBlendWeight + lVertexArrayLinear[lBWIndex] * (1 - lBlendWeight);
-		//}
-	}
-}
-
 int DrawMesh(
 	FbxNode* pNode,
 	GeometryGenerator::MeshData& meshData,
@@ -2210,13 +2070,13 @@ int DrawMesh(
 {
 	FbxMesh* lMesh = pNode->GetMesh();
 
-	// Node¿¡¼­ Mesh¿¡ °üÇÑ Á¤º¸¸¦ ¾ò´Â´Ù.
+	// Nodeï¿½ï¿½ï¿½ï¿½ Meshï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Â´ï¿½.
 	FbxMesh* mesh = nullptr;
-	// Material¿¡ °üÇÑ Á¤º¸¸¦ Node¿¡¼­ Ã£´Â´Ù. (GetSrcObject<FbxSurfaceMaterial>)
+	// Materialï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Nodeï¿½ï¿½ï¿½ï¿½ Ã£ï¿½Â´ï¿½. (GetSrcObject<FbxSurfaceMaterial>)
 	FbxSurfaceMaterial* smat = nullptr;
-	// Mesh¿¡ ¼ÓÇØ ÀÖ´Â Æ¯Á¤ Á¤º¸(¿©±â¼­´Â SurfaceMaterial)ÀÇ ¼Ó¼º °ªÀÌ ´ã±ä À§Ä¡ 
+	// Meshï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´ï¿½ Æ¯ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½â¼­ï¿½ï¿½ SurfaceMaterial)ï¿½ï¿½ ï¿½Ó¼ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ 
 	FbxProperty prop;
-	// Propperties °ªÀ» ÀÐ°Å³ª ¾²±â À§ÇÑ IPC ±¸Á¶Ã¼ 
+	// Propperties ï¿½ï¿½ï¿½ï¿½ ï¿½Ð°Å³ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ IPC ï¿½ï¿½ï¿½ï¿½Ã¼ 
 	FbxLayeredTexture* layered_texture = nullptr;
 	FbxFileTexture* fTexture = nullptr;
 
@@ -2227,21 +2087,20 @@ int DrawMesh(
 	const char* file_texture_name = nullptr;
 
 	const int vertexCount = lMesh->GetControlPointsCount();
-	assert(vertexCount && "VertexÀÇ °³¼ö°¡ 0°³ ÀÔ´Ï´Ù.");
 
 	if (vertexCount == 0)
 	{
 		return 1;
 	}
 
-	const bool hasShape = lMesh->GetShapeCount() > 0;
-	const bool hasSkin = lMesh->GetDeformerCount(FbxDeformer::eSkin) > 0;
-	const bool hasDeformation = hasShape || hasSkin;
+	//const bool hasShape = lMesh->GetShapeCount() > 0;
+	//const bool hasSkin = lMesh->GetDeformerCount(FbxDeformer::eSkin) > 0;
+	//const bool hasDeformation = hasShape || hasSkin;
 
-	if (!hasDeformation)
-	{
-		return -1;
-	}
+	//if (!hasDeformation)
+	//{
+	//	return -1;
+	//}
 
 	// Find Texture Path
 	mcount = pNode->GetSrcObjectCount<FbxSurfaceMaterial>();
@@ -2288,7 +2147,7 @@ int DrawMesh(
 	}
 
 	// GetControlPointVertex
-	if (hasDeformation)
+	//if (hasDeformation)
 	{
 		meshData.Vertices.resize(vertexCount);
 
@@ -2327,47 +2186,44 @@ int DrawMesh(
 	}
 
 	// GetControlPointVertexIndices
-	if (hasDeformation)
+	//if (hasDeformation)
 	{
 		unsigned int triCount = lMesh->GetPolygonCount();
 		unsigned int vertexIndex = 0;
 
-		int pre[4] = { 0 };
+		std::vector<int> pre;
 
 		unsigned i, j;
-
-		int vbArray[4] = { 0, 3, 6, 0 };
-
 		uint32_t numIndices = 1;
-		for (i = 0; i < triCount; i++)
-			numIndices += vbArray[lMesh->GetPolygonSize(i) - 2];
-
-		meshData.Indices32.resize(numIndices);
-
-		// ¹ÙÀÎµù ÀÎµ¦½º
-		uint32_t numIndex = -1;
+		uint32_t polygonVertexSize = 0;
 
 		for (i = 0; i < triCount; ++i)
 		{
-			if (lMesh->GetPolygonSize(i) == 4) {
-				for (j = 0; j < 4; ++j)
-					pre[j] = lMesh->GetPolygonVertex(i, j);
+			polygonVertexSize = lMesh->GetPolygonSize(i) - 2;
+			numIndices += polygonVertexSize * 3;
+;
+		}
 
-				meshData.Indices32[++numIndex] = pre[0];
-				meshData.Indices32[++numIndex] = pre[1];
-				meshData.Indices32[++numIndex] = pre[2];
+		// ï¿½ï¿½ï¿½Îµï¿½ ï¿½Îµï¿½ï¿½ï¿½
+		uint32_t numIndex = -1;
+		meshData.Indices32.resize(numIndices);
 
+		for (i = 0; i < triCount; ++i)
+		{
+			polygonVertexSize = lMesh->GetPolygonSize(i);
+
+			pre.resize(polygonVertexSize);
+			for (j = 0; j < polygonVertexSize; ++j)
+				pre[j] = lMesh->GetPolygonVertex(i, j);
+
+			for (UINT indicesIDX = 0; indicesIDX < polygonVertexSize - 2; indicesIDX++) {
 				meshData.Indices32[++numIndex] = pre[0];
-				meshData.Indices32[++numIndex] = pre[3];
-				meshData.Indices32[++numIndex] = pre[2];
-			}
-			else if (lMesh->GetPolygonSize(i) == 3)
-			{
-				meshData.Indices32[++numIndex] = lMesh->GetPolygonVertex(i, 0);
-				meshData.Indices32[++numIndex] = lMesh->GetPolygonVertex(i, 1);
-				meshData.Indices32[++numIndex] = lMesh->GetPolygonVertex(i, 2);
+				meshData.Indices32[++numIndex] = pre[indicesIDX + 1];
+				meshData.Indices32[++numIndex] = pre[indicesIDX + 2];
 			}
 		}
+
+		pre.clear();
 
 		std::vector<fbxsdk::FbxVector2> uvs;
 		{
@@ -2433,25 +2289,25 @@ int DrawMesh(
 							{
 								FbxVector2 lUVValue;
 
-								if (uvMode) 
-								{
-									//ÅØ½ºÃÄ uv¸¦ ±¸ÇÕ´Ï´Ù.
-									int mTextureUVIndex = lMesh->GetTextureUVIndex(lPolyIndex, lVertIndex);
+								//if (uvMode) 
+								//{
+								//	//ï¿½Ø½ï¿½ï¿½ï¿½ uvï¿½ï¿½ ï¿½ï¿½ï¿½Õ´Ï´ï¿½.
+								//	int mTextureUVIndex = lMesh->GetTextureUVIndex(lPolyIndex, lVertIndex);
 
-									lUVValue = lUVElement->GetDirectArray().GetAt(mTextureUVIndex);
+								//	lUVValue = lUVElement->GetDirectArray().GetAt(mTextureUVIndex);
 
-									// Convert to floats
-									meshData.Vertices[meshData.Indices32[vertexCounter]].TexC.x = static_cast<float>(lUVValue[0]);
-									meshData.Vertices[meshData.Indices32[vertexCounter]].TexC.y = static_cast<float>(lUVValue[1]);
+								//	// Convert to floats
+								//	meshData.Vertices[meshData.Indices32[vertexCounter]].TexC.x = static_cast<float>(lUVValue[0]);
+								//	meshData.Vertices[meshData.Indices32[vertexCounter]].TexC.y = static_cast<float>(lUVValue[1]);
 
-									vertexCounter++;
-								}
-								else
+								//	vertexCounter++;
+								//}
+								//else
 								{
 									//the UV index depends on the reference mode
-									int lUVIndex = 
-										lUseIndex ? 
-										lUVElement->GetIndexArray().GetAt(lPolyIndexCounter) :			
+									int lUVIndex =
+										lUseIndex ?
+										lUVElement->GetIndexArray().GetAt(lPolyIndexCounter) :
 										lPolyIndexCounter;
 
 									lUVValue = lUVElement->GetDirectArray().GetAt(lUVIndex);
@@ -2467,7 +2323,7 @@ int DrawMesh(
 			}
 		}
 
-		if (uvs.size() > 0) 
+		if (uvs.size() > 0)
 		{
 			int vertexCounter = 0;
 
@@ -2490,26 +2346,158 @@ int DrawMesh(
 	return 0;
 }
 
-void DrawMesh (
+const UINT kMaxThreadCount = 8;
+
+// Animation Thread Resource
+DWORD hLoadAnimThreadID[kMaxThreadCount];
+HANDLE hLoadAnimThread[kMaxThreadCount];
+
+HANDLE hLoadAnimReadEvent[kMaxThreadCount];
+HANDLE hLoadAnimWriteEvent[kMaxThreadCount];
+
+static float mFrame;
+
+FbxMesh* mStaticMesh;
+
+float** mStaticVertexArrays[kMaxThreadCount];
+
+UINT mStaticVertexCount;
+
+UINT ClipStartTime[kMaxThreadCount];
+UINT ClipEndTime[kMaxThreadCount];
+
+// animation * cluster<Matrix>
+std::vector<fbxsdk::FbxAMatrix> lVertexTransformMatrixs[kMaxThreadCount];
+
+static bool mStopLoadAnimationThread = false;
+
+DWORD WINAPI LoadAnimationThread(LPVOID prc)
+{
+	UINT mThreadIDX = (UINT)prc;
+
+	UINT i, j, k;
+	float mTime = 0.0f;
+
+	UINT lClusterCount;
+	UINT lClusterIndex = 0;
+	FbxCluster* lCluster = nullptr;
+
+	UINT animFrame = 0;
+
+	fbxsdk::FbxAMatrix* lClusterDeformation;
+	lClusterDeformation = new FbxAMatrix[mStaticVertexCount];
+
+	UINT lVertexIndexCount;
+	int lIndex = 0;
+	double lWeight = 0.0;
+
+	FbxSkin* lSkinDeformer = (FbxSkin*)mStaticMesh->GetDeformer(0, FbxDeformer::eSkin);
+
+	// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+	lClusterCount = lSkinDeformer->GetClusterCount();
+
+	fbxsdk::FbxAMatrix lVertexTransformMatrix;
+
+	fbxsdk::FbxVector4 x;
+	float*	mDatas;
+
+	int*	mIndices;
+	double* mWeights;
+
+	fbxsdk::FbxVector4* iter = mStaticMesh->GetControlPoints();
+
+	UINT mAnimationIndex = 0;
+	UINT mClusterIndexByAnimation = 0;
+
+	while (true)
+	{
+		SetEvent(hLoadAnimReadEvent[mThreadIDX]);
+		WaitForSingleObject(hLoadAnimWriteEvent[mThreadIDX], INFINITE);
+
+		if (mStopLoadAnimationThread)
+			break;
+
+		mAnimationIndex = 0;
+		mClusterIndexByAnimation = 0;
+
+		for (animFrame = ClipStartTime[mThreadIDX]; animFrame < ClipEndTime[mThreadIDX]; animFrame++)
+		{
+			memset(lClusterDeformation, 0, mStaticVertexCount * sizeof(fbxsdk::FbxAMatrix));
+
+			for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex)
+			{
+				lCluster = lSkinDeformer->GetCluster(lClusterIndex);
+
+				lVertexTransformMatrix = lVertexTransformMatrixs[mThreadIDX][mClusterIndexByAnimation++];
+
+				lVertexIndexCount = lCluster->GetControlPointIndicesCount();
+
+				mIndices = lCluster->GetControlPointIndices();
+				mWeights = lCluster->GetControlPointWeights();
+
+				//#pragma omp for
+				for (k = 0; k < lVertexIndexCount; ++k)
+				{
+					lIndex = mIndices[k];
+					lWeight = mWeights[k];
+
+					if (lWeight == 1.0)
+					{
+						lClusterDeformation[lIndex] = lVertexTransformMatrix;
+					}
+					else
+					{
+						for (i = 0; i < 4; i++)
+							for (j = 0; j < 4; j++)
+								lClusterDeformation[lIndex][i][j] += lVertexTransformMatrix[i][j] * lWeight;
+					}
+				}//For each vertex
+			}//lClusterCount
+
+			mDatas = mStaticVertexArrays[mThreadIDX][mAnimationIndex];
+
+			for (i = 0; i < mStaticVertexCount; i++)
+			{
+				// lClusterDeformationï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+				x = (lClusterDeformation[i].MultT(iter[i]));
+
+				mDatas[i * 4]		= (float)x.Buffer()[0];
+				mDatas[i * 4 + 1]	= (float)x.Buffer()[1];
+				mDatas[i * 4 + 2]	= (float)x.Buffer()[2];
+				mDatas[i * 4 + 3]	= (float)x.Buffer()[3];
+			}
+
+			mAnimationIndex++;
+		}
+
+		ResetEvent(hLoadAnimWriteEvent[mThreadIDX]);
+	}
+
+	delete[](lClusterDeformation);
+
+	ResetEvent(hLoadAnimWriteEvent[mThreadIDX]);
+	SetEvent(hLoadAnimReadEvent[mThreadIDX]);
+	return (DWORD)(0);
+}
+
+void DrawMesh(
 	FbxNode* pNode,
 	GeometryGenerator::MeshData& meshData,
 	std::vector<FbxTime> mStarts,
 	std::vector<FbxTime> mStops,
-	FbxTime& pTime,
-	FbxAnimLayer* pAnimLayer,
-	FbxAMatrix& pGlobalPosition,
+	fbxsdk::FbxAMatrix& pGlobalPosition,
 	std::vector<std::vector<float*>>& lVertexArrays,
-	std::vector<std::vector<FbxUInt>>& mAnimVertexSizes,
-	bool uvMode
-	)
+	std::vector<FbxUInt>& mAnimVertexSizes,
+	AnimationClip& mAnimClips
+)
 {
 	FbxMesh* lMesh = pNode->GetMesh();
 
-	// Material¿¡ °üÇÑ Á¤º¸¸¦ Node¿¡¼­ Ã£´Â´Ù. (GetSrcObject<FbxSurfaceMaterial>)
+	// Materialï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Nodeï¿½ï¿½ï¿½ï¿½ Ã£ï¿½Â´ï¿½. (GetSrcObject<FbxSurfaceMaterial>)
 	FbxSurfaceMaterial* smat = nullptr;
-	// Mesh¿¡ ¼ÓÇØ ÀÖ´Â Æ¯Á¤ Á¤º¸(¿©±â¼­´Â SurfaceMaterial)ÀÇ ¼Ó¼º °ªÀÌ ´ã±ä À§Ä¡ 
+	// Meshï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´ï¿½ Æ¯ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½â¼­ï¿½ï¿½ SurfaceMaterial)ï¿½ï¿½ ï¿½Ó¼ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ 
 	FbxProperty prop;
-	// Propperties °ªÀ» ÀÐ°Å³ª ¾²±â À§ÇÑ IPC ±¸Á¶Ã¼ 
+	// Propperties ï¿½ï¿½ï¿½ï¿½ ï¿½Ð°Å³ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ IPC ï¿½ï¿½ï¿½ï¿½Ã¼ 
 	FbxLayeredTexture* layered_texture = nullptr;
 	FbxFileTexture* fTexture = nullptr;
 
@@ -2535,33 +2523,32 @@ void DrawMesh (
 	const bool hasDeformation = hasShape || hasSkin;
 
 	if (!hasDeformation)
-	{
-		for (int animFrame = 0; animFrame < halfFrame; animFrame++) {
-			lVertexArrays[animFrame].push_back(NULL);
-			mAnimVertexSizes[animFrame].push_back(0);
-		}
-
 		return;
-	}
 
 	// Find Texture Path
 	mcount = pNode->GetSrcObjectCount<FbxSurfaceMaterial>();
 
-	for (int i = 0; i < mcount; i++)
+	int i = 0;
+	int j = 0;
+	int k = 0;
+	int layered_texture_count;
+	int texture_count;
+
+	for (i = 0; i < mcount; i++)
 	{
 		smat = (FbxSurfaceMaterial*)pNode->GetSrcObject<FbxSurfaceMaterial>(i);
 
 		if (smat) {
 			prop = smat->FindProperty(FbxSurfaceMaterial::sDiffuse);
 
-			int layered_texture_count = prop.GetSrcObjectCount<FbxLayeredTexture>();
+			layered_texture_count = prop.GetSrcObjectCount<FbxLayeredTexture>();
 			if (layered_texture_count > 0)
 			{
-				for (int j = 0; j < layered_texture_count; j++)
+				for (j = 0; j < layered_texture_count; j++)
 				{
 					layered_texture = FbxCast<FbxLayeredTexture>(prop.GetSrcObject<FbxLayeredTexture>(j));
 					lcount = layered_texture->GetSrcObjectCount<FbxFileTexture>();
-					for (int k = 0; k < lcount; k++)
+					for (k = 0; k < lcount; k++)
 					{
 						fTexture = FbxCast<FbxFileTexture>(layered_texture->GetSrcObject<FbxFileTexture>(k));
 						file_texture_name = fTexture->GetFileName();
@@ -2570,8 +2557,8 @@ void DrawMesh (
 			}
 			else
 			{
-				int texture_count = prop.GetSrcObjectCount<FbxFileTexture>();
-				for (int j = 0; j < texture_count; j++)
+				texture_count = prop.GetSrcObjectCount<FbxFileTexture>();
+				for (j = 0; j < texture_count; j++)
 				{
 					fTexture = FbxCast<FbxFileTexture>(prop.GetSrcObject<FbxFileTexture>(j));
 					file_texture_name = fTexture->GetFileName();
@@ -2589,99 +2576,75 @@ void DrawMesh (
 	}
 
 	// GetControlPointVertex
-	if (hasDeformation)
-	{
-		meshData.Vertices.resize(vertexCount);
+	meshData.Vertices.resize(vertexCount);
 
+	for (i = 0; i < vertexCount; i++) {
+		meshData.Vertices[i].Position =
+		{
+			static_cast<float>(lMesh->GetControlPoints()[i][0]),
+			static_cast<float>(lMesh->GetControlPoints()[i][1]),
+			static_cast<float>(lMesh->GetControlPoints()[i][2])
+		};
+		meshData.Vertices[i].Normal =
+		{
+			static_cast<float>(lMesh->GetElementNormal()->GetDirectArray().GetAt(i)[0]),
+			static_cast<float>(lMesh->GetElementNormal()->GetDirectArray().GetAt(i)[1]),
+			static_cast<float>(lMesh->GetElementNormal()->GetDirectArray().GetAt(i)[2])
+		};
+	}
+
+	if (lMesh->GetElementTangentCount()) {
 		for (int i = 0; i < vertexCount; i++) {
-			meshData.Vertices[i].Position =
-				DirectX::XMFLOAT3(
-					static_cast<float>(lMesh->GetControlPoints()[i][0]),
-					static_cast<float>(lMesh->GetControlPoints()[i][1]),
-					static_cast<float>(lMesh->GetControlPoints()[i][2])
-				);
+			meshData.Vertices[i].TangentU =
+			{
+				static_cast<float>(lMesh->GetElementTangent()->GetDirectArray().GetAt(i)[0]),
+				static_cast<float>(lMesh->GetElementTangent()->GetDirectArray().GetAt(i)[1]),
+				static_cast<float>(lMesh->GetElementTangent()->GetDirectArray().GetAt(i)[2])
+			};
 		}
-
-		for (int i = 0; i < vertexCount; i++) {
-			meshData.Vertices[i].Normal =
-				DirectX::XMFLOAT3(
-					static_cast<float>(lMesh->GetElementNormal()->GetDirectArray().GetAt(i)[0]),
-					static_cast<float>(lMesh->GetElementNormal()->GetDirectArray().GetAt(i)[1]),
-					static_cast<float>(lMesh->GetElementNormal()->GetDirectArray().GetAt(i)[2])
-				);
-		}
-
-		if (lMesh->GetElementTangentCount()) {
-			for (int i = 0; i < vertexCount; i++) {
-				meshData.Vertices[i].TangentU =
-					DirectX::XMFLOAT3(
-						static_cast<float>(lMesh->GetElementTangent()->GetDirectArray().GetAt(i)[0]),
-						static_cast<float>(lMesh->GetElementTangent()->GetDirectArray().GetAt(i)[1]),
-						static_cast<float>(lMesh->GetElementTangent()->GetDirectArray().GetAt(i)[2])
-					);
-			}
-		}
-		else {
-			for (int i = 0; i < vertexCount; i++) {
-				meshData.Vertices[i].TangentU =
-					DirectX::XMFLOAT3(0, 0, 0);
-			}
+	}
+	else {
+		for (i = 0; i < vertexCount; i++) {
+			meshData.Vertices[i].TangentU = { 0, 0, 0 };
 		}
 	}
 
 	// GetControlPointVertexIndices
-	if (hasDeformation)
+	unsigned int triCount = lMesh->GetPolygonCount();
+	unsigned int vertexIndex = 0;
+
+	std::vector<int> pre;
+
+	uint32_t numIndices = 1;
+	uint32_t polygonVertexSize = 0;
+
+	for (UINT i = 0; i < triCount; ++i)
 	{
-		unsigned int triCount = lMesh->GetPolygonCount();
-		unsigned int vertexIndex = 0;
+		polygonVertexSize = lMesh->GetPolygonSize(i) - 2;
+		numIndices += polygonVertexSize * 3;
+		;
+	}
 
-		int pre[4] = { 0 };
+	// ï¿½ï¿½ï¿½Îµï¿½ ï¿½Îµï¿½ï¿½ï¿½
+	uint32_t numIndex = -1;
+	meshData.Indices32.resize(numIndices);
 
-		unsigned i, j;
+	for (UINT i = 0; i < triCount; ++i)
+	{
+		polygonVertexSize = lMesh->GetPolygonSize(i);
 
-		int vbArray[4] = { 
-			0, // 2°³ÀÇ Á¡À¸·Î ÀÌ·ç¾îÁø ¸éÀº Á¸ÀçÇÒ ¼ö ¾ø½À´Ï´Ù (Indices 0) 
-			3, // »ï°¢ÇüÀº ÃÑ 3°³ÀÇ Indices °ø°£À¸·Î ±¸ÇöÀÌ °¡´ÉÇÕ´Ï´Ù.
-			6, // »ç°¢ÇüÀº ÃÑ 6°³ÀÇ Indices °ø°£À¸·Î ±¸ÇöÀÌ °¡´ÉÇÕ´Ï´Ù.
-			0 // ¿À°¢Çü
-		};
+		pre.resize(polygonVertexSize);
+		for (UINT j = 0; j < polygonVertexSize; ++j)
+			pre[j] = lMesh->GetPolygonVertex(i, j);
 
-		uint32_t numIndices = 1;
-		for (i = 0; i < triCount; i++) {
-			numIndices += vbArray[lMesh->GetPolygonSize(i) - 2];
-		}
-
-		if (numIndices > triCount * 6) {
-			throw std::runtime_error("À°°¢Çü ÀÌ»óÀÇ Æú¸®°ïÀÌ Á¸ÀçÇÏ¿© ·Îµå¿¡ ½ÇÆÐ. (Bad Modeling)");
-		}
-
-		meshData.Indices32.resize(numIndices);
-
-		// ¹ÙÀÎµù ÀÎµ¦½º
-		uint32_t numIndex = -1;
-
-		for (i = 0; i < triCount; ++i)
-		{
-			if (lMesh->GetPolygonSize(i) == 4) {
-				for (j = 0; j < 4; ++j)
-					pre[j] = lMesh->GetPolygonVertex(i, j);
-
-				meshData.Indices32[++numIndex] = pre[0];
-				meshData.Indices32[++numIndex] = pre[1];
-				meshData.Indices32[++numIndex] = pre[2];
-
-				meshData.Indices32[++numIndex] = pre[0];
-				meshData.Indices32[++numIndex] = pre[3];
-				meshData.Indices32[++numIndex] = pre[2];
-			}
-			else if (lMesh->GetPolygonSize(i) == 3)
-			{
-				meshData.Indices32[++numIndex] = lMesh->GetPolygonVertex(i, 0);
-				meshData.Indices32[++numIndex] = lMesh->GetPolygonVertex(i, 1);
-				meshData.Indices32[++numIndex] = lMesh->GetPolygonVertex(i, 2);
-			}
+		for (UINT indicesIDX = 0; indicesIDX < polygonVertexSize - 2; indicesIDX++) {
+			meshData.Indices32[++numIndex] = pre[0];
+			meshData.Indices32[++numIndex] = pre[indicesIDX + 1];
+			meshData.Indices32[++numIndex] = pre[indicesIDX + 2];
 		}
 	}
+
+	pre.clear();
 
 	std::vector<fbxsdk::FbxVector2> uvs;
 	{
@@ -2698,11 +2661,6 @@ void DrawMesh (
 
 			if (!lUVElement)
 				continue;
-
-			// only support mapping mode eByPolygonVertex and eByControlPoint
-			if (lUVElement->GetMappingMode() != FbxGeometryElement::eByPolygonVertex &&
-				lUVElement->GetMappingMode() != FbxGeometryElement::eByControlPoint)
-				printf("");
 
 			//index array, where holds the index referenced to the uv data
 			const bool lUseIndex = lUVElement->GetReferenceMode() != FbxGeometryElement::eDirect;
@@ -2737,6 +2695,9 @@ void DrawMesh (
 				int vertexCounter = 0;
 				int lPolyIndexCounter = 0;
 
+				int lUVIndex;
+				FbxVector2 lUVValue;
+
 				for (int lPolyIndex = 0; lPolyIndex < lPolyCount; ++lPolyIndex)
 				{
 					// build the max index array that we need to pass into MakePoly
@@ -2745,35 +2706,18 @@ void DrawMesh (
 					{
 						if (lPolyIndexCounter < lIndexCount)
 						{
-							FbxVector2 lUVValue;
+							//the UV index depends on the reference mode
+							lUVIndex =
+								lUseIndex ?
+								lUVElement->GetIndexArray().GetAt(lPolyIndexCounter) :
+								lPolyIndexCounter;
 
-							if (uvMode)
-							{
-								//ÅØ½ºÃÄ uv¸¦ ±¸ÇÕ´Ï´Ù.
-								int mTextureUVIndex = lMesh->GetTextureUVIndex(lPolyIndex, lVertIndex);
+							lUVValue = lUVElement->GetDirectArray().GetAt(lUVIndex);
 
-								lUVValue = lUVElement->GetDirectArray().GetAt(mTextureUVIndex);
+							uvs.push_back(lUVValue);
 
-								// Convert to floats
-								meshData.Vertices[meshData.Indices32[vertexCounter]].TexC.x = static_cast<float>(lUVValue[0]);
-								meshData.Vertices[meshData.Indices32[vertexCounter]].TexC.y = static_cast<float>(lUVValue[1]);
+							lPolyIndexCounter++;
 
-								vertexCounter++;
-							}
-							else
-							{
-								//the UV index depends on the reference mode
-								int lUVIndex =
-									lUseIndex ?
-									lUVElement->GetIndexArray().GetAt(lPolyIndexCounter) :
-									lPolyIndexCounter;
-
-								lUVValue = lUVElement->GetDirectArray().GetAt(lUVIndex);
-
-								uvs.push_back(lUVValue);
-
-								lPolyIndexCounter++;
-							}
 						} // if (lPolyIndexCounter < lIndexCount)
 					} // lVertIndex
 				} // lPolyIndex
@@ -2784,12 +2728,15 @@ void DrawMesh (
 	if (uvs.size() > 0)
 	{
 		int vertexCounter = 0;
+		int polygonSize = 0;
+		int vertexIndex = 0;
 
-		for (int i = 0; i != lMesh->GetPolygonCount(); ++i) {
-			int polygonSize = lMesh->GetPolygonSize(i);
 
-			for (int j = 0; j != polygonSize; ++j) {
-				int vertexIndex = lMesh->GetPolygonVertex(i, j);
+		for (i = 0; i != lMesh->GetPolygonCount(); ++i) {
+			polygonSize = lMesh->GetPolygonSize(i);
+
+			for (j = 0; j != polygonSize; ++j) {
+				vertexIndex = lMesh->GetPolygonVertex(i, j);
 				meshData.Vertices[vertexIndex].TexC.x = (float)uvs[vertexCounter][0];
 				meshData.Vertices[vertexIndex].TexC.y = 1.0f - (float)uvs[vertexCounter][1];
 
@@ -2798,47 +2745,301 @@ void DrawMesh (
 		}
 	}
 
-	for (int animFrame = 0; animFrame < halfFrame; animFrame++)
+	lVertexArray = new FbxVector4[vertexCount];
+	FbxTime mTime = 0;
+
+	//we need to get the number of clusters
+	const int lSkinCount = lMesh->GetDeformerCount(FbxDeformer::eSkin);
+	int lClusterCount = 0;
+	int lSkinIndex = 0;
+
+	for (lSkinIndex = 0; lSkinIndex < lSkinCount; ++lSkinIndex)
 	{
-		lVertexArray = new FbxVector4[vertexCount];
-		memcpy(lVertexArray, lMesh->GetControlPoints(), sizeof(FbxVector4) * vertexCount);
+		lClusterCount +=
+			((FbxSkin*)(lMesh->GetDeformer(lSkinIndex, FbxDeformer::eSkin)))->GetClusterCount();
+	}
 
-		FbxTime mTime = ((mStops[0].Get() - mStarts[0].Get()) / halfFrame) * animFrame;
+	FbxSkin* lSkinDeformer = (FbxSkin*)lMesh->GetDeformer(0, FbxDeformer::eSkin);
+	FbxSkin::EType lSkinningType = lSkinDeformer->GetSkinningType();
 
-		//we need to get the number of clusters
-		const int lSkinCount = lMesh->GetDeformerCount(FbxDeformer::eSkin);
-		int lClusterCount = 0;
+	// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+	lClusterCount = lSkinDeformer->GetClusterCount();
 
-		for (int lSkinIndex = 0; lSkinIndex < lSkinCount; ++lSkinIndex)
-		{
-			lClusterCount += 
-				((FbxSkin*)(lMesh->GetDeformer(lSkinIndex, FbxDeformer::eSkin)))->GetClusterCount();
+	// For all skins and all clusters, accumulate their deformation and weight
+	// on each vertices and store them in lClusterDeformation and lClusterWeight.
+	int lClusterIndex = 0;
+	FbxCluster* lCluster = nullptr;
+	// ï¿½Ö´Ï¸ï¿½ï¿½Ì¼Ç¿ï¿½ ï¿½ï¿½ï¿½ï¿½ Diff ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½
+	fbxsdk::FbxAMatrix lVertexTransformMatrix;
+	fbxsdk::FbxAMatrix lClusterRelativeInitPosition;
+
+	int lIndex = 0;
+	double lWeight = 0.0;
+	fbxsdk::FbxAMatrix lInfluence;
+
+	fbxsdk::FbxAMatrix lReferenceGlobalInitPosition;
+	fbxsdk::FbxAMatrix lReferenceGlobalCurrentPosition = pGlobalPosition.Inverse();
+	fbxsdk::FbxAMatrix lAssociateGlobalInitPosition;
+	fbxsdk::FbxAMatrix lAssociateGlobalCurrentPosition;
+	fbxsdk::FbxAMatrix lClusterGlobalInitPosition;
+	fbxsdk::FbxAMatrix lClusterGlobalCurrentPosition;
+
+	fbxsdk::FbxAMatrix lReferenceGeometry;
+	fbxsdk::FbxAMatrix lAssociateGeometry;
+	fbxsdk::FbxAMatrix lClusterGeometry;
+
+	fbxsdk::FbxAMatrix lClusterRelativeCurrentPositionInverse;
+
+	// All the links must have the same link mode.
+	FbxCluster::ELinkMode lClusterMode = ((FbxSkin*)lMesh->GetDeformer(0, FbxDeformer::eSkin))->GetCluster(0)->GetLinkMode();
+
+	int lVertexCount = lMesh->GetControlPointsCount();
+
+	fbxsdk::FbxAMatrix* lClusterDeformation = new FbxAMatrix[lVertexCount];
+	//double* lClusterWeight			= new double[lVertexCount];
+
+	bool passCondition =
+		lClusterCount &&
+		lSkinDeformer &&
+		(lSkinningType == FbxSkin::eLinear ||
+			lSkinningType == FbxSkin::eRigid);
+
+	// Multiply lReferenceGlobalInitPosition by Geometric Transformation
+	// ï¿½Ê±ï¿½ Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ìµï¿½ ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+	mStaticMesh = lMesh;
+	mStaticVertexCount = lVertexCount;
+	pNode = lMesh->GetNode();
+
+	lReferenceGeometry = fbxsdk::FbxAMatrix(
+		pNode->GetGeometricTranslation(FbxNode::eSourcePivot),
+		pNode->GetGeometricRotation(FbxNode::eSourcePivot),
+		pNode->GetGeometricScaling(FbxNode::eSourcePivot)
+	);
+
+	int* mIndexPtr = nullptr;
+	double* mWeightPtr = nullptr;
+
+	for (int threadIDX = 0; threadIDX < kMaxThreadCount; threadIDX++)
+	{
+		hLoadAnimReadEvent[threadIDX] = CreateEvent(nullptr, false, false, nullptr);
+		hLoadAnimWriteEvent[threadIDX] = CreateEvent(nullptr, false, false, nullptr);
+
+		hLoadAnimThread[threadIDX] = CreateThread(
+			NULL,
+			0,
+			LoadAnimationThread,
+			(LPVOID*)threadIDX,
+			0,
+			&hLoadAnimThreadID[threadIDX]
+		);
+	}
+
+	mFrame = ((mStops[0].Get() - mStarts[0].Get()) / (float)halfFrame);
+
+	std::string mStreamName = "Animation\\" + mStaticName + mStaticNumber + ".anim";
+
+	std::ifstream isExistClusterFile(mStreamName, std::ifstream::binary);
+	if (!isExistClusterFile.good())
+	{
+		std::ofstream mCreateClusterFile(mStreamName, std::ios::binary);
+
+		std::vector<fbxsdk::FbxAMatrix> lClusterRelativeInitPositions(lClusterCount);
+		fbxsdk::FbxAMatrix res;
+
+		for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex) {
+			// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+			lCluster = lSkinDeformer->GetCluster(lClusterIndex);
+			//// ï¿½ï¿½ Å¬ï¿½ï¿½ï¿½ï¿½ï¿½Í¿ï¿½ ï¿½ï¿½Äªï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ó°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½
+			//if (!lCluster->GetLink())
+			//	continue;
+
+			// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½(Tï¿½ï¿½) Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½
+			lCluster->GetTransformMatrix(lReferenceGlobalInitPosition);
+
+			lReferenceGlobalInitPosition *= lReferenceGeometry;
+
+			// Get the link initial global position and the link current global position.
+			// ï¿½Ê±ï¿½ ï¿½Û·Î¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½Û·Î¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+			lCluster->GetTransformLinkMatrix(lClusterGlobalInitPosition);
+
+			// Compute the initial position of the link relative to the reference.
+			// ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½Ãµï¿½ ï¿½ï¿½ï¿½Û·ï¿½ï¿½ï¿½ï¿½ï¿½ "ï¿½Ê±ï¿½"(T) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+			lClusterRelativeInitPositions[lClusterIndex] =
+				lClusterGlobalInitPosition.Inverse() *
+				lReferenceGlobalInitPosition;
 		}
-		if (lClusterCount)
+
+		if (mAnimClips.mClips.size() == 0)
 		{
-			// Deform the vertex array with the skin deformer.
-			ComputeSkinDeformation(
-				pGlobalPosition,
-				lMesh,
-				mTime,
-				lVertexArray
-			);
+			for (int animFrame = 0; animFrame < (int)halfFrame; animFrame++) {
+				mTime = mFrame * animFrame;
+
+				for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex) {
+					// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+					lCluster = lSkinDeformer->GetCluster(lClusterIndex);
+					//// ï¿½ï¿½ Å¬ï¿½ï¿½ï¿½ï¿½ï¿½Í¿ï¿½ ï¿½ï¿½Äªï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ó°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½
+					//if (!lCluster->GetLink())
+					//	continue;
+
+					lClusterGlobalCurrentPosition = lCluster->GetLink()->EvaluateGlobalTransform(mTime);
+
+					// Compute the current position of the link relative to the reference.
+					// ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½Û·ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ãµï¿½ "ï¿½ï¿½ï¿½ï¿½" ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+					lClusterRelativeCurrentPositionInverse =
+						lReferenceGlobalCurrentPosition *
+						lClusterGlobalCurrentPosition;
+
+					// Compute the shift of the link relative to the reference.
+					// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½î¿¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½î¸¦ ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+					res =
+						pGlobalPosition *
+						lClusterRelativeCurrentPositionInverse *
+						lClusterRelativeInitPositions[lClusterIndex];
+
+					mCreateClusterFile.write((char*)&res, sizeof(double) * 16);
+				}
+			}
+		}
+		else
+		{
+			for (int clipIDX = 0; clipIDX < mAnimClips.mClips.size(); clipIDX++)
+			{
+				for (int animFrame = mAnimClips.mClips[clipIDX].mStartTime;
+					animFrame < mAnimClips.mClips[clipIDX].mEndTime;
+					animFrame++
+					) {
+					mTime = mFrame * animFrame;
+
+					for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex) {
+						// Å¬ï¿½ï¿½ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½
+						lCluster = lSkinDeformer->GetCluster(lClusterIndex);
+						//// ï¿½ï¿½ Å¬ï¿½ï¿½ï¿½ï¿½ï¿½Í¿ï¿½ ï¿½ï¿½Äªï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ó°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½
+						//if (!lCluster->GetLink())
+						//	continue;
+
+						lClusterGlobalCurrentPosition = lCluster->GetLink()->EvaluateGlobalTransform(mTime);
+
+						// Compute the current position of the link relative to the reference.
+						// ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½Û·ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ãµï¿½ "ï¿½ï¿½ï¿½ï¿½" ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+						lClusterRelativeCurrentPositionInverse =
+							lReferenceGlobalCurrentPosition *
+							lClusterGlobalCurrentPosition;
+
+						// Compute the shift of the link relative to the reference.
+						// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½î¿¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½î¸¦ ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
+						res =
+							pGlobalPosition *
+							lClusterRelativeCurrentPositionInverse *
+							lClusterRelativeInitPositions[lClusterIndex];
+
+						mCreateClusterFile.write((char*)&res, sizeof(double) * 16);
+					}
+				}
+			}
 		}
 
-		float* data = new float[vertexCount * 4];
+		lClusterRelativeInitPositions.clear();
+		mCreateClusterFile.close();
+	}
+	isExistClusterFile.close();
 
-		FbxDouble* pdata = lVertexArray->Buffer();
+	std::ifstream mClusterFile(mStreamName, std::ifstream::binary);
+	std::vector<float*> mVertexArray;
 
-		for (int i = 0; i < vertexCount * 4; i++)
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Þ½ï¿½ï¿½ï¿½ ï¿½ï¿½ì¸¦ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
+	if (passCondition)
+	{
+		mAnimVertexSizes.push_back(vertexCount);
+
+		if (mAnimClips.mClips.size() == 0)
 		{
-			data[i] = (float)(pdata[i]);
+			mVertexArray.resize(halfFrame);
+
+			for (int animFrame = 0; animFrame < halfFrame; animFrame++)
+				mVertexArray[animFrame] = new float[vertexCount * 4];
+
+			UINT mTaskCountByThread = (halfFrame / kMaxThreadCount);
+			for (int mThreadIDX = 0; mThreadIDX < kMaxThreadCount; mThreadIDX++)
+			{
+				ClipStartTime[mThreadIDX] = (int)mTaskCountByThread * (mThreadIDX);
+				ClipEndTime[mThreadIDX] = ((mThreadIDX + 1) < kMaxThreadCount) ? 
+					(int)mTaskCountByThread * (mThreadIDX + 1) : (halfFrame);
+
+				mStaticVertexArrays[mThreadIDX] = &mVertexArray[ClipStartTime[mThreadIDX]];
+
+				UINT mClipFrame = ClipEndTime[mThreadIDX] - ClipStartTime[mThreadIDX];
+				lVertexTransformMatrixs[mThreadIDX].resize(mClipFrame * lClusterCount);
+
+				mClusterFile.read((char*)lVertexTransformMatrixs[mThreadIDX].data(), sizeof(double) * 16 * mClipFrame * lClusterCount);
+
+				SetEvent(hLoadAnimWriteEvent[mThreadIDX]);
+				ResetEvent(hLoadAnimReadEvent[mThreadIDX]);
+			}
+
+			WaitForMultipleObjects(kMaxThreadCount, hLoadAnimReadEvent, true, INFINITE);
+		}
+		else
+		{
+			UINT mTotalFrameSize = 0;
+			for (int clipIDX = 0; clipIDX < mAnimClips.mClips.size(); clipIDX++)
+			{
+				mTotalFrameSize +=
+					(UINT)(mAnimClips.mClips[clipIDX].mEndTime -
+						mAnimClips.mClips[clipIDX].mStartTime);
+			}
+
+			mVertexArray.resize(mTotalFrameSize);
+			for (UINT animFrame = 0; animFrame < mTotalFrameSize; animFrame++)
+				mVertexArray[animFrame] = new float[vertexCount * 4];
+
+			UINT mThreadCount = 0;
+			UINT mClipSize = 0;
+			UINT mFrameOffset = 0;
+			for (int clipIDX = 0; clipIDX < mAnimClips.mClips.size(); clipIDX += kMaxThreadCount)
+			{
+				mThreadCount = ((int)mAnimClips.mClips.size() - clipIDX > kMaxThreadCount) ?
+					kMaxThreadCount : (mAnimClips.mClips.size() - clipIDX);
+
+				for (UINT mThreadIDX = 0; mThreadIDX < mThreadCount; mThreadIDX++)
+				{
+					if ((UINT)mAnimClips.mClips.size() <= (clipIDX + mThreadIDX)) 
+						break;
+
+					ClipStartTime[mThreadIDX] = (UINT)mAnimClips.mClips[clipIDX + mThreadIDX].mStartTime;
+					ClipEndTime[mThreadIDX] = (UINT)mAnimClips.mClips[clipIDX + mThreadIDX].mEndTime;
+
+					mStaticVertexArrays[mThreadIDX] = &(mVertexArray[mFrameOffset]);
+					mClipSize = (UINT)(ClipEndTime[mThreadIDX] - ClipStartTime[mThreadIDX]);
+					mFrameOffset += mClipSize;
+
+					lVertexTransformMatrixs[mThreadIDX].resize(mClipSize * lClusterCount);
+
+					mClusterFile.read((char*)lVertexTransformMatrixs[mThreadIDX].data(), sizeof(double) * 16 * mClipSize * lClusterCount);
+
+					SetEvent(hLoadAnimWriteEvent[mThreadIDX]);
+					ResetEvent(hLoadAnimReadEvent[mThreadIDX]);
+				}
+
+				WaitForMultipleObjects(mThreadCount, hLoadAnimReadEvent, true, INFINITE);
+			}
 		}
 
-		lVertexArrays[animFrame].push_back(data);
-		mAnimVertexSizes[animFrame].push_back(vertexCount);
+		lVertexArrays.push_back(mVertexArray);
 
+		//mStopLoadAnimationThread = true;
+		//for (int mThreadIDX = 0; mThreadIDX < 4; mThreadIDX++)
+		//{
+		//	SetEvent(hLoadAnimWriteEvent[mThreadIDX]);
+		//	ResetEvent(hLoadAnimReadEvent[mThreadIDX]);
+
+		//	WaitForMultipleObjects(4, hLoadAnimReadEvent, true, INFINITE);
+		//}
+
+		delete[] lClusterDeformation;
 		delete[] lVertexArray;
 	}
+
+	mClusterFile.close();
 }
 
 // Draw an oriented camera box where the node is located.
@@ -2892,7 +3093,7 @@ void DrawNode(
 	FbxNode* pNode,
 	std::vector<GeometryGenerator::MeshData>& meshDatas,
 	bool uvMode
-){
+) {
 	FbxNodeAttribute* attr = pNode->GetNodeAttribute();
 
 	if (attr)
@@ -2902,13 +3103,16 @@ void DrawNode(
 			GeometryGenerator::MeshData meshData;
 
 			int res = DrawMesh(
-				pNode, 
+				pNode,
 				meshData,
 				uvMode
 			);
 
 			if (!res)
+			{
+				meshData.mName = std::string(pNode->GetName());
 				meshDatas.push_back(meshData);
+			}
 		}
 	}
 }
@@ -2917,15 +3121,11 @@ void DrawNode(
 	FbxNode* pNode,
 	std::vector<FbxTime> mStarts,
 	std::vector<FbxTime> mStops,
-	FbxTime& pTime,
-	FbxAnimLayer* pAnimLayer,
-	FbxAMatrix& pParentGlobalPosition,
 	FbxAMatrix& pGlobalPosition,
-	FbxPose* pPose,
 	std::vector<GeometryGenerator::MeshData>& meshDatas,
 	std::vector<std::vector<float*>>& animVertexArrays,
-	std::vector<std::vector<FbxUInt>>& mAnimVertexSizes,
-	bool uvMode
+	std::vector<FbxUInt>& mAnimVertexSizes,
+	AnimationClip& mAnimClips
 )
 {
 	FbxNodeAttribute* attr = pNode->GetNodeAttribute();
@@ -2940,25 +3140,26 @@ void DrawNode(
 			std::unordered_map<FbxUInt, std::vector<FbxUInt>> lClusterIndice;
 			std::vector<double> lClusterWeight;
 
+			mStaticNumber = std::to_string(meshDatas.size());
+
 			DrawMesh(
-				pNode, 
-				meshData, 
+				pNode,
+				meshData,
 				mStarts,
 				mStops,
-				pTime, 
-				pAnimLayer, 
 				pGlobalPosition,
 				animVertexArrays,
 				mAnimVertexSizes,
-				uvMode
+				mAnimClips
 			);
 
-			meshDatas.push_back(meshData);
+			if (meshData.Vertices.size() > 0)
+				meshDatas.push_back(meshData);
 		}
 	}
 }
 
-void DrawBone (
+void DrawBone(
 	FbxNode* pNode,
 	std::vector<FbxTime> mStops,
 	FbxAMatrix& pOriginGlobalPosition,
@@ -2985,7 +3186,7 @@ void DrawBone (
 
 	global = pOriginGlobalPosition;
 
-	// Pmx¿¡ Hello ÆÄÀÏ ¹ÙÀÎµù
+	// Pmxï¿½ï¿½ Hello ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Îµï¿½
 	int transSkeletonPairsSize = transSkeletonPairs.at(boneName).size();
 
 	outFile.write((char*)&transSkeletonPairsSize, sizeof(int));
@@ -3003,7 +3204,7 @@ void DrawBone (
 	float convBuf;
 	for (int animFrame = 0; animFrame < frameCount; animFrame++)
 	{
-		// FRAME COUNT È®ÀÎ
+		// FRAME COUNT È®ï¿½ï¿½
 		local =
 			GetGlobalPosition(
 				pNode,

@@ -87,11 +87,11 @@ Microsoft::WRL::ComPtr<ID3D12Resource> d3dUtil::CreateDefaultBuffer(
 }
 
 void d3dUtil::UpdateDefaultBuffer(
-	ID3D12GraphicsCommandList* cmdList,						// DefaultBuffer¸¦ ¾÷µ¥ÀÌÆ® ½ÃÄÑ ÁÙ ÆÄÀÌÇÁ¶óÀÎ
-	const void* initData,									// DefaultBuffer¿¡ ¾÷µ¥ÀÌÆ® ½ÃÅ³ µ¥ÀÌÅÍ
-	UINT64 rowPitchbyteSize,								// Å¸°Ù µ¥ÀÌÅÍÀÇ "ROW" »çÀÌÁî
-	Microsoft::WRL::ComPtr<ID3D12Resource> uploadBuffer,	// ¾÷·Îµå ¹öÆÛ
-	Microsoft::WRL::ComPtr<ID3D12Resource>& defaultBuffer	// GPU ¹öÆÛ
+	ID3D12GraphicsCommandList* cmdList,						// DefaultBufferï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	const void* initData,									// DefaultBufferï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½Å³ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	UINT64 rowPitchbyteSize,								// Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ "ROW" ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	Microsoft::WRL::ComPtr<ID3D12Resource> uploadBuffer,	// ï¿½ï¿½ï¿½Îµï¿½ ï¿½ï¿½ï¿½ï¿½
+	Microsoft::WRL::ComPtr<ID3D12Resource>& defaultBuffer	// GPU ï¿½ï¿½ï¿½ï¿½
 )
 {
 	try {
@@ -132,7 +132,7 @@ void d3dUtil::UpdateDefaultBuffer(
 		);
 	}
 	catch (std::exception e) {
-		MessageBox(NULL, L"ÆÄÀÌÇÁ¶óÀÎ ´ÝÈù°Å ¾Æ´Ô?", L"", MB_OK);
+		MessageBox(NULL, L"Please Check your Command List is closed!!", L"", MB_OK);
 	}
 
 }
@@ -203,7 +203,7 @@ ComPtr<ID3DBlob> d3dUtil::CompileShader(
 	return byteCode;
 }
 
-// Path, Format Á¦°Å
+// Path, Format ï¿½ï¿½ï¿½ï¿½
 std::string d3dUtil::getName(std::string Path) {
 	if (Path == "")
 		return "";
@@ -285,11 +285,11 @@ FIBITMAP* d3dUtil::loadImage (
 		Path = name;
 	}
 
-	// ÀÐ¾îµéÀÏ ÀÌ¹ÌÁö ÆÄÀÏÀÇ ÀÌ¸§ 
+	// ï¿½Ð¾ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¹ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ 
 	char filename_input[300]; 
 	strcpy(filename_input, Path.c_str()); 
 	
-	// ÀÌ¹ÌÁö ÆÄÀÏÀ» ÀÐ¾îµéÀÔ´Ï´Ù. 
+	// ï¿½Ì¹ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ð¾ï¿½ï¿½ï¿½Ô´Ï´ï¿½. 
 	image = FreeImage_Load(FIF_PNG, filename_input, PNG_DEFAULT);
 	if (!image)
 		return NULL;
@@ -312,11 +312,11 @@ FIBITMAP* d3dUtil::loadImage(
 	FIBITMAP* image = NULL;
 	std::string Path = name;
 
-	// ÀÐ¾îµéÀÏ ÀÌ¹ÌÁö ÆÄÀÏÀÇ ÀÌ¸§ 
+	// ï¿½Ð¾ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¹ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ 
 	char filename_input[1000];
 	strcpy(filename_input, Path.c_str());
 
-	// ÀÌ¹ÌÁö ÆÄÀÏÀ» ÀÐ¾îµéÀÔ´Ï´Ù. 
+	// ï¿½Ì¹ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ð¾ï¿½ï¿½ï¿½Ô´Ï´ï¿½. 
 	image = FreeImage_Load(FIF_PNG, filename_input, PNG_DEFAULT);
 	if (!image)
 		return NULL;

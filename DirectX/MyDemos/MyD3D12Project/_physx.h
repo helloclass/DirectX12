@@ -27,13 +27,13 @@ static PxClothFlag::Enum gGpuFlag = PxClothFlag::eCUDA;
 static PxClothFlag::Enum gGpuFlag = PxClothFlag::eDEFAULT;
 #endif
 
-struct PhysResource {
-public:
-	float Position[3]	= {0.0f, 0.0f, 0.0f};
-	float Rotation[3]	= { 0.0f, 0.0f, 0.0f };
-	float Quaternion[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-	float Scale[3]		= { 1.0f, 1.0f, 1.0f };
-};
+//struct PhysResource {
+//public:
+//	float Position[3]	= {0.0f, 0.0f, 0.0f};
+//	float Rotation[3]	= { 0.0f, 0.0f, 0.0f };
+//	float Quaternion[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+//	float Scale[3]		= { 1.0f, 1.0f, 1.0f };
+//};
 
 class Physics {
 private:

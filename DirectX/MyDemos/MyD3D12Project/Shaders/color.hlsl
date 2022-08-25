@@ -22,12 +22,13 @@ struct VertexOut
 {
 	float4 PosH     : SV_POSITION;
 	float4 ShadowPosH : POSITION0;
+	float4 SsaoPosH   : POSITION1;
     float3 PosW     : POSITIONT;
     float3 NormalW  : NORMAL;
 	float3 TangentW : TANGENT;
     float2 TexC     : TEXCOORD;
     
-    // °¢ ÀÎ½ºÅÏ½º ´ç ÅØ½ºÃÄ ÀÎµ¦½º°¡ °ãÄ¡Áö ¾Êµµ·Ï º¸°£
+    // ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ ï¿½ï¿½ ï¿½Ø½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½Êµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     nointerpolation uint MatIndex : MATINDEX;
 };
 
@@ -97,14 +98,17 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
     
 #endif
     vout.PosW = posW.xyz;
-        
+
     vout.NormalW = mul(vin.NormalL, (float3x3) world);
 
     vout.PosH = mul(posW, gViewProj);
 	vout.ShadowPosH = mul(posW, gShadowViewProjNDC);
+	vout.SsaoPosH = mul(posW, gViewProjTex);
 
-    float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), texTransform);
-    vout.TexC = mul(texC, matData.MatTransform).xy;
+    //float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), texTransform);
+    //vout.TexC = mul(texC, matData.MatTransform).xy;
+
+	vout.TexC = float4(vin.TexC, 0.0f, 1.0f);
     
     return vout;
     
@@ -126,35 +130,39 @@ float4 PS(VertexOut pin) : SV_Target
 	clip(diffuseAlbedo.a - 0.2f);
 #endif // ! DRAW_TEX
 
-	diffuseAlbedo = diffuseAlbedo * matData.DiffuseAlbedo;
+	diffuseAlbedo = diffuseAlbedo * gLightData[0].mAmbientLight;
     
     pin.NormalW = normalize(pin.NormalW);
     
     float3 toEyeW = normalize(gEyePosW - pin.PosW);
     
-    float4 ambient = gAmbientLight * diffuseAlbedo;
+	// Finish texture projection and sample SSAO map.
+	//pin.SsaoPosH /= pin.SsaoPosH.w;
+	//float ambientAccess = gSsaoMap.Sample(gsamLinearClamp, pin.SsaoPosH.xy, 0.0f).r;
+
+    //float4 ambient = ambientAccess * diffuseAlbedo;
+	float4 ambient = diffuseAlbedo;
     
     const float shininess = 1.0f - matData.Roughness;
 	float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
-	shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH);
+	shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH) + 0.2f;
 
     float4 directLight = ComputeLighting(
-		matData, 
-		pin.PosW, 
+		matData,
+		pin.PosW,
 		pin.NormalW,
-		toEyeW, 
-		shadowFactor
+		toEyeW 
 	);
 
-float4 litColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 litColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
 #ifdef  DRAW_TEX
 	float4 red = float4(0.0f, -1.0f, -1.0f, 1.0f);
-	litColor = diffuseAlbedo + (drawTextureMap * red);
+	litColor = ambient + (drawTextureMap * red);
 
 	clip(litColor.a - 0.2f);
 #else
-	litColor = diffuseAlbedo + directLight;
+	litColor = ambient * shadowFactor[0] + directLight;
 #endif
 
 	//// Add in specular reflection
@@ -165,6 +173,5 @@ float4 litColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
 	//litColor.a = diffuseAlbedo.a;
 
-    return litColor;
-
+	return litColor;
 }

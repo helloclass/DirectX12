@@ -1,10 +1,5 @@
 #include "Animation.h"
 
-AnimationClip::AnimationClip() 
-{
-	mCurrentClip = nullptr;
-}
-
 bool AnimationClip::CurrentClipIsNULL()
 {
 	return !mCurrentClip;
@@ -17,14 +12,34 @@ const std::string AnimationClip::getCurrentClipName() const
 
 const int AnimationClip::getCurrentClip(
 	_Out_ float& mBeginTime,
-	_Out_ float& mEndTime
+	_Out_ float& mEndTime,
+	_In_  bool isCompression
 ) const
 {
 	if (!mCurrentClip)
 		return 1;
 
-	mBeginTime	= mCurrentClip->mStartTime;
- 	mEndTime	= mCurrentClip->mEndTime;
+	if (isCompression)
+	{
+		mBeginTime = 0;
+		mEndTime = 0;
+		for (int idx = 0; idx < mClips.size(); idx++)
+		{
+			mEndTime += (mClips[idx].mEndTime - mClips[idx].mStartTime);
+
+			if (mClips[idx].mName == mCurrentClip->mName)
+			{
+				break;
+			}
+
+			mBeginTime += (mClips[idx].mEndTime - mClips[idx].mStartTime);
+		}
+	}
+	else
+	{
+		mBeginTime	= mCurrentClip->mStartTime;
+		mEndTime	= mCurrentClip->mEndTime;
+	}
 
 	return 0;
 }
@@ -79,13 +94,13 @@ void AnimationClip::appendClip(
 	bool isLoop
 )
 {
-	UINT mClipSize = (UINT)mClips.size();
-	mClips.resize(mClipSize + 1);
+	AnimationClip::Clip clip;
+	clip.mName			= mName;
+	clip.mStartTime		= mStartTime;
+	clip.mEndTime		= mEndTime;
+	clip.isLoop			= isLoop;
 
-	mClips[mClipSize].mName			= mName;
-	mClips[mClipSize].mStartTime	= mStartTime;
-	mClips[mClipSize].mEndTime		= mEndTime;
-	mClips[mClipSize].isLoop		= isLoop;
+	mClips.push_back(clip);
 }
 
 int AnimationClip::appendEvent(

@@ -11,6 +11,7 @@ struct MaterialData
 	float Roughness;
 	float4x4 MatTransform;
 	uint DiffuseMapIndex;
+	float2 DiffuseCount;
 };
 
 struct PassConstantData
@@ -36,26 +37,24 @@ struct PassConstantData
 
 struct Light
 {
-	int	LightType;
-    float3	Strength;
-    float	FalloffStart; // point/spot light only
-    float3	Direction;   // directional/spot light only
-    float	FalloffEnd;   // point/spot light only
-    float3	Position;    // point light only
-    float	SpotPower;    // spot light only
-
-	float mLightNearZ;
-	float mLightFarZ;
-
-	float3 mLightPosW;
-
 	float4x4 mLightView;
 	float4x4 mLightProj;
-
 	float4x4 mShadowViewProj;
 	float4x4 mShadowViewProjNDC;
 
 	float4 mAmbientLight;
+
+    float4	Strength;
+    float4	Direction;   // directional/spot light only
+    float4	Position;    // point light only
+	float4	mLightPosW;
+
+	int		LightType;
+	float	FalloffStart; // point/spot light only
+	float	FalloffEnd;   // point/spot light only
+    float	SpotPower;    // spot light only
+	float	mLightNearZ;
+	float	mLightFarZ;
 };
 
 cbuffer cbLightData : register(b1)
@@ -185,8 +184,8 @@ float4 ComputeLighting(
 	MaterialData mat,
     float3 pos, 
 	float3 normal, 
-	float3 toEye,
-    float3 shadowFactor
+	float3 toEye
+    /*float3 shadowFactor*/
 )
 {
     float3 result = 0.0f;
@@ -198,7 +197,7 @@ float4 ComputeLighting(
 	{
 		if (gLightData[i].LightType == 0)
 		{
-			result += shadowFactor[0] * ComputeDirectionalLight(gLightData[i], mat, normal, toEye);
+			result += /*shadowFactor[0] * */ComputeDirectionalLight(gLightData[i], mat, normal, toEye);
 		}
 		else if (gLightData[i].LightType == 1)
 		{

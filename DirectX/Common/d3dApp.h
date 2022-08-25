@@ -12,6 +12,8 @@
 #include "d3dUtil.h"
 #include "GameTimer.h"
 
+#include "Camera.h"
+
 //# define _USE_UBER_SHADER
 
 // Link necessary d3d12 libraries.
@@ -90,13 +92,13 @@ protected:
     bool      m4xMsaaState = false;    // 4X MSAA enabled
     UINT      m4xMsaaQuality = 0;      // quality level of 4X MSAA
 
-	// Used to keep track of the “delta-time?and game time (?.4).
+	// Used to keep track of the ï¿½delta-time?and game time (?.4).
 	GameTimer mTimer;
 	
     Microsoft::WRL::ComPtr<IDXGIFactory4> mdxgiFactory;
     Microsoft::WRL::ComPtr<IDXGISwapChain> mSwapChain;
 #ifdef _USE_UBER_SHADER
-	// ·¹ÀÌÆ®·¹ÀÌ½Ì ÆÄÀÌÇÁ¶óÀÎÀ» ±¸ÃàÇÒ ¼ö ÀÖÀ½
+	// ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½Ì½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	Microsoft::WRL::ComPtr<ID3D12Device5> md3dDevice;
 #else // _USE_UBER_SHADER
 	Microsoft::WRL::ComPtr<ID3D12Device> md3dDevice;
@@ -107,20 +109,26 @@ protected:
 	
     static Microsoft::WRL::ComPtr<ID3D12CommandQueue> mCommandQueue;
     static Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mDirectCmdListAlloc;
+	static Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mSSAOCmdListAlloc;
 	// Non-Uber Shader CommandList
     static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandList;
+	static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mSSAOCommandList;
+
 #ifdef _USE_UBER_SHADER
 	// Uber Shader CommandList
 	static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> mCommandList4;
+	static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> D3DApp::mSSAOCommandList4;
 #endif
 
-	static Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mMultiCmdListAlloc[3];
-	// Non-Uber Shader CommandList
-	static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mMultiCommandList[3];
+	static Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mMultiCmdListAlloc[8];
+	static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mMultiCommandList[8];
 #ifdef _USE_UBER_SHADER
 	// Uber Shader CommandList
 	static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> mMultiCommandList4[3];
 #endif
+
+	static Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mMultiShadowCmdListAlloc[8];
+	static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mMultiShadowCommandList[8];
 
 	static const int SwapChainBufferCount = 2;
 	static int mCurrBackBuffer;
