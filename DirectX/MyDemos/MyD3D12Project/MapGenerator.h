@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "../../Common/d3dUtil.h"
 
+// 청사진 속의 가상의 오브젝트의 '위치' 정보
 typedef struct Transform
 {
 	Transform()
@@ -9,15 +10,8 @@ typedef struct Transform
 	}
 	~Transform()
 	{
-		try
-		{
-			if (!this->parent)
-				delete(this->parent);
-		}
-		catch (std::exception& e)
-		{
-			throw std::runtime_error("�Ҹ� ����");
-		}
+		if (!this->parent)
+			delete(this->parent);
 	}
 
 	Transform& operator=(Transform& rhs)
@@ -47,6 +41,8 @@ typedef struct Transform
 	DirectX::XMVECTOR scale;
 }Transform;
 
+// 청사진 속의 가상의 오브젝트의 정보
+// Transform을 이용하여 청사진을 그리고, 이후 실제 맵에서 랜더링 할 것
 typedef struct Object
 {
 	std::string name;
@@ -61,6 +57,7 @@ typedef struct Object
 	}
 }Object;
 
+// 특정 오브젝트의 생성 개수를 결정하는 파라미터
 typedef enum GeneratorParameter
 {
 	None,
@@ -162,26 +159,23 @@ private:
 	bool** lastHolesMap = nullptr;
 	bool** lastLaddersMap = nullptr;
 
-	UINT xSize, zSize;
+	int xSize, zSize;
 
 public:
 	bool isPosNotInPOI(DirectX::XMFLOAT3 posToCheck, bool** roadsMap, bool** laddersMap);
 	bool IsPosAvailableByDistance(DirectX::XMFLOAT3 posToCheck, std::vector<DirectX::XMFLOAT3> otherPoses, float minDistance);
 	bool isPosInRangeOf(DirectX::XMFLOAT3 posToCheck, std::vector<DirectX::XMFLOAT3> otherPoses, float needDistance);
 	bool RoadIsNotPOI(int x, int z, std::vector<std::array<int, 2>> poi);
-	// Ÿ�� ����
-	void SpawnTile(int _i, int _a, float _x, float _z, DirectX::XMFLOAT3 _mapPos, Transform _parent, bool _isRoad, int _height);
-	// ���� ��ġ�� �����¿��� ����� ���� ���� ����Ͽ� ���� ū ���� ���̸� ���ϰ�
-	// ���� �� ���� ���̰� 1 �ʰ���� ���� ��ġ�� ��� ���̸� 1 �÷��� ��Ų��.
+	// 타일 생성
+	void SpawnTile(float _x, float _z, DirectX::XMFLOAT3 _mapPos, Transform _parent, int _height);
+	// 주변 높이에 따라, 해당 지형의 높낮이를 재지정하여 높낮이 완화
 	int** SmoothHeights(int** curentMap, int _x, int _z);
-	// �����¿츦 ��ȸ�ϸ�
-	// ���� ����Ʈ�� ������� 0 ~ 2��ŭ ���̸� ��½�Ų��.
+	// 주변 높낮이를 낮추어, 지형의 높낮이를 완화
 	int** SmoothHeightDown(int** curentMap, int _x, int _z);
-	//  RaiseHeight(heightMap, hX, hZ, maxHeightSize, maxHeightInTiles, holesMap, 0, _heightSmoothing);
+	// 지형의 높이 지정
 	int** RaiseHeight(int** curentMap, int _x, int _z, int maxSize, int maxHeight, bool** holesMap, int iteration, EnableDisable hs);
+	// 구멍 생성
 	bool** CreateHoles(bool** curentMap, int _x, int _z, int maxSize, int iteration);
-	bool IsNeighboringHigher(int** curentMap, int _x, int _z);
-	bool IsNeighboringHole(int _x, int _z, bool** curentHoles);
 	bool IsHole(int _x, int _z, bool** _holes);
 
 public:
@@ -189,10 +183,10 @@ public:
 	{
 		std::vector<std::vector<bool>> testRoadMap;
 		testRoadMap.resize(xSize);
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			testRoadMap[i].resize(zSize);
-			for (UINT j = 0; j < zSize; j++)
+			for (int j = 0; j < zSize; j++)
 			{
 				testRoadMap[i][j] = lastRoadsMap[i][j];
 			}
@@ -204,10 +198,10 @@ public:
 	{
 		std::vector<std::vector<int>> testHeightMap;
 		testHeightMap.resize(xSize);
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			testHeightMap[i].resize(zSize);
-			for (UINT j = 0; j < zSize; j++)
+			for (int j = 0; j < zSize; j++)
 			{
 				testHeightMap[i][j] = lastHeightMap[i][j];
 			}
@@ -219,10 +213,10 @@ public:
 	{
 		std::vector<std::vector<bool>> testHolesMap;
 		testHolesMap.resize(xSize);
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			testHolesMap[i].resize(zSize);
-			for (UINT j = 0; j < zSize; j++)
+			for (int j = 0; j < zSize; j++)
 			{
 				testHolesMap[i][j] = lastHolesMap[i][j];
 			}
@@ -234,10 +228,10 @@ public:
 	{
 		std::vector<std::vector<bool>> testLaddersMap;
 		testLaddersMap.resize(xSize);
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			testLaddersMap[i].resize(zSize);
-			for (UINT j = 0; j < zSize; j++)
+			for (int j = 0; j < zSize; j++)
 			{
 				testLaddersMap[i][j] = lastLaddersMap[i][j];
 			}
@@ -279,7 +273,7 @@ public:
 
 		if (lastRoadsMap)
 		{
-			for (UINT i = 0; i < xSize; i++)
+			for (int i = 0; i < xSize; i++)
 			{
 				delete(lastRoadsMap[i]);
 			}
@@ -289,7 +283,7 @@ public:
 		}
 		if (lastHeightMap)
 		{
-			for (UINT i = 0; i < xSize; i++)
+			for (int i = 0; i < xSize; i++)
 			{
 				delete(lastHeightMap[i]);
 			}
@@ -299,7 +293,7 @@ public:
 		}
 		if (lastHolesMap)
 		{
-			for (UINT i = 0; i < xSize; i++)
+			for (int i = 0; i < xSize; i++)
 			{
 				delete(lastHolesMap[i]);
 			}
@@ -309,7 +303,7 @@ public:
 		}
 		if (lastLaddersMap)
 		{
-			for (UINT i = 0; i < xSize; i++)
+			for (int i = 0; i < xSize; i++)
 			{
 				delete(lastLaddersMap[i]);
 			}
@@ -324,7 +318,7 @@ public:
 		bool** holesMap = new bool*[xSize];
 		bool** laddersMap = new bool*[xSize];
 
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			roadsMap[i]		= new bool[zSize];
 			heightMap[i]	= new int[zSize];
@@ -332,9 +326,9 @@ public:
 			laddersMap[i]	= new bool[zSize];
 		}
 
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
-			for (UINT j = 0; j < zSize; j++)
+			for (int j = 0; j < zSize; j++)
 			{
 				roadsMap[i][j]		= false;
 				heightMap[i][j]		= 0;
@@ -346,8 +340,8 @@ public:
 		std::vector<std::array<int, 2>> pointsOfInterest;
 
 		DirectX::XMVECTOR leftDownCorner = { 0, 0 };
-		DirectX::XMVECTOR rightTopCorner = { xSize, zSize };
-		float maxMapDistance = sqrt(pow(xSize, 2) + pow(zSize, 2));
+		DirectX::XMVECTOR rightTopCorner = { (float)xSize, (float)zSize };
+		float maxMapDistance = (float)sqrt(pow(xSize, 2) + pow(zSize, 2));
 
 		if (_POIs == EnableDisable::Enabled)
 		{
@@ -359,17 +353,23 @@ public:
 					trys++;
 
 					std::array<int, 2> newPoi = { 
-						Random::Rangefloat(0.0f, xSize), 
-						Random::Rangefloat(0.0f, zSize) 
+						Random::Rangefloat(0.0f, (float)xSize), 
+						Random::Rangefloat(0.0f, (float)zSize) 
 					};
 
-					// Skip - newPoi�� pointsOfInterest�� �������� ���� ��
+					// 새로운 POI를 생성하는데, 새로운 POI의 위치가 현재 POI의 위치에 가장 근접해 있는 POI를 기준으로 하여 minDistance를 업데이트
 					float minDistance = -1.0f;
 					for (int a = 0; a < pointsOfInterest.size(); a++)
 					{
-						DirectX::XMVECTOR firstPoint = { pointsOfInterest[a][0], pointsOfInterest[a][1] };
-						DirectX::XMVECTOR secondPoint = { newPoi[0], newPoi[1] };
-						float distance = sqrt(
+						DirectX::XMVECTOR firstPoint = { 
+							(float)pointsOfInterest[a][0], 
+							(float)pointsOfInterest[a][1]
+						};
+						DirectX::XMVECTOR secondPoint = { 
+							(float)newPoi[0],
+							(float)newPoi[1]
+						};
+						float distance = (float)sqrt(
 							pow(newPoi[0] - pointsOfInterest[a][0], 2) +
 							pow(newPoi[1] - pointsOfInterest[a][1], 2)
 						);
@@ -378,6 +378,8 @@ public:
 							minDistance = distance;
 					}
 
+					// 새로운 POI가 현재 POI보다 특정 기준 떨어져있다면
+					// 새로운 POI를 생성.
 					if (minDistance > (maxMapDistance / 4.0f) ||
 						minDistance < 0.0f ||
 						trys > xSize * zSize)
@@ -393,11 +395,12 @@ public:
 
 		if (_roads == EnableDisable::Enabled)
 		{
-			// ������ ������ POI�� ��������
+			// 두 POIs 내 위치에 road 생성여부를 결정한다.
 			for (int i = 0; i < pointsOfInterest.size(); i++)
 			{
 				for (int a = i; a < pointsOfInterest.size(); a++)
 				{
+					// 두 POI가 다를 때 두 POI 내의 영역에 오브젝트 생성 여부를 결정한다.
 					if (i != a)
 					{
 						bool createThisConnection = true;
@@ -479,10 +482,9 @@ public:
 		// HOLES CREATING
 		if (_holesCount != GeneratorParameter::None)
 		{
-			// ������ ������ �ɼǿ� ���� �����Ѵ�.
+			// 구멍 개수의 배수
 			float holesMultiplier = 0.0f;
 
-			// �ɼǿ� ���� ��Ƽ�ö��� ���� ���´�.
 			if (_holesCount == GeneratorParametr::Random) _holesCount = (GeneratorParametr)Random::RangeInt(1, 6);
 
 			if (_holesCount == GeneratorParametr::VeryLow) holesMultiplier = 0.1f;
@@ -491,10 +493,9 @@ public:
 			else if (_holesCount == GeneratorParametr::High) holesMultiplier = 0.4f;
 			else if (_holesCount == GeneratorParametr::VeryHigh) holesMultiplier = 0.5f;
 
-			// ������ ũ�⸦ �ɼǿ� ���� �����Ѵ�
+			// 구멍 사이즈 배수
 			float holesSizesMultiplier = 0.0f;
 
-			// �ɼǿ� ���� ��Ƽ�ö��� ���� ���´�.
 			if (_holesSizes == GeneratorParametr::Random || _holesSizes == GeneratorParametr::None) _holesSizes = (GeneratorParametr)Random::RangeInt(1, 6);
 
 			if (_holesSizes == GeneratorParametr::VeryLow) holesSizesMultiplier = 0.1f;
@@ -503,22 +504,21 @@ public:
 			else if (_holesSizes == GeneratorParametr::High) holesSizesMultiplier = 0.85f;
 			else if (_holesSizes == GeneratorParametr::VeryHigh) holesSizesMultiplier = 1.0f;
 
-			// ���� ûũ�� ���簢���̸�, x�� z �� � ���� ���̰� ������
+			// 전체 면적 width, height에서 작은 길이를 얻어온다
 			int minSide = zSize < xSize ? zSize : xSize;
 
-			// ������ ������ ���Ѵ�.
+			// 구멍 개수 결정
 			int holesCountToCreate = (int)((float)minSide * holesMultiplier);
-			// ������ ����� ���Ѵ�.
+			// 최대 구멍 사이즈 결정
 			int maxHoleSize = (int)(((float)minSide * 0.3f) * holesSizesMultiplier);
 
-			// ������ ������ŭ Ȧ�� �����Ѵ�.
 			for (int i = 0; i < holesCountToCreate; i++)
 			{
-				// �������� ������ ��ġ�� ���ϰ�
+				// 구멍 위치를 랜덤으로 결정
 				int hX = Random::RangeInt(0, xSize);
 				int hZ = Random::RangeInt(0, zSize);
 
-				// ������ ����
+				// 구멍 생성
 				holesMap = CreateHoles(holesMap, hX, hZ, maxHoleSize, 0);
 			}
 		}
@@ -526,14 +526,11 @@ public:
 		//-------------------------------------------------------------
 
 		//HEIGHTS CREATING --------------------------------------------
-		// ���� �Ķ���Ͱ� None�� �ƴϸ�
 		if (_heightsCount != GeneratorParametr::None)
 		{
-			// ���� ���
+			// 지형 높이 배수
 			float heightsMultiplier = 0.0f;
 
-			// �����̸� ���� ����� (1~6)�� ��������
-			// ������ �ƴϸ� ������ �Ķ���ͷ� heightsMultiplier�� ����
 			if (_heightsCount == GeneratorParametr::Random) _heightsCount = (GeneratorParametr)Random::RangeInt(1, 6);
 
 			if (_heightsCount == GeneratorParametr::VeryLow) heightsMultiplier = 0.1f;
@@ -542,7 +539,7 @@ public:
 			else if (_heightsCount == GeneratorParametr::High) heightsMultiplier = 0.4f;
 			else if (_heightsCount == GeneratorParametr::VeryHigh) heightsMultiplier = 0.5f;
 
-			// ���� ������ ��� 
+			// 지형 최대 높이 배수
 			float heightsSizesMultiplier = 0.0f;
 
 			if (_heightsSizes == GeneratorParametr::Random || _heightsSizes == GeneratorParametr::None) _heightsSizes = (GeneratorParametr)Random::RangeInt(1, 6);
@@ -553,14 +550,14 @@ public:
 			else if (_heightsSizes == GeneratorParametr::High) heightsSizesMultiplier = 0.85f;
 			else if (_heightsSizes == GeneratorParametr::VeryHigh) heightsSizesMultiplier = 1.0f;
 
-			// ���� ûũ�� ���簢���� ��� ���ο� ������ �� ª�� ���� ����
+			// 전체 면적 width, height에서 작은 길이를 얻어온다
 			int minSide = zSize < xSize ? zSize : xSize;
-			// ª�� ���� ���̿� ���߾� �ִ� ���� ����
+			// 높이 개수 결정
 			int heightsCountToCreate = (int)((float)minSide * heightsMultiplier);
-			// 
+			// 최대 높이 결정
 			int maxHeightSize = (int)(((float)minSide * 0.4f) * heightsSizesMultiplier);
 
-			// Ÿ�� �� �ִ� ����
+			// 타일의 최대 높이
 			int maxHeightInTiles = 0;
 
 			if (_maxHeight == GeneratorParametr::Random || _maxHeight == GeneratorParametr::None) _maxHeight = (GeneratorParametr)Random::RangeInt(1, 6);
@@ -571,13 +568,13 @@ public:
 			else if (_maxHeight == GeneratorParametr::High) maxHeightInTiles = 4;
 			else if (_maxHeight == GeneratorParametr::VeryHigh) maxHeightInTiles = 5;
 
-			// 
+			// 지형의 높이 업데이트
 			for (int i = 0; i < heightsCountToCreate; i++)
 			{
-				// �������� ���� ���� �� ��ġ �����ϰ�
+				// 랜덤으로 위치를 하나 잡고
 				int hX = Random::RangeInt(0, xSize);
 				int hZ = Random::RangeInt(0, zSize);
-				// ���� ����
+				// 높이 업데이트
 				heightMap = RaiseHeight(heightMap, hX, hZ, maxHeightSize, maxHeightInTiles, holesMap, 0, _heightSmoothing);
 			}
 		}
@@ -587,12 +584,10 @@ public:
 		//HEIGHT SMOOTING----------------------------------------------
 		if (_heightSmoothing == EnableDisable::Enabled)
 		{
-			// ��ü ���� ��ȸ�ϸ鼭
-			for (UINT i = 0; i < xSize; i++)
+			for (int i = 0; i < xSize; i++)
 			{
-				for (UINT a = 0; a < zSize; a++)
+				for (int a = 0; a < zSize; a++)
 				{
-					// ���̰��� �ϸ��ϰ� �����.
 					SmoothHeights(heightMap, i, a);
 				}
 			}
@@ -601,32 +596,30 @@ public:
 
 		//ROADS-------------------------------------------------------- 
 		float roadsSumHeights = 0.0f;
-		// ûũ�� ��� ����� ��ȸ�ϸ�
-		for (UINT i = 0; i < xSize; i++)
+		// 모든 지형의 높이 합을 구함
+		for (int i = 0; i < xSize; i++)
 		{
-			for (UINT a = 0; a < zSize; a++)
+			for (int a = 0; a < zSize; a++)
 			{
-				// ��� ����� ������ ���� ���Ѵ�.
 				roadsSumHeights += heightMap[i][a];
 			}
 		}
 
-		// �׸��� ������ ����� ���Ѵ�.
+		// 모든 지형의 높이의 평균
 		int roadsHeight = (int)(ceil(roadsSumHeights / (xSize * zSize)));
 
-		// ���� POI�� isRoad�� Enabled �Ǿ��ٸ�
+		// 지형이 POI이면서 roads 생성이 허용된 경우
 		if (_POIs == EnableDisable::Enabled && _roads == EnableDisable::Enabled)
 		{
-			// POI ����Ʈ�� ��ȸ�ϸ�
 			for (int i = 0; i < pointsOfInterest.size(); i++)
 			{
-				// POI ��ġ�� ���
 				int xPos = pointsOfInterest[i][1];
 				int zPos = pointsOfInterest[i][0];
-				// ������ �Ųٰ�
+
+				// road 생성을 위하여, POI위치의 구멍을 매꾼다
 				holesMap[xPos][zPos] = false;
-				// �����¿� ��ȸ�� �ϸ�
-				// ���� POI�� �����¿� ����� ��� ������ ��źȭ �Ѵ�.
+
+				// poi를 기준으로 상하좌우 평탄화 시킴.
 				if (xPos + 1 < xSize)
 				{
 					heightMap[xPos + 1][zPos] = roadsHeight;
@@ -661,18 +654,16 @@ public:
 				}
 			}
 
-			// �׸��� ��ü ûũ�� ��ȸ�ϸ�
-			for (UINT i = 0; i < xSize; i++)
+			for (int i = 0; i < xSize; i++)
 			{
-				for (UINT a = 0; a < zSize; a++)
+				for (int a = 0; a < zSize; a++)
 				{
-					// ���� �ε���� �ڸ����
+					// 만일 해당 위치에 로드 생성이 허용된 경우
 					if (roadsMap[i][a])
 					{
-						// ���̸� ������� ��źȭ ��Ű��
+						// 높이를 평탄화시킴.
 						heightMap[a][i] = roadsHeight;
-						// �����¿츦 ��ȸ�ϸ�
-						// ���� ����Ʈ�� ��Ϻ��� ���̸� 0 ~ 2��ŭ ��� ��Ų��.
+						// 주변 경사 또한 스무스 시킴
 						SmoothHeightDown(heightMap, a, i);
 					}
 				}
@@ -699,8 +690,7 @@ public:
 						bool up = false;
 						bool down = false;
 
-						// �����¿츦 ��ȸ�ϸ�
-						// ���� ���� ����� ���̺��� 1��ŭ ��ٸ� �ش� ������ Boolean���� true�� �����.
+						// 상하좌우의 지형 중 현재 지형보다 높이가 1 높은 지형을 찾아, 해당 지형에 사다리를 둘 것을 명시.
 						if (i + 1 < xSize)
 						{
 							if (!holesMap[i + 1][a] && !laddersMap[i + 1][a])
@@ -730,13 +720,14 @@ public:
 							}
 						}
 
-						// ���� �����¿� �� ���� ����� ���̺��� 1��ŭ ū ����� "�� �ϳ���" ���� �Ѵٸ�
-						// ���� ���� ���̸� ħ���ϴ��� ���θ� �˻��ϰ�
-						// 
-						// ��, ���� ���, �� �Ǵ� ��, ���� ���, �쿡 ������ ���� ��
-						// y = 0 �׸��� needSpawn true
+						// 사다리가 상,하,좌,우로 생성 되면서 로테이션 되어야 하는 경우가 있기 때문에 y축 회전 저장을 위한 y
 						float y = 0;
+						// 사다리가 생성 되어야 하는지의 여부
 						bool needSpawn = false;
+
+						// 사다리가 상하좌우 중 사다리가 생성되는 방향을 고려하고,
+						// 만일 앞에 사다리가 생성되어야 하는 경우, 좌우에 구멍이 뚫려있는지 여부를 검사한 후 해당 검사에 통과하였다면 앞에 사다리를 생성한다.
+						// 다른 경우도 다음과 같다.
 						if (right && !left && !down && !up) //Ladder to right
 						{
 							if (i - 1 >= 0)
@@ -794,12 +785,13 @@ public:
 							}
 						}
 
+						// 사다리 생성 여부가 확정된경우
 						if (needSpawn)
 						{
 							if (Random::RangeInt(0, 100) < _laddersChance)
 							{
 								laddersMap[i][a] = true;
-								Object* ladder = Instantiate(laddersTiles[Random::RangeInt(0, laddersTiles.size())]);
+								Object* ladder = Instantiate(laddersTiles[Random::RangeInt(0, (int)laddersTiles.size())]);
 								ladder->transform.position = { 
 									i * 2.0f, 
 									_mapPos.y + (heightMap[a][i] * 2.0f), 
@@ -824,18 +816,14 @@ public:
 		{
 			for (int a = 0; a < zSize; a++)
 			{
-				// ������ ���� ���
+				// 구멍이 없는 지형에 타일을 생성
 				if (!holesMap[i][a])
 				{
-					// 
 					SpawnTile(
-						i,
-						a,
 						x,
 						z,
 						mapPosition,
 						map->transform,
-						roadsMap[a][i],
 						heightMap[i][a]
 					);
 				}
@@ -850,10 +838,8 @@ public:
 		//POIS SPAWNING------------------------------------------------
 		if (_POIs == EnableDisable::Enabled)
 		{
-			// ��� POI�� ��ȸ�Ѵ�.
 			for (int i = 0; i < pointsOfInterest.size(); i++)
 			{
-				// POI ��ġ�� ���
 				int xPos = pointsOfInterest[i][1];
 				int zPos = pointsOfInterest[i][0];
 				Object* poiObj = nullptr;
@@ -861,8 +847,8 @@ public:
 				// POI start, end
 				if (i == 0) poiObj = Instantiate(startTile);
 				else if (i == 1) poiObj = Instantiate(endTile);
-				// POI �� �������� �ϳ� ��� ������
-				else poiObj = Instantiate(interestPointTiles[Random::RangeInt(0, interestPointTiles.size())]);
+				// POI 
+				else poiObj = Instantiate(interestPointTiles[Random::RangeInt(0, (int)interestPointTiles.size())]);
 
 				// ���� ���̸� ����Ͽ� �������� ����
 				poiObj->transform.position = { 
@@ -913,7 +899,8 @@ public:
 		if (_POIs == EnableDisable::Enabled && _roads == EnableDisable::Enabled)
 		{
 			int bridgeNumber = -1;
-			if (roadBridges.size() > 0) bridgeNumber = Random::RangeInt(0, roadBridges.size());
+			if ((int)roadBridges.size() > 0) bridgeNumber = 
+				Random::RangeInt(0, (int)roadBridges.size());
 			for (int i = 0; i < xSize; i++)
 			{
 				for (int a = 0; a < zSize; a++)
@@ -1168,7 +1155,13 @@ public:
 						{
 							if (holesMap[a][i])
 							{
-								SpawnTile(i, a, (i * 2), (a * 2), mapPosition, map->transform, true, heightMap[a][i]);
+								SpawnTile(
+									(i * 2.0f), 
+									(a * 2.0f), 
+									mapPosition, 
+									map->transform, 
+									heightMap[a][i]
+								);
 							}
 						}
 
@@ -1194,7 +1187,8 @@ public:
 		lastLaddersMap = laddersMap;
 		lastMap = *map;
 	}
-	// ��Ÿ �ڿ��� �������� ��ġ 
+
+	// 지형 외의 오브젝트를 생성
 	void AdditionalFilling(
 		GeneratorParametr _additionalFilling, 
 		int sizeOfMap, 
@@ -1211,22 +1205,21 @@ public:
 			_additionalFilling = (GeneratorParametr)Random::RangeInt(1, 6);
 		if (_additionalFilling != GeneratorParametr::None)
 		{
-			// �ϳ��� ûũ�� 1/25ũ��� ������ _additionalFilling ��ŭ ������Ʈ�� �����Ѵ�.
-			// _additionalFilling�� Ŭ ���� �ϳ��� ������ ���� ������ �ڿ��� ��ġ�� Ȯ���� ũ��.
+			// 오브젝트가 생성될 범위(원)의 반지름을 결정한다.
+			// _additionalFilling 가중치를 통하여 오브젝트 그룹 범위가 줄어든다.
 			int countsCycle = (int)(((float)sizeOfMap / 5.0f)) * (int)_additionalFilling;
 
-			// ���� ũ��
-			// _additionalFilling�� Ŭ ���� ���� ���� �κп� ������Ʈ�� �����Ѵ�.
+			// 오브젝트 군집이 생성되는 원들의 범위를 결정 (빽빽하게 또는 듬성듬성)
 			float circlesRange = ((float)sizeOfMap / 6.0f) + (((float)sizeOfMap / 30.0f) * (int)_additionalFilling);
 
-			// �� �ϳ� �� ������Ʈ ����
+			// 한 원 당 생성되는 오브젝트 개수
 			float objectsCounts = sizeOfMap / 2.5f + ((sizeOfMap / 6) * (int)_additionalFilling);
 
 			DirectX::XMVECTOR rayOrigin;
 			DirectX::XMVECTOR rayDown = { 0.0f, -1.0f, 0.0f, 0.0f };
 			float tmin = 0.0f;
 
-			// ��� ���繰�� transform�� ��� ����Ʈ
+			// 
 			std::vector<DirectX::XMFLOAT3> treesPoints;
 			std::vector<DirectX::XMFLOAT3> bushsPoints;
 			std::vector<DirectX::XMFLOAT3> bigStonesPoints;
@@ -1234,11 +1227,9 @@ public:
 			std::vector<DirectX::XMFLOAT3> branchsPoints;
 			std::vector<DirectX::XMFLOAT3> logsPoints;
 
-			// ����Ŭ ��ŭ �ݺ��ϸ鼭 ������Ʈ�� ����
+			// 원의 개수 만큼 반복
 			for (int a = 0; a < countsCycle; a++)
 			{
-				// �� ������ �������� ������Ʈ�� ���� ��ġ�� ����.
-				// y�� 15�� ������ ���߿��� ���̸� ��, �ٴڿ� ���� ��� ������Ʈ�� ���� ��Ű�� ����
 				DirectX::XMFLOAT3 circleTreesPos = {
 					Random::Rangefloat(0.0f, sizeOfMap * 2.0f),
 					15.0f,
@@ -1246,30 +1237,30 @@ public:
 				};
 
 				tmin = 0.0f;
-				// �� �ϳ��� ������Ʈ ���� ��ŭ ����
 				for (int i = 0; i < objectsCounts; i++) //Trees
 				{
 					DirectX::XMFLOAT3 hitPoint;
 
-					// ���߿��� ���� x, z�� �������� �ϴ� ���� ���� ������ circlesRange ���� �������� �� �ϳ��� ����
+					// 원 내에 랜덤으로 점 하나를 찍고
 					DirectX::XMFLOAT3 rayPos = circleTreesPos;
 					rayPos.x += Random::Rangefloat(-circlesRange, circlesRange);
 					rayPos.z += Random::Rangefloat(-circlesRange, circlesRange);
 
+					// 해당 점을 광선의 시작 포인트로 잡는다
 					rayOrigin = DirectX::XMLoadFloat3(&rayPos);
 
-					// �� ������ ���� ���� �Ʒ��������� ���̸� ������ ���� �� �κп� ���� ������Ʈ�� ����
+					// 광선이 만일 지형에 닿았을 경우
 					if (isTargetHitRay(rayOrigin, rayDown, hitPoint, boundBoxs))
 					{
-						// �������� �����Ǿ� ������ ����� �����ֱ� ����.
+						// 나무가 생성 될 위치가 hit 범위의 1.5f 반경 내에 있는지 여부 
 						bool isInnerPoint = IsPosAvailableByDistance(hitPoint, treesPoints, 1.5f);
 						bool isInnerPOI = isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap);
 
 						if (isInnerPoint && isInnerPOI)
 						{
-							// �������� ���� �ϳ��� ��� ��Ʈ ����Ʈ�� �ɴ´�
+							// 나무 오브젝트 생성, 추가
 							Object* tree = Instantiate(
-								treesPrefabs[Random::RangeInt(0, treesPrefabs.size())],
+								treesPrefabs[Random::RangeInt(0, (int)treesPrefabs.size())],
 								hitPoint,
 								lastMap.transform
 							);
@@ -1278,7 +1269,7 @@ public:
 								Random::Rangefloat(0.0f, 360.0f),
 								Random::Rangefloat(-7.5f, 7.5f)
 							};
-							// ��� ���� ��ġ ����
+							
 							treesPoints.push_back(hitPoint);
 						}
 					}
@@ -1303,7 +1294,7 @@ public:
 							)
 						{
 							Object* tree = Instantiate(
-								bushsPrefabs[Random::RangeInt(0, bushsPrefabs.size())], 
+								bushsPrefabs[Random::RangeInt(0, (int)bushsPrefabs.size())],
 								hitPoint, 
 								lastMap.transform
 							);
@@ -1331,7 +1322,7 @@ public:
 							)
 						{
 							Object* tree = Instantiate(
-								grassPrefabs[Random::RangeInt(0, grassPrefabs.size())], 
+								grassPrefabs[Random::RangeInt(0, (int)grassPrefabs.size())],
 								hitPoint, 
 								lastMap.transform
 							);
@@ -1357,7 +1348,7 @@ public:
 						if (isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
 						{
 							Object* tree = Instantiate(
-								littleStonesPrefabs[Random::RangeInt(0, littleStonesPrefabs.size())],
+								littleStonesPrefabs[Random::RangeInt(0, (int)littleStonesPrefabs.size())],
 								hitPoint, 
 								lastMap.transform
 							);
@@ -1387,7 +1378,7 @@ public:
 						)
 					{
 						Object* tree = Instantiate(
-							grassPrefabs[Random::RangeInt(0, grassPrefabs.size())],
+							grassPrefabs[Random::RangeInt(0, (int)grassPrefabs.size())],
 							hitPoint, 
 							lastMap.transform
 						);
@@ -1417,7 +1408,7 @@ public:
 						isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
 					{
 						Object* tree = Instantiate(
-							bigStonesPrefabs[Random::RangeInt(0, bigStonesPrefabs.size())],
+							bigStonesPrefabs[Random::RangeInt(0, (int)bigStonesPrefabs.size())],
 							hitPoint, 
 							lastMap.transform
 						);
@@ -1448,7 +1439,7 @@ public:
 						)
 					{
 						Object* tree = Instantiate(
-							branchsPrefabs[Random::RangeInt(0, branchsPrefabs.size())],
+							branchsPrefabs[Random::RangeInt(0, (int)branchsPrefabs.size())],
 							hitPoint, 
 							lastMap.transform
 						);
@@ -1478,7 +1469,7 @@ public:
 						isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
 					{
 						Object* tree = Instantiate(
-							logsPrefabs[Random::RangeInt(0, logsPrefabs.size())],
+							logsPrefabs[Random::RangeInt(0, (int)logsPrefabs.size())],
 							hitPoint, 
 							lastMap.transform
 						);

@@ -56,6 +56,10 @@ void Particle::setOnPlayAwake(bool onPlayAwake)
 {
 	this->mPlayOnAwake = onPlayAwake;
 }
+void Particle::setRotation(DirectX::XMVECTOR rotation)
+{
+	this->mRotation = rotation;
+}
 void Particle::setMinAcc(DirectX::XMFLOAT3 minAcc)
 {
 	this->mMinAcc = minAcc;
@@ -107,13 +111,38 @@ void Particle::Generator()
 	std::random_device rd;
 	std::mt19937 gen(rd());
 
-	std::uniform_real_distribution<float> accX(this->mMinAcc.x, this->mMaxAcc.x);
-	std::uniform_real_distribution<float> accY(this->mMinAcc.y, this->mMaxAcc.y);
-	std::uniform_real_distribution<float> accZ(this->mMinAcc.z, this->mMaxAcc.z);
+	// Accumulator, Velocity Vector에 로테이션을 적용.
+	DirectX::XMVECTOR mAdMin = DirectX::XMLoadFloat3(&this->mMinAcc);
+	mAdMin = DirectX::XMVector3Transform(
+		mAdMin, 
+		DirectX::XMMatrixRotationRollPitchYawFromVector(this->mRotation)
+	);
 
-	std::uniform_real_distribution<float> veloX(this->mMinVelo.x, this->mMaxVelo.x);
-	std::uniform_real_distribution<float> veloY(this->mMinVelo.y, this->mMaxVelo.y);
-	std::uniform_real_distribution<float> veloZ(this->mMinVelo.z, this->mMaxVelo.z);
+	DirectX::XMVECTOR mAdMax = DirectX::XMLoadFloat3(&this->mMaxAcc);
+	mAdMax = DirectX::XMVector3Transform(
+		mAdMax,
+		DirectX::XMMatrixRotationRollPitchYawFromVector(this->mRotation)
+	);
+
+	std::uniform_real_distribution<float> accX(mAdMin.m128_f32[0], mAdMax.m128_f32[0]);
+	std::uniform_real_distribution<float> accY(mAdMin.m128_f32[1], mAdMax.m128_f32[1]);
+	std::uniform_real_distribution<float> accZ(mAdMin.m128_f32[2], mAdMax.m128_f32[2]);
+
+	mAdMin = DirectX::XMLoadFloat3(&this->mMinVelo);
+	mAdMin = DirectX::XMVector3Transform(
+		mAdMin,
+		DirectX::XMMatrixRotationRollPitchYawFromVector(this->mRotation)
+	);
+
+	mAdMax = DirectX::XMLoadFloat3(&this->mMaxVelo);
+	mAdMax = DirectX::XMVector3Transform(
+		mAdMax,
+		DirectX::XMMatrixRotationRollPitchYawFromVector(this->mRotation)
+	);
+
+	std::uniform_real_distribution<float> veloX(mAdMin.m128_f32[0], mAdMax.m128_f32[0]);
+	std::uniform_real_distribution<float> veloY(mAdMin.m128_f32[1], mAdMax.m128_f32[1]);
+	std::uniform_real_distribution<float> veloZ(mAdMin.m128_f32[2], mAdMax.m128_f32[2]);
 
 	if (this->mIsFilled)
 	{

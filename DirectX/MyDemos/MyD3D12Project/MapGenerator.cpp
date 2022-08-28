@@ -84,7 +84,7 @@ MapGenerator::~MapGenerator()
 {
 	if (lastRoadsMap)
 	{
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			delete(lastRoadsMap[i]);
 		}
@@ -94,7 +94,7 @@ MapGenerator::~MapGenerator()
 	}
 	if (lastHeightMap)
 	{
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			delete(lastHeightMap[i]);
 		}
@@ -104,7 +104,7 @@ MapGenerator::~MapGenerator()
 	}
 	if (lastHolesMap)
 	{
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			delete(lastHolesMap[i]);
 		}
@@ -114,7 +114,7 @@ MapGenerator::~MapGenerator()
 	}
 	if (lastLaddersMap)
 	{
-		for (UINT i = 0; i < xSize; i++)
+		for (int i = 0; i < xSize; i++)
 		{
 			delete(lastLaddersMap[i]);
 		}
@@ -153,7 +153,11 @@ bool MapGenerator::isPosNotInPOI(DirectX::XMFLOAT3 posToCheck, bool** roadsMap, 
 	else
 		return false;
 }
-bool MapGenerator::IsPosAvailableByDistance(DirectX::XMFLOAT3 posToCheck, std::vector<DirectX::XMFLOAT3> otherPoses, float minDistance)
+bool MapGenerator::IsPosAvailableByDistance(
+	DirectX::XMFLOAT3 posToCheck, 
+	std::vector<DirectX::XMFLOAT3> otherPoses, 
+	float minDistance
+)
 {
 	float minDistanceWeHas = -1.0f;
 
@@ -206,63 +210,34 @@ bool MapGenerator::RoadIsNotPOI(int x, int z, std::vector<std::array<int, 2>> po
 
 	return roadIsNotPoi;
 }
-// Ÿ�� ����
-void MapGenerator::SpawnTile(int _i, int _a, float _x, float _z, DirectX::XMFLOAT3 _mapPos, Transform _parent, bool _isRoad, int _height)
+// 생성된 베이스 지형에 타일 생성
+void MapGenerator::SpawnTile(float _x, float _z, DirectX::XMFLOAT3 _mapPos, Transform _parent, int _height)
 {
-	// �������� Ÿ���� ����
-	Object* newPart = Instantiate(tiles[Random::RangeInt(0, tiles.size())]);
-	// ���� �� ���� �����Ǵ� Ÿ���� ��Ÿ
+	// 랜덤 타입의 타일을 하나 생성 후
+	Object* newPart = Instantiate(tiles[Random::RangeInt(0, (int)tiles.size())]);
+	// 현재 지형의 높이 값을 가지고 옴
 	float posY = _mapPos.y;
-	// ���� ����
+	// 그리고 해당 타일이 지형으로 부터 얼마만큼 떨어질 것인지 오프셋도 저장
 	int heightForThisTile = _height;
 
-	// Ÿ���� ���� ���
+	// 만일 타일이 지형과의 오프셋 거리를 가지고 있다면
 	if (heightForThisTile > 0)
 	{
-		// ���� ���� + ���� �� �� �����Ǵ� Ÿ���� ��Ÿ = 
-		// ���� Ÿ���� ����
 		posY += (heightForThisTile * 2.0f);
 	}
-	// ���������� Ÿ����ġ ����
+	// 새로운 타일의 위치를 최신화
 	newPart->transform.position = { _mapPos.x + _x, posY, _mapPos.z + _z };
-
-	//// Ÿ���� �� ��° ���ϵ� �������� ��ġ�� ����
-	//if (heightForThisTile > 0)
-	//{
-	//	newPart->transform.GetChild(1).localScale = new Vector3(1f, 1f + (heightForThisTile * 1.2f), 1f);
-	//	newPart->transform.GetChild(1).localPosition = new Vector3(0f, -0.7f * heightForThisTile, 0f);
-	//}
-
-	// �������� Ÿ���� ȸ����Ų��.
-	//int rotRandom = Random::RangeInt(0, 4);
-	//if (rotRandom == 0)
-	//{
-	//	newPart->transform.rotation = { 0.0f, 90.0f, 0.0f };
-	//}
-	//else if (rotRandom == 1)
-	//{
-	//	newPart->transform.rotation = { 0.0f, 180.0f, 0.0f };
-	//}
-	//else if (rotRandom == 2)
-	//{
-	//	newPart->transform.rotation = { 0.0f, 270.0f, 0.0f };
-	//}
-	//else
-	//{
-	//	newPart->transform.rotation = { 0.0f, 0.0f, 0.0f };
-	//}
 	newPart->transform.setParent(_parent);
 }
 
-// ���� ��ġ�� �����¿��� ����� ���� ���� ����Ͽ� ���� ū ���� ���̸� ���ϰ�
-// ���� �� ���� ���̰� 1 �ʰ���� ���� ��ġ�� ��� ���̸� 1 �÷��� ��Ų��.
+// 지형의 높낮이를 완화
 int** MapGenerator::SmoothHeights(int** curentMap, int _x, int _z)
 {
-	// ���� ��ġ�� ���� ��
+	// 현재 지형의 높이를 얻어서
 	int myHeight = curentMap[_x][_z];
 	int heightDifference = 0;
 
-	// �����¿��� ������ ���� ����Ͽ� ���� ���̰� ���� ���� ����� ���ϰ�
+	// 상하좌우의 지형의 높이와의 격차를 구하여 최대 격차를 구한다.
 	if (_z - 1 > 0)
 	{
 		int difference = curentMap[_x][_z - 1] - myHeight;
@@ -284,21 +259,23 @@ int** MapGenerator::SmoothHeights(int** curentMap, int _x, int _z)
 		if (difference > heightDifference) heightDifference = difference;
 	}
 
-	// �� ���� 1���� ũ�ٸ� ���� ����� ���̸� 1���� ��Ų��.
+	// 추후 최대 격차가 1을 초과하였다면, 현재 지형의 높이를 1추가한다.
 	if (heightDifference > 1)
 		curentMap[_x][_z] = myHeight + 1;
 
 	return curentMap;
 }
-// �����¿츦 ��ȸ�ϸ�
-// ���� ����Ʈ�� ������� 0 ~ 2��ŭ ���̸� ��½�Ų��.
+
+// 지형의 높낮이를 완화(현재 지형을 낮추는 방향으로)
 int** MapGenerator::SmoothHeightDown(int** curentMap, int _x, int _z)
 {
-	// ���� ����Ʈ�� ���̰�
+	// 현재 지형의 높이를 구하여
 	int myHeight = curentMap[_x][_z];
 
-	// �����¿츦 ��ȸ�ϸ�
-	// ���� ����Ʈ�� ������� 0 ~ 2��ŭ ���̸� ��½�Ų��.
+	// 상하좌우 지형의 높이보다 낮은지 체크
+	// 만일 상하좌우 중 지형이 높은 곳이 있다면, (현재 지형 높이 ~ +2)까지 범위에서
+	// 랜덤된 값을 해당 지형의 높이로 변경하고
+	// 이와 같은 작업을 재귀한다.
 	if (_z - 1 > 0)
 	{
 		if (curentMap[_x][_z - 1] > myHeight)
@@ -335,22 +312,22 @@ int** MapGenerator::SmoothHeightDown(int** curentMap, int _x, int _z)
 	return curentMap;
 }
 
-//  RaiseHeight(heightMap, hX, hZ, maxHeightSize, maxHeightInTiles, holesMap, 0, _heightSmoothing);
+// 특정 지점을 기준으로 주위 지형과 함께 상승시킴
 int** MapGenerator::RaiseHeight(int** curentMap, int _x, int _z, int maxSize, int maxHeight, bool** holesMap, int iteration, EnableDisable hs)
 {
-	// heightsSmooth�� true�鼭 ��ó�� ������ ���ų�, heightsSmooth�� false�̸�
+	// 만일 heightSmooth 기능이 ON 되어있고, 주위 지형에 구멍이 없거나 또는
+	// heightSmooth 기능이 OFF 되어있는 경우 
 	if ((hs == EnableDisable::Enabled &&
 		!IsNeighboringHole(_x, _z, holesMap)) ||
 		hs == EnableDisable::Disabled)
 	{
-		// �ִ� ���̰� �ƴ� �̻� ���̸� 1�� �ø���
+		// 해당 지형의 높이가 최대 높이 보다 작다면 높이를 1 상승
 		if (curentMap[_x][_z] < maxHeight)
 			curentMap[_x][_z] += 1;
 
-		// ��ó�� �߰������� ���̰� �ö� ����� ���� Ȯ���� ���Ѵ�.
+		// 확률을 생성하여 주위의 지형 또한 상승 시킬 것인지를 랜덤으로 판별
 		float chanceForAdditionalHeight = 100.0f;
 
-		// iteration�� ũ��� changeforAdditionalHeight�� ����Ѵ�.
 		int anywayHeights = (int)(floor(((float)maxSize / 1.35f)));
 		if (iteration > anywayHeights)
 		{
@@ -359,8 +336,7 @@ int** MapGenerator::RaiseHeight(int** curentMap, int _x, int _z, int maxSize, in
 
 		iteration++;
 
-		// x, z�� heightMap�� ���ֿ� ����� �ʰ� �ϸ鼭, chanceForAdditionHeight Ȯ���� ������ �Ͽ��ٸ�
-		// �ٹ濡 �߰� ���̸� �����Ѵ�.
+		// 상하좌우를 돌며 만일 랜덤 값에 성사 된다면 재귀적으로 해당 지형도 높이를 상승 시킴
 		if (_z - 1 > 0 && Random::RangeInt(0, 100) < (chanceForAdditionalHeight * Random::Rangefloat(0.75f, 1.0f)))
 		{
 			curentMap = RaiseHeight(curentMap, _x, _z - 1, maxSize, maxHeight, holesMap, iteration, hs);
@@ -380,62 +356,60 @@ int** MapGenerator::RaiseHeight(int** curentMap, int _x, int _z, int maxSize, in
 	}
 	return curentMap;
 }
-// CreateHoles(holesMap, hX, hZ, maxHoleSize, 0);
-// _x, _z : ���� ������ ��ġ
-// maxSize: ������ �ִ� ũ��
-// iteration: recursion iterator
+
+// 지형에 구멍 생성
 bool** MapGenerator::CreateHoles(bool** curentMap, int _x, int _z, int maxSize, int iteration)
 {
-	// Hole Map�� x, z��ġ�� false �� ���
-	// �� �ű� Hole�� ���
+	// 만일 구멍 여부가 false라면
 	if (!curentMap[_x][_z])
 	{
-		// Hole�� ����
+		// 현재 지형에 구멍을 생성
 		curentMap[_x][_z] = true;
-		// �ٹ濡 �߰����� ������ ������� Ȯ���� ����
+
+		// 확률을 지정하여 주변의 땅에도 랜덤으로 구멍을 생성
 		float chanceForAdditionalHole = 100.0f;
-		// �ٸ� ����� Ȧ�� ���� ����
 		int anywayHoles = (int)(floor(((float)maxSize / 1.25f)));
 
-		// �����¿� ����� ������ ���� Ȯ���� ����. (�����)
+		// 구멍 생성이 거듭 될 수록 확률이 줄어들어야 함으로 iteration에 따른 확률을 재생성
 		if (iteration > anywayHoles)
 		{
-			// iteration�� factor�� chanceForAdditionalHole�� �������� �ȴ�.
-			chanceForAdditionalHole = 100.0f - ((100.0f / (float)(maxSize - anywayHoles)) * ((float)(iteration - anywayHoles)));
+			chanceForAdditionalHole = 
+				100.0f - 
+				(	
+					(100.0f / (float)(maxSize - anywayHoles)) * 
+					((float)(iteration - anywayHoles))
+				);
 		}
 
+		// 구멍 생성 반복++
 		iteration++;
 
 
 		if (iteration < maxSize)
 		{
-			// ���� ���ָ� ����� �ʰ�, �߰������� ������ �ո� Ȯ���� �����Ѵٸ�
+			// 상하좌우를 돌며, 만일 해당 확률에 성립되었다면 해당 위치를 재귀적으로 구멍생성
 			if (_z - 1 > 0 &&
 				Random::RangeInt(0, 100) < (chanceForAdditionalHole * Random::Rangefloat(0.75f, 1.0f))
 				)
 			{
-				// �Ʒ��� ����� ������ �߰� ����
 				curentMap = CreateHoles(curentMap, _x, _z - 1, maxSize, iteration);
 			}
 			if (_z + 1 < (sizeof(curentMap[0]) / sizeof(bool)) &&
 				Random::RangeInt(0, 100) < (chanceForAdditionalHole * Random::Rangefloat(0.75f, 1.0f))
 				)
 			{
-				// ���� ����� ������ �߰� ����
 				curentMap = CreateHoles(curentMap, _x, _z + 1, maxSize, iteration);
 			}
 			if (_x - 1 > 0 &&
 				Random::RangeInt(0, 100) < (chanceForAdditionalHole * Random::Rangefloat(0.75f, 1.0f))
 				)
 			{
-				// ���� ����� ������ �߰� ����
 				curentMap = CreateHoles(curentMap, _x - 1, _z, maxSize, iteration);
 			}
 			if (_x + 1 < (sizeof(curentMap) / sizeof(curentMap[0])) &&
 				Random::RangeInt(0, 100) < (chanceForAdditionalHole * Random::Rangefloat(0.75f, 1.0f))
 				)
 			{
-				// ������ ����� ������ �߰� ����
 				curentMap = CreateHoles(curentMap, _x + 1, _z, maxSize, iteration);
 			}
 		}
@@ -443,51 +417,7 @@ bool** MapGenerator::CreateHoles(bool** curentMap, int _x, int _z, int maxSize, 
 
 	return curentMap;
 }
-bool MapGenerator::IsNeighboringHigher(int** curentMap, int _x, int _z)
-{
-	bool isHigher = false;
-	int myHeight = curentMap[_x][_z];
-	if (_z - 1 > 0)
-	{
-		if (curentMap[_x][_z - 1] > myHeight) isHigher = true;
-	}
-	if (_z + 1 < (sizeof(curentMap[0]) / sizeof(int)))
-	{
-		if (curentMap[_x][_z + 1] > myHeight) isHigher = true;
-	}
-	if (_x - 1 > 0)
-	{
-		if (curentMap[_x - 1][_z] > myHeight) isHigher = true;
-	}
-	if (_x + 1 < (sizeof(curentMap) / sizeof(curentMap[0])))
-	{
-		if (curentMap[_x + 1][_z] > myHeight) isHigher = true;
-	}
-	return isHigher;
-}
-bool MapGenerator::IsNeighboringHole(int _x, int _z, bool** curentHoles)
-{
-	bool isHole = false;
 
-	if (_z - 1 > 0)
-	{
-		if (curentHoles[_x][_z - 1]) isHole = true;
-	}
-	if (_z + 1 < (sizeof(curentHoles[0]) / sizeof(bool)))
-	{
-		if (curentHoles[_x][_z + 1]) isHole = true;
-	}
-	if (_x - 1 > 0)
-	{
-		if (curentHoles[_x - 1][_z]) isHole = true;
-	}
-	if (_x + 1 < (sizeof(curentHoles) / sizeof(curentHoles[0])))
-	{
-		if (curentHoles[_x + 1][_z]) isHole = true;
-	}
-
-	return isHole;
-}
 bool MapGenerator::IsHole(int _x, int _z, bool** _holes)
 {
 	if (_z >= 0 &&

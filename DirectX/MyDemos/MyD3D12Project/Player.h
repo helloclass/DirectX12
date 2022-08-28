@@ -254,11 +254,11 @@ public:
 		std::shared_ptr<ImGuiFrameComponent> clothParamComp = pushFrame("PlayerStateGUI");
 		clothParamComp->setWindowFlags(window_flags);
 
-		clothParamComp->pushImageComponent("HP", app->mGUIResources["HP"], 150.0f, 30.0f, true, &hpGuage);
-		clothParamComp->pushImageComponent("MP", app->mGUIResources["MP"], 150.0f, 30.0f, true, &mpGuage);
-		clothParamComp->pushImageComponent("Storm", app->mGUIResources["STORM"], 30.0f, 30.0f, false);
-		clothParamComp->pushImageComponent("Thunder", app->mGUIResources["Thunder"], 30.0f, 30.0f, false);
-		clothParamComp->pushImageComponent("Earthquake", app->mGUIResources["Earthquake"], 30.0f, 30.0f, true);
+		clothParamComp->pushImageComponent("HP", app->mGUIResources["HP"], 150, 30, true, &hpGuage);
+		clothParamComp->pushImageComponent("MP", app->mGUIResources["MP"], 150, 30, true, &mpGuage);
+		clothParamComp->pushImageComponent("Storm", app->mGUIResources["STORM"], 30, 30, false);
+		clothParamComp->pushImageComponent("Thunder", app->mGUIResources["Thunder"], 30, 30, false);
+		clothParamComp->pushImageComponent("Earthquake", app->mGUIResources["Earthquake"], 30, 30, true);
 	}
 
 	bool isGround = true;
@@ -461,6 +461,7 @@ public:
 			app->mInputVector['1'] = 0;
 
 			mTonado->mPosition = mCharactorData->mTranslate[0].position;
+			mTonado->mRotation = mCharactorData->mTranslate[0].rotation;
 
 			mTonado->mPosition.m128_f32[0] *= 0.1f;
 			mTonado->mPosition.m128_f32[1] *= 0.1f;
@@ -473,6 +474,7 @@ public:
 			app->mInputVector['2'] = 0;
 
 			mPunch->mPosition = mCharactorData->mTranslate[0].position;
+			mPunch->mRotation = mCharactorData->mTranslate[0].rotation;
 
 			mPunch->mPosition.m128_f32[0] *= 0.1f;
 			mPunch->mPosition.m128_f32[1] *= 0.1f;
@@ -487,6 +489,7 @@ public:
 			app->mInputVector['3'] = 0;
 
 			mLaser->mPosition = mCharactorData->mTranslate[0].position;
+			mLaser->mRotation = mCharactorData->mTranslate[0].rotation;
 
 			mLaser->mPosition.m128_f32[0] *= 0.1f;
 			mLaser->mPosition.m128_f32[1] *= 0.1f;

@@ -50,7 +50,7 @@ public:
 	DirectX::XMFLOAT4 mDiffuse = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 private:
-	UINT mInstanceCount;
+	int mInstanceCount;
 
 	float mDurationTime;
 	bool  mIsLoop;
@@ -59,6 +59,8 @@ private:
 	bool  mPlayOnAwake;
 
 	bool mIsFilled;
+
+	DirectX::XMVECTOR mRotation;
 
 	DirectX::XMFLOAT3 mMinAcc;
 	DirectX::XMFLOAT3 mMaxAcc;
@@ -95,6 +97,7 @@ public:
 	void setStartDelay(float startDelay);
 	void setStartLifeTime(float startLifeTime);
 	void setOnPlayAwake(bool onPlayAwake);
+	void setRotation(DirectX::XMVECTOR rotation);
 	void setMinAcc(DirectX::XMFLOAT3 minAcc);
 	void setMaxAcc(DirectX::XMFLOAT3 maxAcc);
 	void setMinVelo(DirectX::XMFLOAT3 minVelo);

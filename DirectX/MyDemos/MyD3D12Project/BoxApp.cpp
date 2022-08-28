@@ -1385,7 +1385,7 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 	view = mCamera.GetView();
 	invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
 
-	UINT i, j;
+	UINT i;
 	// Game Index
 	mGameIDX = 0;
 
@@ -2458,7 +2458,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 	SubmeshGeometry* sg = nullptr;
 
-	UINT i, j;
+	UINT j;
 
 	// PreMake offset of Descriptor Resource Buffer.
 	// 프레임 버퍼의 시작 주소 (Base Pointer)
@@ -4561,8 +4561,6 @@ void BoxApp::BuildGUIFrame() {
 	//////////////////////
 	// Upload Resource
 	//////////////////////
-	D3D12_DESCRIPTOR_HEAP_DESC GUISRVHeapDesc;
-
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
 		mGUIDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 		1,
@@ -7591,7 +7589,7 @@ void BoxApp::CreatePMXObject(
 	pTime = FbxTime::GetFrameRate(FbxTime::EMode::eFrames30);
 	pTime = 1.0 / pTime;
 
-	obj->durationPerSec.push_back(mAnimFrameCount);
+	obj->durationPerSec.push_back((float)mAnimFrameCount);
 	obj->durationOfFrame.push_back((float)pTime);
 
 	////
@@ -8584,8 +8582,8 @@ void RenderItem::ParticleUpdate(float delta, float time)
 
 	bool isScaleUpdated = false;
 	bool isDiffuseUpdated = false;
-	DirectX::XMFLOAT3 position = { 1.0f, 1.0f, 1.0f };
-	DirectX::XMFLOAT3 rotation = { 1.0f, 1.0f, 1.0f };
+	//DirectX::XMFLOAT3 position = { 1.0f, 1.0f, 1.0f };
+	//DirectX::XMFLOAT3 rotation = { 1.0f, 1.0f, 1.0f };
 	DirectX::XMFLOAT3 scale = { 1.0f, 1.0f, 1.0f };
 	DirectX::XMFLOAT4 diffuse = { 1.0f, 1.0f, 1.0f, 1.0f };
 	std::string mDiffuseMaterialName = "";
@@ -8811,6 +8809,7 @@ void RenderItem::ParticleReset()
 {
 	ObjectData* obj = mGameObjectDatas[mName];
 	Particle* mParticle = mParticles[mName];
+	DirectX::XMVECTOR mParentRotation = mParent->mData->mTranslate[0].rotation;
 
 	obj->isBillBoardDirty = true;
 	mParticle->mTime = 0.0f;
@@ -8836,6 +8835,8 @@ void RenderItem::ParticleReset()
 		mParticle->mDist[i].m128_f32[1] = 0.0f;
 		mParticle->mDist[i].m128_f32[2] = 0.0f;
 		mParticle->mDist[i].m128_f32[3] = 0.0f;
+
+		mParticle->setRotation(mParentRotation);
 	}
 
 	// 파티클 월드 매트릭스 초기화

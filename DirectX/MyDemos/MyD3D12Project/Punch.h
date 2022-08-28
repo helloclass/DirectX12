@@ -18,6 +18,7 @@ public:
 
 public:
 	DirectX::XMVECTOR mPosition;
+	DirectX::XMVECTOR mRotation;
 	bool isUpdate;
 
 	void _Awake()
@@ -28,6 +29,9 @@ public:
 
 		// Create Init Objects
 		Punch = app->CreateGameObject("PunchGeo", 1);
+
+		app->GetData(Punch->mName)->mTranslate[0].position =
+			{ 0.0f, -20.0f, 0.0f, 1.0f };
 
 		{
 			{
@@ -605,11 +609,36 @@ public:
 	{
 		if (isUpdate)
 		{
-			app->GetData(Punch->mName)->mTranslate[0].position = mPosition;
+			if (testestest == 0.0f)
+			{
+				app->GetData(Punch->mName)->mTranslate[0].position = mPosition;
+				app->GetData(Punch->mName)->mTranslate[0].rotation = mRotation;
 
-			if (testestest > 1.0f)
+				particle->ParticleReset();
+				particle2->ParticleReset();
+				particle3->ParticleReset();
+				particle4->ParticleReset();
+				particle5->ParticleReset();
+				particle6->ParticleReset();
+				particle7->ParticleReset();
+				particle9->ParticleReset();
+			}
+			else if (testestest > 1.0f)
 			{
 				isUpdate = false;
+				testestest = 0.0f;
+
+				app->GetData(Punch->mName)->mTranslate[0].position =
+					{ 0.0f, -20.0f, 0.0f, 1.0f };
+
+				particle->ParticleReset();
+				particle2->ParticleReset();
+				particle3->ParticleReset();
+				particle4->ParticleReset();
+				particle5->ParticleReset();
+				particle6->ParticleReset();
+				particle7->ParticleReset();
+				particle9->ParticleReset();
 			}
 
 			particle->ParticleUpdate(gt.DeltaTime(), testestest);
@@ -624,38 +653,6 @@ public:
 			particle9->ParticleUpdate(gt.DeltaTime(), testestest);
 
 			testestest += gt.DeltaTime();
-		}
-		else
-		{
-			if (testestest > 0.0f)
-			{
-				testestest = 0.0f;
-
-				app->GetData(Punch->mName)->mTranslate[0].position = 
-				{ 0.0f, -10.0f, 0.0f, 1.0f };
-
-				particle->ParticleReset();
-				particle1->ParticleReset();
-				particle2->ParticleReset();
-				particle3->ParticleReset();
-				particle4->ParticleReset();
-				particle5->ParticleReset();
-				particle6->ParticleReset();
-				particle7->ParticleReset();
-				particle8->ParticleReset();
-				particle9->ParticleReset();
-
-				particle->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle1->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle2->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle3->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle4->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle5->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle6->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle7->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle8->ParticleUpdate(gt.DeltaTime(), testestest);
-				particle9->ParticleUpdate(gt.DeltaTime(), testestest);
-			}
 		}
 	}
 
