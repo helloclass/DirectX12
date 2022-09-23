@@ -1,9 +1,3 @@
-//***************************************************************************************
-// d3dUtil.h by Frank Luna (C) 2015 All Rights Reserved.
-//
-// General helper code.
-//***************************************************************************************
-
 #pragma once
 
 #define __UTIL_H_
@@ -258,9 +252,9 @@ public:
 	// Use this container to define the Submesh geometries so we can draw
 	// the Submeshes individually.
 
-	// ������Ʈ���� ����Ǿ��ִ� SubMesh�� ����
+	// 서브메쉬 개수를 저장
 	UINT subMeshCount = 0;
-	// ������Ʈ���� ����Ǿ��ִ� ������Ʈ�� �̸����� ����Ǿ��ִ� ���
+	// 오브젝트를 이루는 서브메쉬의 이름들을 저장.
 	std::vector<std::string> meshNames;
 	std::vector<SubmeshGeometry> DrawArgs;
 
@@ -582,9 +576,9 @@ public:
 	}
 
 public:
-	DirectX::XMVECTOR position;
-	DirectX::XMVECTOR rotation;
-	DirectX::XMVECTOR scale;
+	DirectX::XMVECTOR position	= {0.0f, 0.0f, 0.0f, 1.0f};
+	DirectX::XMVECTOR rotation	= {0.0f, 0.0f, 0.0f, 1.0f};
+	DirectX::XMVECTOR scale		= {1.0f, 1.0f, 1.0f, 1.0f};
 
 	DirectX::XMVECTOR velocity;
 	DirectX::XMVECTOR accelerate;
@@ -759,6 +753,11 @@ public:
 	std::vector<std::vector<int>> srcDynamicVertexSubmesh;
 	std::vector<std::vector<DirectX::XMFLOAT3*>> dstDynamicVertexSubmesh;
 
+	// 만일 특정 버텍스가 잡혔을 경우 해당 버텍스의 위치는 마우스의 위치에 의해 결정 됩니다.
+	bool isPicked = false;
+	UINT mPickedSubmesh;
+	UINT mPickedIndex;
+
 	// Materials
 	std::vector<Material> Mat;
 	std::vector<Material> SkyMat;
@@ -809,6 +808,7 @@ public:
 	std::vector<int>								mClothBinedBoneIDX;
 
 	std::vector<int>								mMorphDirty;
+	std::vector<int>								mClothDirty;
 	std::vector<struct _VERTEX_MORPH_DESCRIPTOR>	mMorph;
 
 	bool isDirty = false;
@@ -832,7 +832,7 @@ public:
 	// Is the animation playing?
 	bool isAnim = false;
 	// Is the animation Loop?
-	bool isLoop = false;
+	bool isLoop = true;
 	// Current Animation Clip Index
 	float currentAnimIdx = 0;
 
@@ -840,6 +840,8 @@ public:
 	float beginAnimIndex = 0;
 	// End Anim index
 	float endAnimIndex = 0;
+
+	bool isAnimDone = false;
 
 	/*
 		The Residue Value of next frame.
@@ -998,9 +1000,13 @@ public:
 
 	void setAnimClip(
 		_In_ std::string mClipName,
-		_In_  bool isCompression = true
+		_In_ int mInstanceOffset,
+		_In_ bool isLoop,
+		_In_ bool isCompression = false
 	);
-	const std::string getAnimClip() const;
+	const std::string getAnimClip(
+		_In_ int mInstanceOffset
+	) const;
 
 public:
 	void InitParticleSystem(
@@ -1018,7 +1024,10 @@ public:
 	);
 
 	void ParticleGene();
-	void ParticleUpdate(float delta, float time);
+	void ParticleUpdate(
+		_In_ float delta, 
+		_In_ float time
+	);
 	void ParticleReset();
 
 	void setDurationTime(
@@ -1073,22 +1082,22 @@ public:
 
 public:
 	void setOnlySubmesh(
-		std::string mName,
-		int mSubmeshIDX
+		_In_ std::string mName,
+		_In_ int mSubmeshIDX
 	);
 	void setOnlySubmesh(
-		std::string mName,
-		std::string mSubmeshName
+		_In_ std::string mName,
+		_In_ std::string mSubmeshName
 	);
 
 	void Instantiate(
-		DirectX::XMFLOAT3 mPosition = { 0.0f, 0.0f, 0.0f },
-		DirectX::XMFLOAT3 mRotation = { 0.0f, 0.0f, 0.0f },
-		DirectX::XMFLOAT3 mScale = { 1.0f, 1.0f, 1.0f },
-		DirectX::XMFLOAT3 mBoundScale = { 1.0f, 1.0f, 1.0f }
+		_In_ DirectX::XMFLOAT3 mPosition = { 0.0f, 0.0f, 0.0f },
+		_In_ DirectX::XMFLOAT3 mRotation = { 0.0f, 0.0f, 0.0f },
+		_In_ DirectX::XMFLOAT3 mScale = { 1.0f, 1.0f, 1.0f },
+		_In_ DirectX::XMFLOAT3 mBoundScale = { 1.0f, 1.0f, 1.0f }
 	);
 	void Destroy(
-		UINT InstanceIDX = 0
+		_In_ UINT InstanceIDX = 0
 	);
 
 };

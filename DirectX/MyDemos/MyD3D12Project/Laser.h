@@ -483,7 +483,7 @@ public:
 		}
 	}
 
-	float testestest = 0.0f;
+	float testestest = -1.0f;
 
 	RenderItem* particle;
 	RenderItem* particle1;
@@ -504,16 +504,35 @@ public:
 		particle5 = Laser->getChildRenderItem("RayWave2");
 		particle6 = Laser->getChildRenderItem("LaserCore");
 		particle7 = Laser->getChildRenderItem("LaserTrails");
+
+		app->mLaserBox.Center = { 
+			0.0f, 
+			-1000.0f, 
+			0.0f 
+		};
+		app->mLaserBox.Extents = {
+			10.0f, 
+			10.0f, 
+			10.0f 
+		};
 	}
 
 	void _Update(const GameTimer& gt)
 	{
 		if (isUpdate)
 		{
-			if (testestest == 0.0f)
+			if (testestest < 0.0f)
 			{
+				testestest = 0.0f;
+
 				app->GetData(Laser->mName)->mTranslate[0].position = mPosition;
 				app->GetData(Laser->mName)->mTranslate[0].rotation = mRotation;
+
+				app->mLaserBox.Center = {
+					mPosition.m128_f32[0] * 10.0f,
+					mPosition.m128_f32[1] * 10.0f,
+					mPosition.m128_f32[2] * 10.0f
+				};
 
 				//particle->ParticleReset();
 				particle2->ParticleReset();
@@ -526,10 +545,16 @@ public:
 			else if (testestest > 3.0f)
 			{
 				isUpdate = false;
-				testestest = 0.0f;
+				testestest = -1.0f;
 
 				app->GetData(Laser->mName)->mTranslate[0].position =
 				{ 0.0f, -20.0f, 0.0f, 1.0f };
+
+				app->mLaserBox.Center = {
+					0.0f,
+					-1000.0f,
+					0.0f
+				};
 
 				//particle->ParticleReset();
 				particle2->ParticleReset();

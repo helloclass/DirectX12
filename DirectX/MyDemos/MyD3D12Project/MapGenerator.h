@@ -353,8 +353,8 @@ public:
 					trys++;
 
 					std::array<int, 2> newPoi = { 
-						Random::Rangefloat(0.0f, (float)xSize), 
-						Random::Rangefloat(0.0f, (float)zSize) 
+						Random::Rangefloat(0.0f, (float)(xSize)), 
+						Random::Rangefloat(0.0f, (float)(zSize)) 
 					};
 
 					// 새로운 POI를 생성하는데, 새로운 POI의 위치가 현재 POI의 위치에 가장 근접해 있는 POI를 기준으로 하여 minDistance를 업데이트
@@ -850,7 +850,7 @@ public:
 				// POI 
 				else poiObj = Instantiate(interestPointTiles[Random::RangeInt(0, (int)interestPointTiles.size())]);
 
-				// ���� ���̸� ����Ͽ� �������� ����
+				// 새로운 POI의 위치를 지정
 				poiObj->transform.position = { 
 					zPos * 2.0f, 
 					_mapPos.y + (heightMap[xPos][zPos] * 2.0f), 
@@ -861,8 +861,7 @@ public:
 				xPos = pointsOfInterest[i][0];
 				zPos = pointsOfInterest[i][1];
 
-				// �����¿츦 ��ȸ�ϸ�
-				// �ش� ��ġ�� ���ΰ� �����Ѵٸ� �ش� ��ġ�� ���ΰ� �̾��� �� �ֵ��� ȸ��
+				// 상하좌우 중 로드맵이 지정되어 있는 영역이 있는지 검사를 하며, 그 위치에 따라 도로가 이어질 수 있도록 현재 도로를 회전을 시킨다.
 				if (xPos + 1 < xSize)
 				{
 					if (roadsMap[xPos + 1][zPos])
@@ -1201,19 +1200,22 @@ public:
 		RenderItem* logsObject
 	)
 	{
+		float _customAdditionalFilling = 0.5f;
+
 		if (_additionalFilling == GeneratorParametr::Random) 
 			_additionalFilling = (GeneratorParametr)Random::RangeInt(1, 6);
 		if (_additionalFilling != GeneratorParametr::None)
 		{
 			// 오브젝트가 생성될 범위(원)의 반지름을 결정한다.
 			// _additionalFilling 가중치를 통하여 오브젝트 그룹 범위가 줄어든다.
-			int countsCycle = (int)(((float)sizeOfMap / 5.0f)) * (int)_additionalFilling;
+			int countsCycle = (int)(((float)sizeOfMap / 5.0f)) * (int)_customAdditionalFilling;
 
 			// 오브젝트 군집이 생성되는 원들의 범위를 결정 (빽빽하게 또는 듬성듬성)
-			float circlesRange = ((float)sizeOfMap / 6.0f) + (((float)sizeOfMap / 30.0f) * (int)_additionalFilling);
+			float circlesRange = ((float)sizeOfMap / 6.0f) + (((float)sizeOfMap / 30.0f) * _customAdditionalFilling);
+			circlesRange *= 20.0f;
 
 			// 한 원 당 생성되는 오브젝트 개수
-			float objectsCounts = sizeOfMap / 2.5f + ((sizeOfMap / 6) * (int)_additionalFilling);
+			float objectsCounts = sizeOfMap / 2.5f + ((sizeOfMap / 6) * _customAdditionalFilling);
 
 			DirectX::XMVECTOR rayOrigin;
 			DirectX::XMVECTOR rayDown = { 0.0f, -1.0f, 0.0f, 0.0f };
@@ -1231,9 +1233,9 @@ public:
 			for (int a = 0; a < countsCycle; a++)
 			{
 				DirectX::XMFLOAT3 circleTreesPos = {
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f),
-					15.0f,
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f)
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f),
+					30.0f,
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f)
 				};
 
 				tmin = 0.0f;
@@ -1243,6 +1245,7 @@ public:
 
 					// 원 내에 랜덤으로 점 하나를 찍고
 					DirectX::XMFLOAT3 rayPos = circleTreesPos;
+
 					rayPos.x += Random::Rangefloat(-circlesRange, circlesRange);
 					rayPos.z += Random::Rangefloat(-circlesRange, circlesRange);
 
@@ -1254,9 +1257,9 @@ public:
 					{
 						// 나무가 생성 될 위치가 hit 범위의 1.5f 반경 내에 있는지 여부 
 						bool isInnerPoint = IsPosAvailableByDistance(hitPoint, treesPoints, 1.5f);
-						bool isInnerPOI = isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap);
+						//bool isInnerPOI = isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap);
 
-						if (isInnerPoint && isInnerPOI)
+						if (isInnerPoint/* && isInnerPOI*/)
 						{
 							// 나무 오브젝트 생성, 추가
 							Object* tree = Instantiate(
@@ -1269,7 +1272,6 @@ public:
 								Random::Rangefloat(0.0f, 360.0f),
 								Random::Rangefloat(-7.5f, 7.5f)
 							};
-							
 							treesPoints.push_back(hitPoint);
 						}
 					}
@@ -1288,10 +1290,10 @@ public:
 
 					if (isTargetHitRay(rayOrigin, rayDown, hitPoint, boundBoxs))
 					{
-						if (IsPosAvailableByDistance(hitPoint, bushsPoints, 2.0f) &&
-							isPosInRangeOf(hitPoint, treesPoints, 4.0f) &&
-							isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap)
-							)
+						//if (IsPosAvailableByDistance(hitPoint, bushsPoints, 2.0f) &&
+						//	isPosInRangeOf(hitPoint, treesPoints, 4.0f) &&
+						//	isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap)
+						//	)
 						{
 							Object* tree = Instantiate(
 								bushsPrefabs[Random::RangeInt(0, (int)bushsPrefabs.size())],
@@ -1317,9 +1319,9 @@ public:
 
 					if (isTargetHitRay(rayOrigin, rayDown, hitPoint, boundBoxs))
 					{
-						if (IsPosAvailableByDistance(hitPoint, grassPoint, 0.25f) &&
-							isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap)
-							)
+						//if (IsPosAvailableByDistance(hitPoint, grassPoint, 0.25f) &&
+						//	isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap)
+						//	)
 						{
 							Object* tree = Instantiate(
 								grassPrefabs[Random::RangeInt(0, (int)grassPrefabs.size())],
@@ -1345,7 +1347,7 @@ public:
 
 					if (isTargetHitRay(rayOrigin, rayDown, hitPoint, boundBoxs))
 					{
-						if (isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
+						//if (isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
 						{
 							Object* tree = Instantiate(
 								littleStonesPrefabs[Random::RangeInt(0, (int)littleStonesPrefabs.size())],
@@ -1354,28 +1356,28 @@ public:
 							);
 							tree->transform.rotation = { Random::Rangefloat(0.0f, 360.0f), Random::Rangefloat(0.0f, 360.0f), Random::Rangefloat(0.0f, 360.0f) };
 						}
-						}
 					}
 				}
+			}
 
 			tmin = 0.0f;
-			for (int i = 0; i < ((objectsCounts * countsCycle)*(int)_additionalFilling); i++) //Grass
+			for (int i = 0; i < ((objectsCounts * countsCycle)*_customAdditionalFilling); i++) //Grass
 			{
 				DirectX::XMFLOAT3 hitPoint;
 
 				DirectX::XMFLOAT3  rayPos = { 
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f), 
-					15.0f, 
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f) 
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f), 
+					30.0f, 
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f) 
 				};
 
 				rayOrigin = DirectX::XMLoadFloat3(&rayPos);
 
 				if (isTargetHitRay(rayOrigin, rayDown, hitPoint, boundBoxs))
 				{
-					if (IsPosAvailableByDistance(hitPoint, grassPoint, 0.25f) &&
-						isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap)
-						)
+					//if (IsPosAvailableByDistance(hitPoint, grassPoint, 0.25f) &&
+					//	isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap)
+					//	)
 					{
 						Object* tree = Instantiate(
 							grassPrefabs[Random::RangeInt(0, (int)grassPrefabs.size())],
@@ -1394,18 +1396,18 @@ public:
 				DirectX::XMFLOAT3 hitPoint;
 
 				DirectX::XMFLOAT3  rayPos = { 
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f), 
-					15.0f, 
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f) 
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f), 
+					30.0f, 
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f) 
 				};
 
 				rayOrigin = DirectX::XMLoadFloat3(&rayPos);
 
 				if (isTargetHitRay(rayOrigin, rayDown, hitPoint, boundBoxs))
 				{
-					if (IsPosAvailableByDistance(hitPoint, bigStonesPoints, 10.0f) &&
-						isPosInRangeOf(hitPoint, treesPoints, 8.0f) &&
-						isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
+					//if (IsPosAvailableByDistance(hitPoint, bigStonesPoints, 10.0f) &&
+					//	isPosInRangeOf(hitPoint, treesPoints, 8.0f) &&
+					//	isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
 					{
 						Object* tree = Instantiate(
 							bigStonesPrefabs[Random::RangeInt(0, (int)bigStonesPrefabs.size())],
@@ -1424,19 +1426,19 @@ public:
 				DirectX::XMFLOAT3 hitPoint;
 
 				DirectX::XMFLOAT3 rayPos = { 
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f), 
-					15.0f, 
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f) 
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f), 
+					30.0f, 
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f) 
 				};
 
 				rayOrigin = DirectX::XMLoadFloat3(&rayPos);
 
 				if (isTargetHitRay(rayOrigin, rayDown, hitPoint, boundBoxs))
 				{
-					if (IsPosAvailableByDistance(hitPoint, bigStonesPoints, 10.0f) &&
-						isPosInRangeOf(hitPoint, treesPoints, 8.0f) &&
-						isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap)
-						)
+					//if (IsPosAvailableByDistance(hitPoint, bigStonesPoints, 10.0f) &&
+					//	isPosInRangeOf(hitPoint, treesPoints, 8.0f) &&
+					//	isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap)
+					//	)
 					{
 						Object* tree = Instantiate(
 							branchsPrefabs[Random::RangeInt(0, (int)branchsPrefabs.size())],
@@ -1455,18 +1457,18 @@ public:
 				DirectX::XMFLOAT3 hitPoint;
 
 				DirectX::XMFLOAT3 rayPos = { 
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f), 
-					15.0f,
-					Random::Rangefloat(0.0f, sizeOfMap * 2.0f) 
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f), 
+					30.0f,
+					Random::Rangefloat(0.0f, sizeOfMap * 20.0f) 
 				};
 
 				rayOrigin = DirectX::XMLoadFloat3(&rayPos);
 
 				if (isTargetHitRay(rayOrigin, rayDown, hitPoint, boundBoxs))
 				{
-					if (IsPosAvailableByDistance(hitPoint, bigStonesPoints, 10.0f) &&
-						isPosInRangeOf(hitPoint, treesPoints, 8.0f) &&
-						isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
+					//if (IsPosAvailableByDistance(hitPoint, bigStonesPoints, 10.0f) &&
+					//	isPosInRangeOf(hitPoint, treesPoints, 8.0f) &&
+					//	isPosNotInPOI(hitPoint, lastRoadsMap, lastLaddersMap))
 					{
 						Object* tree = Instantiate(
 							logsPrefabs[Random::RangeInt(0, (int)logsPrefabs.size())],
@@ -1480,31 +1482,69 @@ public:
 			}
 
 			int iter = 0;
+			float mOffsetY = 10.0f;
+			DirectX::XMFLOAT3 mScale = { 10.0f, 10.0f, 10.0f };
 
 			for (iter = 0; iter < bushsPoints.size(); iter++)
+			{
+				bushsPoints[iter].y += mOffsetY;
+
 				treeObject->Instantiate(
-					bushsPoints[iter]
+					bushsPoints[iter],
+					{ 0.0f, 0.0f, 0.0 },
+					mScale
 				);
+			}
 			for (iter = 0; iter < treesPoints.size(); iter++)
+			{
+				treesPoints[iter].y += mOffsetY;
+
 				bushsObject->Instantiate(
-					treesPoints[iter]
+					treesPoints[iter],
+					{ 0.0f, 0.0f, 0.0 },
+					mScale
 				);
+			}
 			for (iter = 0; iter < bigStonesPoints.size(); iter++)
+			{
+				bigStonesPoints[iter].y += mOffsetY;
+
 				bigStonesObject->Instantiate(
-					bigStonesPoints[iter]
+					bigStonesPoints[iter],
+					{ 0.0f, 0.0f, 0.0 },
+					mScale
 				);
+			}
 			for (iter = 0; iter < grassPoint.size(); iter++)
+			{
+				grassPoint[iter].y += mOffsetY;
+
 				grassObject->Instantiate(
-					grassPoint[iter]
+					grassPoint[iter],
+					{ 0.0f, 0.0f, 0.0 },
+					mScale
 				);
+			}
 			for (iter = 0; iter < branchsPoints.size(); iter++)
+			{
+				branchsPoints[iter].y += mOffsetY;
+
 				branchsObject->Instantiate(
-					branchsPoints[iter]
+					branchsPoints[iter],
+					{ 0.0f, 0.0f, 0.0 },
+					mScale
 				);
+			}
 			for (iter = 0; iter < logsPoints.size(); iter++)
+			{
+				logsPoints[iter].y += mOffsetY;
+
 				logsObject->Instantiate(
-					logsPoints[iter]
+					logsPoints[iter],
+					{ 0.0f, 0.0f, 0.0 },
+					mScale
 				);
+			}
 		}
 	}
 };

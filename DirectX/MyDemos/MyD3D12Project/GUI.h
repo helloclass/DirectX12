@@ -25,7 +25,7 @@ class ImGuiComponenet
 public:
 	ImGuiComponentType mType;
 
-	// ���� ������Ʈ�� ���� ���� �ٲ������ �˸��� �ް� �ʹٸ�
+	// 옵져버 역할을 하는 변수의 주소를 받아와, 만일 컴포넌트의 변화가 있을 시, 옵져버를 변경한다.
 	bool isFence = false;
 	int* mFence = nullptr;
 
@@ -313,7 +313,7 @@ public:
 	ImGuiWindowFlags window_flags = 0;
 
 	/*
-		ImGuiWindowFlags window_flags = 0;
+		ImGuiWindowFlags window_flags = 0;mComponents
 		window_flags |= ImGuiWindowFlags_AlwaysAutoResize;
 		window_flags |= ImGuiWindowFlags_NoBackground;
 		window_flags |= ImGuiWindowFlags_NoTitleBar;

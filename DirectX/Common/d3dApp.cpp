@@ -393,6 +393,9 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	case WM_MOUSEMOVE:
 		OnMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
 		return 0;
+	case WM_MOUSEWHEEL:
+		OnMouseWheel(wParam);
+		return 0;
     case WM_KEYUP:
         if(wParam == VK_ESCAPE)
         {

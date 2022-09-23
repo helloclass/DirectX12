@@ -97,6 +97,10 @@ bool Particle::getOnPlayAwake()
 {
 	return this->mPlayOnAwake;
 }
+DirectX::XMVECTOR Particle::getRotation()
+{
+	return this->mRotation;
+}
 DirectX::XMFLOAT3 Particle::getMinVelo()
 {
 	return this->mMinVelo;
@@ -113,32 +117,53 @@ void Particle::Generator()
 
 	// Accumulator, Velocity Vector에 로테이션을 적용.
 	DirectX::XMVECTOR mAdMin = DirectX::XMLoadFloat3(&this->mMinAcc);
-	mAdMin = DirectX::XMVector3Transform(
-		mAdMin, 
-		DirectX::XMMatrixRotationRollPitchYawFromVector(this->mRotation)
+	mAdMin = DirectX::XMVector3Rotate(
+		mAdMin,
+		DirectX::XMQuaternionRotationRollPitchYawFromVector(this->mRotation)
 	);
 
 	DirectX::XMVECTOR mAdMax = DirectX::XMLoadFloat3(&this->mMaxAcc);
-	mAdMax = DirectX::XMVector3Transform(
+	mAdMax = DirectX::XMVector3Rotate(
 		mAdMax,
-		DirectX::XMMatrixRotationRollPitchYawFromVector(this->mRotation)
+		DirectX::XMQuaternionRotationRollPitchYawFromVector(this->mRotation)
 	);
+
+	float swap;
+	for (int i = 0; i < 3; i++)
+	{
+		if (mAdMin.m128_f32[i] > mAdMax.m128_f32[i])
+		{
+			swap = mAdMin.m128_f32[i];
+			mAdMin.m128_f32[i] = mAdMax.m128_f32[i];
+			mAdMax.m128_f32[i] = swap;
+		}
+	}
 
 	std::uniform_real_distribution<float> accX(mAdMin.m128_f32[0], mAdMax.m128_f32[0]);
 	std::uniform_real_distribution<float> accY(mAdMin.m128_f32[1], mAdMax.m128_f32[1]);
 	std::uniform_real_distribution<float> accZ(mAdMin.m128_f32[2], mAdMax.m128_f32[2]);
 
 	mAdMin = DirectX::XMLoadFloat3(&this->mMinVelo);
-	mAdMin = DirectX::XMVector3Transform(
+	mAdMin = DirectX::XMVector3Rotate(
 		mAdMin,
-		DirectX::XMMatrixRotationRollPitchYawFromVector(this->mRotation)
+		DirectX::XMQuaternionRotationRollPitchYawFromVector(this->mRotation)
 	);
 
 	mAdMax = DirectX::XMLoadFloat3(&this->mMaxVelo);
-	mAdMax = DirectX::XMVector3Transform(
+	mAdMax = DirectX::XMVector3Rotate(
 		mAdMax,
-		DirectX::XMMatrixRotationRollPitchYawFromVector(this->mRotation)
+		DirectX::XMQuaternionRotationRollPitchYawFromVector(this->mRotation)
 	);
+
+	for (int i = 0; i < 3; i++)
+	{
+		if (mAdMin.m128_f32[i] > mAdMax.m128_f32[i])
+		{
+			swap = mAdMin.m128_f32[i];
+			mAdMin.m128_f32[i] = mAdMax.m128_f32[i];
+			mAdMax.m128_f32[i] = swap;
+		}
+	}
 
 	std::uniform_real_distribution<float> veloX(mAdMin.m128_f32[0], mAdMax.m128_f32[0]);
 	std::uniform_real_distribution<float> veloY(mAdMin.m128_f32[1], mAdMax.m128_f32[1]);

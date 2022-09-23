@@ -52,16 +52,30 @@ CD3DX12_GPU_DESCRIPTOR_HANDLE BoxApp::mTextureHeapGPUDescriptor;
 UINT BoxApp::numGlobalThread = 8;
 
 // Thread Trigger Event (Fence)
+HANDLE BoxApp::updateInstanceEvent[8];
+HANDLE BoxApp::updateInstanceDoneEvent[8];
 HANDLE BoxApp::shadowRenderTargetEvent[8];
 HANDLE BoxApp::shadowRecordingDoneEvents[8];
 HANDLE BoxApp::renderTargetEvent[8];
 HANDLE BoxApp::recordingDoneEvents[8];
+
+HANDLE BoxApp::updateInstanceThreads[8];
+LPDWORD BoxApp::updateInstanceThreadIndex[8];
 
 HANDLE BoxApp::shadowDrawThreads[8];
 LPDWORD BoxApp::shadowThreadIndex[8];
 
 HANDLE BoxApp::drawThreads[8];
 LPDWORD BoxApp::ThreadIndex[8] = { 0 };
+
+DirectX::BoundingSphere BoxApp::mSceneBounds;
+PassConstants			BoxApp::mMainPassCB;
+float					BoxApp::mMouseWheel;
+
+// Skill Hit Bound
+DirectX::BoundingBox	BoxApp::mTonadoBox;
+DirectX::BoundingBox	BoxApp::mPunchBox;
+DirectX::BoundingBox	BoxApp::mLaserBox;
 
 static std::unique_ptr<UploadBuffer<PassConstants>>				PassCB;
 static std::unique_ptr<UploadBuffer<SsaoConstants>>				SsaoCB;
@@ -79,6 +93,8 @@ static HANDLE mAnimationWriteEvent;
 
 //bool isMousePressed = false;
 POINT mLastMousePos;
+static float dx, dy;
+static bool isPicked = false;
 
 BoxApp::~BoxApp()
 {
@@ -117,10 +133,9 @@ BoxApp::~BoxApp()
 #endif
 }
 
-bool isUseGlobalPose = false;
-
-ImVec4 mGlobalVec = ImVec4();
+// cloth physx scale
 ImVec4 mLocalScale = ImVec4();
+ImVec4 mWindScale  = ImVec4();
 
 /*
 	ThreadClothPhysxFunc
@@ -327,7 +342,6 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 				vertices.resize(0);
 				primitives.resize(0);
 
-				bool hasZero(false), hasOne(false);
 				int primCount = 0;
 
 				/////////////////////////////////////////////////////////////////////////
@@ -416,10 +430,8 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					FreeImage_GetPixelColor(mWeightImage, uvX, uvY, &color);
 
-					if (
-						color.rgbGreen == 0 &&
-						color.rgbBlue == 0
-						)
+					if (color.rgbGreen == 0 &&
+						color.rgbBlue == 0)
 					{
 						_RenderData->mClothWeights[*vIDX] = (float)(255 - color.rgbRed) / 255.0f;
 					}
@@ -639,13 +651,44 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 					delta.m128_f32[0] *= mLocalScale.x;
 					delta.m128_f32[1] *= mLocalScale.y;
-					delta.m128_f32[2] *= mLocalScale.z;
+					delta.m128_f32[2] *= (mLocalScale.z);
 
 					resQ = delta;
-
 					resQ = DirectX::XMQuaternionNormalize(resQ);
 
-					resP.m128_f32[1] = -10.0f;
+					std::string name = mObj->second->mGeometry.meshNames[submeshIDX];
+
+					if (name != "CharactorGeo2")
+					{
+						_RenderData->mClothes[submeshIDX]->setWindDrag(0.95f);
+						_RenderData->mClothes[submeshIDX]->setWindLift(0.95f);
+						_RenderData->mClothes[submeshIDX]->setWindVelocity(
+							physx::PxVec3(
+								mWindScale.x,
+								mWindScale.y,
+								mWindScale.z
+							)
+						);
+					}
+					else
+					{
+						_RenderData->mClothes[submeshIDX]->setWindDrag(0.85f);
+						_RenderData->mClothes[submeshIDX]->setWindLift(0.85f);
+						//_RenderData->mClothes[submeshIDX]->setWindVelocity(
+						//	physx::PxVec3(
+						//		0.0f,
+						//		-2.0f,
+						//		10.0f
+						//	)
+						//);
+						_RenderData->mClothes[submeshIDX]->setWindVelocity(
+							physx::PxVec3(
+								0.0f,
+								-20.0f,
+								20.0f
+							)
+						);
+					}
 
 					physx::PxTransform mPose(
 						physx::PxVec3(
@@ -662,19 +705,6 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 					);
 
 					_RenderData->mClothes[submeshIDX]->setTargetPose(mPose);
-
-					if (isUseGlobalPose)
-					{
-						physx::PxTransform mGlobalPose(
-							physx::PxVec3(
-								mGlobalVec.x,
-								mGlobalVec.y,
-								mGlobalVec.z
-							)
-						);
-
-						_RenderData->mClothes[submeshIDX]->setGlobalPose(mGlobalPose);
-					}
 
 					mClothOffset =
 						clothPos;
@@ -696,6 +726,33 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 						mSrcFixIter++;
 						mDstFixIter++;
+					}
+
+					if (isPicked && submeshIDX == _RenderData->mPickedSubmesh)
+					{
+						if (_RenderData->mPickedIndex < _RenderData->dstDynamicVertexSubmesh[_RenderData->mPickedSubmesh].size())
+						{
+							for (int smoothV = -100; smoothV <= 100; smoothV++)
+							{
+								if (_RenderData->mPickedIndex + smoothV < 0 || _RenderData->srcDynamicVertexSubmesh
+									[_RenderData->mPickedSubmesh].size() <= _RenderData->mPickedIndex + smoothV)
+									continue;
+
+								ppd->particles[_RenderData->srcDynamicVertexSubmesh
+									[_RenderData->mPickedSubmesh]
+									[_RenderData->mPickedIndex + smoothV]
+								].pos.x -= dx * 2.0f;
+
+								ppd->particles[_RenderData->srcDynamicVertexSubmesh
+									[_RenderData->mPickedSubmesh]
+									[_RenderData->mPickedIndex + smoothV]
+								].pos.y -= dy * 2.0f;
+							}
+						}
+					}
+					else
+					{
+						printf("");
 					}
 
 					ppd->unlock();
@@ -731,16 +788,16 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 
 		// 빈번한 옷감 시뮬레이션의 최신화는 FPS에 치명적이므로, 프레임에 무리가 없을 만큼만
 		// 최신화 빈도를 줄인다.
-		if (loop++ == 5)
+		//if (loop++ == 1)
 		{
 			loop = 0;
 			mPhys.Update();
 			loopUpdate = true;
 		}
-		else
-		{
-			loopUpdate = false;
-		}
+		//else
+		//{
+		//	loopUpdate = false;
+		//}
 
 	}
 
@@ -778,8 +835,7 @@ DWORD WINAPI ThreadClothPhysxFunc(LPVOID prc)
 // Physx Thread Section
 DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 {
-	// ���� �ʱ⿡ Cloth Vertices Update�� ���� ���� �Ǿ�� �ϱ� ������
-	// ClothWriteEvent�� On
+	// ClothWriteEvent On
 	ResetEvent(mAnimationReadEvent);
 	SetEvent(mAnimationWriteEvent);
 
@@ -838,13 +894,16 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 				obj++;
 				continue;
 			}
+			// 애니메이션의 루프가 끝이 났다면
+			if (_RenderData->isAnimDone)
+			{
+				_RenderData->isDirty = false;
+				obj++;
+				continue;
+			}
 
 			// 애니메이션을 통해 vert가 업데이트 되었으므로 디스크립터에 업데이트 할 것을 요청
 			_RenderData->isDirty = true;
-
-			// 
-			_RenderData->isAnim = true;
-			_RenderData->isLoop = true;
 
 			// 애니메이션의 인덱스를 업데이트
 			currentFrame =
@@ -852,9 +911,17 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 
 			// 애니메이션 인덱스가 엔드 인덱스보다 크다면 다시 시작 인덱스로 반환
 			if ((_RenderData->endAnimIndex) <= currentFrame) {
-				currentFrame = (int)_RenderData->beginAnimIndex;
-				_RenderData->currentDelayPerSec = (_RenderData->beginAnimIndex * _RenderData->durationOfFrame[0]);
+				if (_RenderData->isLoop) {
+					currentFrame = (int)_RenderData->beginAnimIndex;
+					_RenderData->currentDelayPerSec = (_RenderData->beginAnimIndex * _RenderData->durationOfFrame[0]);
+				}
+				else {
+					_RenderData->isAnimDone = true;
+					obj++;
+					continue;
+				}
 			}
+
 			// 인덱스가 변형될 때 마다, 현재 프레임이 업데이트 되었음을 알려준다.
 			if (_RenderData->currentFrame != currentFrame) {
 				_RenderData->currentFrame = currentFrame;
@@ -916,7 +983,7 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 					obj->second->updateCurrentFrame = false;
 				}
 
-				// �ܺ� �ð� ������Ʈ
+				// 다음 프레임 까지의 잔분 시간을 넣어 애니메이션을 선형처리 한다.
 				mRateOfAnimTimeCB.rateOfAnimTime = obj->second->mAnimResidueTime;
 				RateOfAnimTimeCB->CopyData(0, mRateOfAnimTimeCB);
 			}
@@ -950,7 +1017,7 @@ DWORD WINAPI ThreadAnimFunc(LPVOID prc)
 			obj++;
 		}
 
-		// Cloth Vertices�� Read Layer�� ����
+		// 애니메이션 업데이트를 마치고 드로잉 준비를 한다.
 		ResetEvent(mAnimationWriteEvent);
 		SetEvent(mAnimationReadEvent);
 	}
@@ -963,18 +1030,16 @@ DWORD Brushing(LPVOID threadIDX)
 {
 	UINT idx = (UINT)threadIDX;
 
-	float vx, vy;
-
 	while (!StopThread)
 	{
 		WaitForSingleObject(mBrushEvent[idx], INFINITE);
 
 		// Compute picking ray in view space.
 		// [0, 600] -> [-1, 1] [0, 800] -> [-1, 1]
-		vx =
+		float vx =
 			(mClickedPosX[idx] - mLastMousePos.x) /
 			(float)(mScreenWidth[idx]);
-		vy =
+		float vy =
 			(mClickedPosY[idx] - mLastMousePos.y) /
 			(float)(mScreenHeight[idx]);
 
@@ -1070,12 +1135,25 @@ bool BoxApp::Initialize()
 	mAnimationReadEvent = CreateEvent(nullptr, false, false, nullptr);
 	mAnimationWriteEvent = CreateEvent(nullptr, false, false, nullptr);
 
-	for (UINT i = 0; i < numGlobalThread; i++) {
+	for (UINT i = 0; i < numGlobalThread; i++) 
+	{
+		updateInstanceEvent[i] = CreateEvent(nullptr, false, false, nullptr);
+		updateInstanceDoneEvent[i] = CreateEvent(nullptr, false, false, nullptr);
+
 		shadowRecordingDoneEvents[i] = CreateEvent(nullptr, false, false, nullptr);
 		shadowRenderTargetEvent[i] = CreateEvent(nullptr, false, false, nullptr);
 
 		recordingDoneEvents[i] = CreateEvent(nullptr, false, false, nullptr);
 		renderTargetEvent[i] = CreateEvent(nullptr, false, false, nullptr);
+
+		updateInstanceThreads[i] = CreateThread(
+			nullptr,
+			0,
+			this->UpdateInstanceThread,
+			reinterpret_cast<LPVOID>(i),
+			0,
+			updateInstanceThreadIndex[i]
+		);
 
 		shadowDrawThreads[i] = CreateThread(
 			nullptr,
@@ -1263,29 +1341,21 @@ XMMATRIX view;
 XMMATRIX invView;
 
 XMMATRIX world, texTransform, invWorld, viewToLocal;
-InstanceData data;
 
 //const PhysResource* pr = nullptr;
 UINT visibleInstanceCount = 0;
-
-// Game Index
-int mGameIDX;
-
-int MatIDX;
-int LightIDX;
 
 // UpdateMaterialBuffer
 // Material Count == Submesh Count
 MaterialData matData;
 XMMATRIX matTransform;
 
-ObjectData* obj = NULL;
-PhysResource* pr = nullptr;
-std::vector<ThreadDrawRenderItem>::iterator objIDX;
-std::vector<ThreadDrawRenderItem>::iterator objEnd;
-std::vector<LightDataConstants>::iterator lightDataIDX;
+//static std::vector<ThreadDrawRenderItem>::iterator objIDX;
+//static std::vector<ThreadDrawRenderItem>::iterator objEnd;
+static std::vector<LightDataConstants>::iterator lightDataIDX;
 std::vector<Light>::iterator lightIDX;
 std::vector<Light>::iterator lightEnd;
+static UINT mLightDataSize = 0;
 
 // 오브젝트가 프러스텀에 걸쳐있는지 여부를 확인하는 콜라이더 크기
 XMFLOAT4X4 boundScale = MathHelper::Identity4x4();
@@ -1328,11 +1398,15 @@ XMMATRIX mLightInvViewProj;
 UINT w;
 UINT h;
 
-UINT mThreadNum = 0;
-
 void BoxApp::UpdateMaterialBuffer(const GameTimer& gt)
 {
 	ObjectData* obj = NULL;
+
+	// Game Index
+	int mGameIDX = 0;
+
+	int MatIDX = 0;
+	int LightIDX = 0;
 
 	std::unordered_map<std::string, ObjectData*>::iterator iter = mGameObjectDatas.begin();
 	std::unordered_map<std::string, ObjectData*>::iterator end = mGameObjectDatas.end();
@@ -1380,37 +1454,54 @@ void BoxApp::UpdateMaterialBuffer(const GameTimer& gt)
 	}
 }
 
-void BoxApp::UpdateInstanceData(const GameTimer& gt)
+static float mDeltaTime = 0.0f;
+
+DWORD WINAPI BoxApp::UpdateInstanceThread(LPVOID temp)
 {
-	view = mCamera.GetView();
-	invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+	UINT ThreadIDX = (UINT)temp;
 
 	UINT i;
+
+	ObjectData* obj = NULL;
+	PhysResource* pr = nullptr;
+
+	InstanceData data;
+
 	// Game Index
-	mGameIDX = 0;
+	int mGameIDX = 0;
 
-	MatIDX = 0;
-	LightIDX = 0;
-
-	lightEnd = mLights.end();
+	int MatIDX = 0;
+	int LightIDX = 0;
 
 	// 오브젝트가 프러스텀에 걸쳐있는지 여부를 확인하는 콜라이더 크기
 	boundScale = MathHelper::Identity4x4();
 	distance = 0.0f;
-	mThreadNum = 0;
+
+	std::list<InstanceData>::iterator	InstanceIterator;
+	std::list<BoundingBox>::iterator	BoundsIterator;
+
+	std::vector<ThreadDrawRenderItem>::iterator objIDX;
+	std::vector<ThreadDrawRenderItem>::iterator objEnd;
+
+	std::vector<LightDataConstants>::iterator mLocalLightDataIDX;
+	std::vector<Light>::iterator mLocalLightIDX;
+
+	DirectX::XMMATRIX world;
 
 	DirectX::XMVECTOR mParentPosition;
 	DirectX::XMMATRIX mParentWorld;
 
-	for (mThreadNum = 0; mThreadNum < numGlobalThread; mThreadNum++)
+	while (!StopThread)
 	{
-		objIDX = mThreadDrawRenderItems[mThreadNum].begin();
-		objEnd = mThreadDrawRenderItems[mThreadNum].end();
+		// Draw에서 Update를 마치고 Draw를 시작하라고 지시 할 때 까지 대기
+		WaitForSingleObject(updateInstanceEvent[ThreadIDX], INFINITE);
+
+		objIDX = mThreadDrawRenderItems[ThreadIDX].begin();
+		objEnd = mThreadDrawRenderItems[ThreadIDX].end();
 
 		for (; objIDX != objEnd; objIDX++)
 		{
 			obj = (*objIDX).mObject;
-
 
 			if (obj->isBaked || (obj->mVertices.size() == 0 && obj->mBillBoardVertices.size() == 0))
 			{
@@ -1449,27 +1540,30 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 
 			if (obj->isBillBoard)
 			{
-				DirectX::XMMATRIX world = DirectX::XMLoadFloat4x4(&(*InstanceIterator).World);
+				world = DirectX::XMLoadFloat4x4(&(*InstanceIterator).World);
 				world = mParentWorld * world;
 
 				DirectX::XMStoreFloat4x4(&data.World, world);
 				data.TexTransform = (*InstanceIterator).TexTransform;
 
-				InstanceBuffer->CopyData((*objIDX).mInstanceIDX, data);
+				InstanceBuffer->CopyData((*objIDX).mInstanceOffsetIDX, data);
 
 				mGameIDX++;
 				continue;
 			}
 
+			UINT instanceIDX = 0;
 			bool isUpdate = false;
 			for (i = 0; i < obj->InstanceCount; ++i)
 			{
+				instanceIDX = (*objIDX).mInstanceIDX;
+
 				if (obj->mParentName != "")
-					obj->mTranslate[i].position = mParentPosition;
+					obj->mTranslate[instanceIDX + i].position = mParentPosition;
 
-				obj->mTranslate[i].Update(gt.DeltaTime());
+				obj->mTranslate[instanceIDX + i].Update(mDeltaTime);
 
-				world = obj->mTranslate[i].Matrix();
+				world = obj->mTranslate[instanceIDX + i].Matrix();
 
 				XMStoreFloat4x4(&(*InstanceIterator).World, world);
 
@@ -1478,72 +1572,72 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 				mObjectPos[2] = world.r[3].m128_f32[2];
 
 				(*BoundsIterator).Center.x = world.r[3].m128_f32[0];
-				(*BoundsIterator).Center.y = world.r[3].m128_f32[1];
+				(*BoundsIterator).Center.y = world.r[3].m128_f32[1] + (*BoundsIterator).Extents.y * 0.5f;
 				(*BoundsIterator).Center.z = world.r[3].m128_f32[2];
 
 				texTransform = XMLoadFloat4x4(&(*InstanceIterator).TexTransform);
-				
+
 				XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
 				XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(texTransform));
 				data.MaterialIndex = (*InstanceIterator).MaterialIndex;
 
 				// (현재 보여지고 있는 오브젝트의 개수) == (인스턴스 인덱스)
-				InstanceBuffer->CopyData((*objIDX).mInstanceIDX + i, data);
+				InstanceBuffer->CopyData((*objIDX).mInstanceOffsetIDX + i, data);
 
 				// Light Update
-				if (mLightDatas.size() > 0)
+				if (mLightDataSize > 0)
 				{
-					lightIDX = mLights.begin();
-					lightDataIDX = mLightDatas.begin();
+					mLocalLightIDX = lightIDX;
+					mLocalLightDataIDX = lightDataIDX;
 
 					distance = 0.0f;
 
 					// 충돌 라이트를 최신화 하기 위해 clear한다.
 					int LightSize = 0;
-					while (lightIDX != lightEnd)
+					while (mLocalLightIDX != lightEnd)
 					{
 						// 만일 라이트가 Dir이면
-						if ((*lightIDX).mLightType == LightType::DIR_LIGHTS)
+						if ((*mLocalLightIDX).mLightType == LightType::DIR_LIGHTS)
 						{
 							// 무조건 포함
-							(*lightDataIDX).data[LightSize] = *lightIDX;
+							(*mLocalLightDataIDX).data[LightSize] = *mLocalLightIDX;
 						}
 						// 만일 라이트가 Point이면
-						else if ((*lightIDX).mLightType == LightType::POINT_LIGHT)
+						else if ((*mLocalLightIDX).mLightType == LightType::POINT_LIGHT)
 						{
 							// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
-							lightVec.x = mObjectPos[0] - (*lightIDX).mPosition.x;
-							lightVec.y = mObjectPos[1] - (*lightIDX).mPosition.y;
-							lightVec.z = mObjectPos[2] - (*lightIDX).mPosition.z;
+							lightVec.x = mObjectPos[0] - (*mLocalLightIDX).mPosition.x;
+							lightVec.y = mObjectPos[1] - (*mLocalLightIDX).mPosition.y;
+							lightVec.z = mObjectPos[2] - (*mLocalLightIDX).mPosition.z;
 
 							lightData = DirectX::XMLoadFloat3(&lightVec);
 
 							XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
 
-							if (distance < (*lightIDX).mFalloffEnd)
+							if (distance < (*mLocalLightIDX).mFalloffEnd)
 							{
-								(*lightDataIDX).data[LightSize] = *lightIDX;
+								(*mLocalLightDataIDX).data[LightSize] = *mLocalLightIDX;
 							}
 						}
 						// 만일 라이트가 Spot이면
-						else if ((*lightIDX).mLightType == LightType::SPOT_LIGHT)
+						else if ((*mLocalLightIDX).mLightType == LightType::SPOT_LIGHT)
 						{
 							// ||(lightPos - Pos)|| < light.FalloffEnd 를 충족하면 포함
-							lightVec.x = mObjectPos[0] - (*lightIDX).mPosition.x;
-							lightVec.y = mObjectPos[1] - (*lightIDX).mPosition.y;
-							lightVec.z = mObjectPos[2] - (*lightIDX).mPosition.z;
+							lightVec.x = mObjectPos[0] - (*mLocalLightIDX).mPosition.x;
+							lightVec.y = mObjectPos[1] - (*mLocalLightIDX).mPosition.y;
+							lightVec.z = mObjectPos[2] - (*mLocalLightIDX).mPosition.z;
 
 							lightData = DirectX::XMLoadFloat3(&lightVec);
 
 							XMStoreFloat(&distance, DirectX::XMVector3Length(lightData));
 
-							if (distance < (*lightIDX).mFalloffEnd)
+							if (distance < (*mLocalLightIDX).mFalloffEnd)
 							{
-								(*lightDataIDX).data[LightSize] = *lightIDX;
+								(*mLocalLightDataIDX).data[LightSize] = *mLocalLightIDX;
 							}
 						}
 
-						//lightDir = XMLoadFloat3(&(*lightIDX).mDirection);
+						//lightDir = XMLoadFloat3(&(*mLocalLightIDX).mDirection);
 						lightDir.m128_f32[0] = 0.57735f;
 						lightDir.m128_f32[1] = -0.57735f;
 						lightDir.m128_f32[2] = 0.57735f;
@@ -1553,7 +1647,7 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 						// Light View Matrix
 						lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
 						// Store Light Pos
-						XMStoreFloat4(&(*lightIDX).mLightPosW, lightPos);
+						XMStoreFloat4(&(*mLocalLightIDX).mLightPosW, lightPos);
 
 						// World View에서 Light View 방향으로 변형된 경계구의 위치
 						XMStoreFloat3(&sphereCenterL, XMVector3TransformCoord(targetPos, lightView));
@@ -1561,8 +1655,8 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 						rad = mSceneBounds.Radius;
 
 						// Ortho 프러스텀 생성
-						(*lightIDX).mLightNearZ = sphereCenterL.z - rad;
-						(*lightIDX).mLightFarZ = sphereCenterL.z + rad;
+						(*mLocalLightIDX).mLightNearZ = sphereCenterL.z - rad;
+						(*mLocalLightIDX).mLightFarZ = sphereCenterL.z + rad;
 
 						lightProj =
 							XMMatrixOrthographicOffCenterLH(
@@ -1575,32 +1669,33 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 							);
 
 						S = lightView * lightProj * T;
-						XMStoreFloat4x4(&(*lightIDX).mLightView, lightView);
-						XMStoreFloat4x4(&(*lightIDX).mLightProj, lightProj);
+						XMStoreFloat4x4(&(*mLocalLightIDX).mLightView, lightView);
+						XMStoreFloat4x4(&(*mLocalLightIDX).mLightProj, lightProj);
 
 						mLightViewProj = XMMatrixMultiply(lightView, lightProj);
 						mLightInvView = XMMatrixInverse(&XMMatrixDeterminant(lightView), lightView);
 						mLightInvProj = XMMatrixInverse(&XMMatrixDeterminant(lightProj), lightProj);
 						mLightInvViewProj = XMMatrixInverse(&XMMatrixDeterminant(mLightViewProj), mLightViewProj);
 
-						XMStoreFloat4x4(&(*lightIDX).ShadowViewProj, XMMatrixTranspose(mLightViewProj));
-						XMStoreFloat4x4(&(*lightIDX).ShadowViewProjNDC, XMMatrixTranspose(S));
+						XMStoreFloat4x4(&(*mLocalLightIDX).ShadowViewProj, XMMatrixTranspose(mLightViewProj));
+						XMStoreFloat4x4(&(*mLocalLightIDX).ShadowViewProjNDC, XMMatrixTranspose(S));
 						XMStoreFloat4x4(&mMainPassCB.ShadowViewProj, XMMatrixTranspose(mLightViewProj));
 						XMStoreFloat4x4(&mMainPassCB.ShadowViewProjNDC, XMMatrixTranspose(S));
 
-						(*lightIDX).AmbientLight = XMFLOAT4(0.4f, 0.4f, 0.4f, 1.0f);
+						(*mLocalLightIDX).AmbientLight = XMFLOAT4(0.4f, 0.4f, 0.4f, 1.0f);
 
 						w = mShadowMap->Width();
 						h = mShadowMap->Height();
 
 						LightSize += 1;
-						lightIDX++;
+						mLocalLightIDX++;
 					}// while (lightIDX != lightEnd)
 
-					LightBufferCB->CopyData((*objIDX).mInstanceIDX + i, (*lightDataIDX));
+					LightBufferCB->CopyData((*objIDX).mInstanceOffsetIDX + i, (*mLocalLightDataIDX));
 
-					lightDataIDX++;
+					mLocalLightDataIDX++;
 				}// if (mLightDatas.size() > 0)
+
 				InstanceIterator++;
 				BoundsIterator++;
 			}
@@ -1608,6 +1703,48 @@ void BoxApp::UpdateInstanceData(const GameTimer& gt)
 			// 다음 게임 오브젝트의 인덱싱
 			mGameIDX++;
 		}
+
+		ResetEvent(updateInstanceEvent[ThreadIDX]);
+		SetEvent(updateInstanceDoneEvent[ThreadIDX]);
+	}
+
+	return (DWORD)0;
+}
+
+void BoxApp::UpdateInstanceData(const GameTimer& gt)
+{
+	view = mCamera.GetView();
+	invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+
+	// Game Index
+	int mGameIDX = 0;
+
+	int MatIDX = 0;
+	int LightIDX = 0;
+
+	lightEnd = mLights.end();
+
+	// 오브젝트가 프러스텀에 걸쳐있는지 여부를 확인하는 콜라이더 크기
+	boundScale = MathHelper::Identity4x4();
+	distance = 0.0f;
+	UINT mThreadNum = 0;
+
+	mDeltaTime		= gt.DeltaTime();
+	mLightDataSize	= (int)mLightDatas.size();
+
+	lightIDX		= mLights.begin();
+	lightDataIDX	= mLightDatas.begin();
+
+	for (UINT i = 0; i < numGlobalThread; i++)
+	{
+		SetEvent(updateInstanceEvent[i]);
+	}
+
+	WaitForMultipleObjects(numGlobalThread, updateInstanceDoneEvent, true, INFINITE);
+
+	for (UINT i = 0; i < numGlobalThread; i++)
+	{
+		ResetEvent(updateInstanceDoneEvent[i]);
 	}
 }
 
@@ -1620,12 +1757,17 @@ void BoxApp::UpdateInstanceDataWithBaked(const GameTimer& gt)
 	visibleInstanceCount = 0;
 
 	UINT i, j;
+
+	ObjectData* obj = NULL;
+	PhysResource* pr = nullptr;
+
+	InstanceData data;
+
 	// Game Index
-	mGameIDX = 0;
+	int mGameIDX = 0;
 
-	MatIDX = 0;
-	LightIDX = 0;
-
+	int MatIDX = 0;
+	int LightIDX = 0;
 
 	//////
 	// 이후 각 라이트마다의 경계구로 변형 요망
@@ -1695,6 +1837,7 @@ void BoxApp::UpdateInstanceDataWithBaked(const GameTimer& gt)
 			mThreadDrawRenderItem.push_back(
 				ThreadDrawRenderItem(
 					obj,
+					0,
 					visibleInstanceCount,
 					0,
 					obj->InstanceCount
@@ -1875,6 +2018,7 @@ void BoxApp::UpdateInstanceDataWithBaked(const GameTimer& gt)
 		mThreadDrawRenderItem.push_back(
 			ThreadDrawRenderItem(
 				obj,
+				0,
 				mInstanceIDX,
 				0,
 				isOnTheFrustumCount
@@ -1889,9 +2033,12 @@ void BoxApp::UpdateInstanceDataWithBaked(const GameTimer& gt)
 		mThreadDrawRenderItems[i].resize(0);
 
 	// mThreadDrawRenderItem를 쓰레드 개수로 나눈다.
+	UINT instanceCount = 0;
 	UINT loop = 0;
 	for (i = 0; i < mThreadDrawRenderItem.size(); i++)
 	{
+		instanceCount = 0;
+
 		if (mThreadDrawRenderItem[i].mOnTheFrustumCount < numGlobalThread)
 		{
 			mThreadDrawRenderItems[loop].push_back(mThreadDrawRenderItem[i]);
@@ -1906,7 +2053,8 @@ void BoxApp::UpdateInstanceDataWithBaked(const GameTimer& gt)
 				mThreadDrawRenderItems[j].push_back(
 					ThreadDrawRenderItem(
 						mThreadDrawRenderItem[i].mObject,
-						mThreadDrawRenderItem[i].mInstanceIDX + (mPieceOfOnTheFrustumCount * j),
+						mPieceOfOnTheFrustumCount * j - 1,
+						mThreadDrawRenderItem[i].mInstanceOffsetIDX + (mPieceOfOnTheFrustumCount * j),
 						mThreadDrawRenderItem[i].mOnlySubmeshIDX,
 						mPieceOfOnTheFrustumCount
 					)
@@ -1915,7 +2063,8 @@ void BoxApp::UpdateInstanceDataWithBaked(const GameTimer& gt)
 			mThreadDrawRenderItems[numGlobalThread - 1].push_back(
 				ThreadDrawRenderItem(
 					mThreadDrawRenderItem[i].mObject,
-					mThreadDrawRenderItem[i].mInstanceIDX + (mPieceOfOnTheFrustumCount * (numGlobalThread - 1)),
+					mPieceOfOnTheFrustumCount * (numGlobalThread - 1) - 1,
+					mThreadDrawRenderItem[i].mInstanceOffsetIDX + (mPieceOfOnTheFrustumCount * (numGlobalThread - 1)),
 					mThreadDrawRenderItem[i].mOnlySubmeshIDX,
 					mThreadDrawRenderItem[i].mOnTheFrustumCount - (mPieceOfOnTheFrustumCount * (numGlobalThread - 1))
 				)
@@ -2056,26 +2205,30 @@ void BoxApp::UpdateInstanceBuffer()
 
 void BoxApp::UpdateQuestUI(const GameTimer& gt)
 {
-	//mODBC.GetTuple(0, data);
-	//printf("");
+	if (mIsODBCDirty)
+	{
+		mIsODBCDirty = false;
 
-	//mODBC.GetCurrentQuest(data);
-	//printf("");
+		std::string name;
+		ImGuiTextComponent* component;
+		for (int i = 0; i < mQuestParamComp->mComponents.size(); i++)
+		{
+			name = mQuestParamComp->mComponents[i]->getName();
 
-	//mODBC.SetComplete(data.id);
+			if (name != "NumberHint")
+				continue;
 
-	//mODBC.GetCurrentQuest(data);
-	//printf("");
+			mODBC.GetCurrentQuest(mQuestData);
 
-	//questParamComp->pushToggleComponent(isUseGlobalPose, "isUseGlobalPoseToggle", "isUseGlobalPoseToggle");
-
-	//questParamComp->pushSliderFloatComponent(mGlobalVec.x, "GlobalVecX", "GlobalVecX", -1.0f, 1.0f);
-	//questParamComp->pushSliderFloatComponent(mGlobalVec.y, "GlobalVecY", "GlobalVecY", -1.0f, 1.0f);
-	//questParamComp->pushSliderFloatComponent(mGlobalVec.z, "GlobalVecZ", "GlobalVecZ", -1.0f, 1.0f);
-
-	//questParamComp->pushSliderFloatComponent(mLocalScale.x, "LocalScaleX", "LocalScaleX", -0.01f, 0.01f);
-	//questParamComp->pushSliderFloatComponent(mLocalScale.y, "LocalScaleY", "LocalScaleY", -0.1f, 0.1f);
-	//questParamComp->pushSliderFloatComponent(mLocalScale.z, "LocalScaleZ", "LocalScaleZ", -0.01f, 0.01f);
+			 component = (ImGuiTextComponent*)mQuestParamComp->mComponents[i].get();
+			 component->setText (
+				 "Number: " +
+				 std::to_string(mQuestData.target_number) +
+				 " / " +
+				 std::to_string(mQuestData.target_max_number)
+			 );
+		}
+	}
 }
 
 void BoxApp::InitSwapChain(int numThread)
@@ -2320,7 +2473,7 @@ DWORD WINAPI BoxApp::DrawShadowThread(LPVOID temp)
 	// loop Resource
 	size_t i, k;
 
-	while (ThreadIDX < numGlobalThread)
+	while (!StopThread)
 	{
 		// Draw에서 Update를 마치고 Draw를 시작하라고 지시 할 때 까지 대기
 		WaitForSingleObject(shadowRenderTargetEvent[ThreadIDX], INFINITE);
@@ -2392,9 +2545,9 @@ DWORD WINAPI BoxApp::DrawShadowThread(LPVOID temp)
 
 				// Instance
 				objCBAddress = 
-					instanceCB + mRenderItem->mInstanceIDX * sizeof(InstanceData);
+					instanceCB + mRenderItem->mInstanceOffsetIDX * sizeof(InstanceData);
 				lightCBAddress = 
-					lightCB + mRenderItem->mInstanceIDX * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
+					lightCB + mRenderItem->mInstanceOffsetIDX * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
 
 				SubmeshGeometry* sg = nullptr;
 
@@ -2589,9 +2742,9 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 					// Move to Current Stack Pointer
 					instanceCBAddress = 
-						instanceCB + mRenderItem->mInstanceIDX * sizeof(InstanceData);
+						instanceCB + mRenderItem->mInstanceOffsetIDX * sizeof(InstanceData);
 					lightCBAddress = 
-						lightCB + mRenderItem->mInstanceIDX * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
+						lightCB + mRenderItem->mInstanceOffsetIDX * d3dUtil::CalcConstantBufferByteSize(sizeof(LightDataConstants));
 					pmxBoneCBAddress = pmxBoneCB;
 					rateOfAnimTimeCBAddress = rateOfAnimTimeCB;
 
@@ -2763,7 +2916,7 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 
 					// Move to Current Stack Pointer
 					instanceCBAddress = 
-						instanceCB + mRenderItem->mInstanceIDX * sizeof(InstanceData);
+						instanceCB + mRenderItem->mInstanceOffsetIDX * sizeof(InstanceData);
 					mMultiCommandList[ThreadIDX]->SetGraphicsRootShaderResourceView(
 						3,
 						instanceCBAddress
@@ -2857,8 +3010,6 @@ DWORD WINAPI BoxApp::DrawThread(LPVOID temp)
 				} // (obj->isBillBoard)
 			}
 		}
-
-		printf("");
 
 		//// DebugBox를 그리는 구간.
 		//{
@@ -3004,7 +3155,7 @@ void BoxApp::Draw(const GameTimer& gt)
 			&DepthStencilView()
 		);
 
-		// �ñ״��� (��ũ���� ��) ���ε�
+		// 메인 루트 시그니쳐 할당
 		mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
 		mCommandList->SetGraphicsRootConstantBufferView(
@@ -3302,11 +3453,17 @@ void BoxApp::OnMouseDown(WPARAM btnState, int x, int y)
 
 void BoxApp::OnMouseUp(WPARAM btnState, int x, int y)
 {
+	isPicked = false;
+
 	ReleaseCapture();
 }
 
 void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
+	// Make each pixel correspond to a quarter of a degree.
+	dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
+	dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
+
 	if ((btnState & MK_LBUTTON) != 0)
 	{
 		if (GetAsyncKeyState(VK_MENU) & 0x8000)
@@ -3325,10 +3482,6 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
 		}
 		else
 		{
-			// Make each pixel correspond to a quarter of a degree.
-			float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
-			float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
-
 			// Update angles based on input to orbit camera around box.
 			mTheta += dx;
 			mPhi += dy;
@@ -3340,10 +3493,18 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
 			mCamera.RotateY(dx);
 
 			mMainCameraDeltaRotationY = mTheta;
-
-			mLastMousePos.x = x;
-			mLastMousePos.y = y;
 		}
+	}
+
+	mLastMousePos.x = x;
+	mLastMousePos.y = y;
+}
+
+void BoxApp::OnMouseWheel(WPARAM btnState)
+{
+	if ((SHORT)HIWORD(btnState) != 0)
+	{
+		mMouseWheel -= (SHORT)HIWORD(btnState) * 0.02f;
 	}
 }
 
@@ -3612,23 +3773,23 @@ void BoxApp::BuildDrawMapSignature()
 	CD3DX12_DESCRIPTOR_RANGE uavTable0;
 	uavTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
 
-	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
+	//CD3DX12_DESCRIPTOR_RANGE texTable;
+	//texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
 
 	// Root parameter can be a table, root descriptor or root constants.
-	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
 
 	// Perfomance TIP: Order from most frequent to least frequent.
 	slotRootParameter[0].InitAsConstants(sizeof(float) * 6, 0);
 	slotRootParameter[1].InitAsDescriptorTable(1, &srvTable0);
 	slotRootParameter[2].InitAsDescriptorTable(1, &uavTable0);
-	slotRootParameter[3].InitAsDescriptorTable(1, &texTable);
+	//slotRootParameter[3].InitAsDescriptorTable(1, &texTable);
 
 	auto staticSamplers = GetStaticSamplers();
 
 	// A root signature is an array of root parameters.
 	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		4,
+		3,
 		slotRootParameter,
 		(UINT)staticSamplers.size(),
 		staticSamplers.data(),
@@ -4641,19 +4802,6 @@ void BoxApp::BuildGUIFrame() {
 	mGUIResources["Thunder"] = ThunderTex.ptr;
 	mGUIResources["Earthquake"] = EarthquakeTex.ptr;
 
-	// Append GUI Frame
-	std::shared_ptr<ImGuiFrameComponent> clothParamComp = pushFrame("ClothParamGUI");
-
-	clothParamComp->pushToggleComponent(isUseGlobalPose, "isUseGlobalPoseToggle", "isUseGlobalPoseToggle");
-
-	clothParamComp->pushSliderFloatComponent(mGlobalVec.x, "GlobalVecX", "GlobalVecX", -1.0f, 1.0f);
-	clothParamComp->pushSliderFloatComponent(mGlobalVec.y, "GlobalVecY", "GlobalVecY", -1.0f, 1.0f);
-	clothParamComp->pushSliderFloatComponent(mGlobalVec.z, "GlobalVecZ", "GlobalVecZ", -1.0f, 1.0f);
-
-	clothParamComp->pushSliderFloatComponent(mLocalScale.x, "LocalScaleX", "LocalScaleX", -0.01f, 0.01f);
-	clothParamComp->pushSliderFloatComponent(mLocalScale.y, "LocalScaleY", "LocalScaleY", -0.1f, 0.1f);
-	clothParamComp->pushSliderFloatComponent(mLocalScale.z, "LocalScaleZ", "LocalScaleZ", -0.01f, 0.01f);
-
 	//////////////////////////////////////
 	// Initialize Quest Info
 	//////////////////////////////////////
@@ -4686,6 +4834,8 @@ void BoxApp::BuildGUIFrame() {
 		"LimitTime :" +
 		std::to_string(mQuestData.limit_time)
 	);
+
+	mSkeletonCount = mQuestData.target_number;
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxApp::GetStaticSamplers()
@@ -4854,7 +5004,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 
 			}
 
-			// CPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			// CPU Buffer에 Vertices Data를 복제
 			ThrowIfFailed(D3DCreateBlob(
 				obj->mGeometry.VertexBufferByteSize,
 				&obj->mGeometry.VertexBufferCPU
@@ -4865,7 +5015,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.VertexBufferByteSize
 			);
 
-			// CPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			// CPU Buffer에 Indices Data를 복제
 			ThrowIfFailed(D3DCreateBlob(
 				obj->mGeometry.IndexBufferByteSize,
 				&obj->mGeometry.IndexBufferCPU
@@ -4876,7 +5026,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.IndexBufferByteSize
 			);
 
-			// GPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			// GPU Buffer에 Staging Buffer를 바인드하고 Vertices Data를 복제
 			obj->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -4884,7 +5034,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.VertexBufferByteSize,
 				obj->mGeometry.VertexBufferUploader);
 
-			// GPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			// GPU Buffer에 Staging Buffer를 바인드하고 Indices Data를 복제
 			obj->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -4900,7 +5050,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 		} // (go->mFormat == "PMX")
 		else if (obj->isBillBoard)
 		{
-			// CPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			// CPU Buffer에 Vertices Data를 복제
 			ThrowIfFailed(D3DCreateBlob(
 				obj->mGeometry.VertexBufferByteSize,
 				&obj->mGeometry.VertexBufferCPU
@@ -4911,7 +5061,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.VertexBufferByteSize
 			);
 
-			// CPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			// CPU Buffer에 Indices Data를 복제
 			ThrowIfFailed(D3DCreateBlob(
 				obj->mGeometry.IndexBufferByteSize,
 				&obj->mGeometry.IndexBufferCPU
@@ -4922,7 +5072,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.IndexBufferByteSize
 			);
 
-			// GPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			// GPU Buffer에 Staging Buffer를 바인드하고 Vertices Data를 복제
 			obj->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -4930,7 +5080,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.VertexBufferByteSize,
 				obj->mGeometry.VertexBufferUploader);
 
-			// GPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			// GPU Buffer에 Staging Buffer를 바인드하고 Indices Data를 복제
 			obj->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -4943,7 +5093,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 		} // else if (obj->isBillBoard)
 		else 
 		{
-			// CPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			// CPU Buffer에 Vertices Data를 복제
 			ThrowIfFailed(D3DCreateBlob(
 				obj->mGeometry.VertexBufferByteSize,
 				&obj->mGeometry.VertexBufferCPU
@@ -4954,7 +5104,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.VertexBufferByteSize
 			);
 
-			// CPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			// CPU Buffer에 Indices Data를 복제
 			ThrowIfFailed(D3DCreateBlob(
 				obj->mGeometry.IndexBufferByteSize,
 				&obj->mGeometry.IndexBufferCPU
@@ -4965,7 +5115,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.IndexBufferByteSize
 			);
 
-			// GPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			// GPU Buffer에 Staging Buffer를 바인드하고 Vertices Data를 복제
 			obj->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -4973,7 +5123,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				obj->mGeometry.VertexBufferByteSize,
 				obj->mGeometry.VertexBufferUploader);
 
-			// GPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			// GPU Buffer에 Staging Buffer를 바인드하고 Indices Data를 복제
 			obj->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -4989,7 +5139,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 		{
 			ObjectData* debugBoxData = obj->mDebugBoxData.get();
 
-			// CPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			// CPU Buffer에 Vertices Data를 복제
 			ThrowIfFailed(D3DCreateBlob(
 				debugBoxData->mGeometry.VertexBufferByteSize,
 				&debugBoxData->mGeometry.VertexBufferCPU
@@ -5000,7 +5150,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				debugBoxData->mGeometry.VertexBufferByteSize
 			);
 
-			// CPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			// CPU Buffer에 Indices Data를 복제
 			ThrowIfFailed(D3DCreateBlob(
 				debugBoxData->mGeometry.IndexBufferByteSize,
 				&debugBoxData->mGeometry.IndexBufferCPU
@@ -5011,7 +5161,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				debugBoxData->mGeometry.IndexBufferByteSize
 			);
 
-			// GPU Buffer�� �Ҵ��Ͽ� Vertices Data�� �Է�
+			// GPU Buffer에 Staging Buffer를 바인드하고 Vertices Data를 복제
 			debugBoxData->mGeometry.VertexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -5020,7 +5170,7 @@ void BoxApp::RecursionChildItem(RenderItem* go)
 				debugBoxData->mGeometry.VertexBufferUploader
 			);
 
-			// GPU Buffer�� �Ҵ��Ͽ� Indices Data�� �Է�
+			// GPU Buffer에 Staging Buffer를 바인드하고 Indices Data를 복제
 			debugBoxData->mGeometry.IndexBufferGPU = d3dUtil::CreateDefaultBuffer(
 				md3dDevice.Get(),
 				mCommandList.Get(),
@@ -5394,7 +5544,7 @@ void BoxApp::CreateBoxObject(
 	obj->mDesc[0].IndexSize = mSubmesh.IndexSize;
 	obj->mDesc[0].VertexSize = mSubmesh.VertexSize;
 
-	// Submesh ����
+	// Submesh 증가
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
@@ -5425,7 +5575,6 @@ void BoxApp::CreateBoxObject(
 		std::end(Box.Indices32)
 	);
 
-	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
 	obj->mGeometry.IndexSize			+= (UINT)Box.Indices32.size();
 
 	obj->mGeometry.VertexBufferByteSize	+= (UINT)Box.Vertices.size() * sizeof(Vertex);
@@ -5549,7 +5698,7 @@ void BoxApp::CreateSphereObject(
 	obj->isCloth.push_back(false);
 	obj->isRigidBody.push_back(false);
 
-	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
+	// 서브메쉬의 버텍스, 인덱스 오프셋 로드
 	SubmeshGeometry mSubmesh;
 	mSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
 	mSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
@@ -5563,7 +5712,7 @@ void BoxApp::CreateSphereObject(
 	obj->mDesc[0].IndexSize = mSubmesh.IndexSize;
 	obj->mDesc[0].VertexSize = mSubmesh.VertexSize;
 
-	// Submesh ����
+	// Submesh 증가
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
@@ -5712,7 +5861,7 @@ void BoxApp::CreateGeoSphereObject(
 	obj->isCloth.push_back(false);
 	obj->isRigidBody.push_back(false);
 
-	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
+	// 서브메쉬의 버텍스, 인덱스 오프셋 로드
 	SubmeshGeometry mSubmesh;
 	mSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
 	mSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
@@ -5726,7 +5875,7 @@ void BoxApp::CreateGeoSphereObject(
 	obj->mDesc[0].IndexSize = mSubmesh.IndexSize;
 	obj->mDesc[0].VertexSize = mSubmesh.VertexSize;
 
-	// Submesh ����
+	// Submesh 증가
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
@@ -5878,6 +6027,7 @@ void BoxApp::CreateCylinberObject(
 	obj->isCloth.push_back(false);
 	obj->isRigidBody.push_back(false);
 
+	// 서브메쉬의 버텍스, 인덱스 오프셋 로드
 	SubmeshGeometry mSubmesh;
 	mSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
 	mSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
@@ -5891,7 +6041,7 @@ void BoxApp::CreateCylinberObject(
 	obj->mDesc[0].IndexSize = mSubmesh.IndexSize;
 	obj->mDesc[0].VertexSize = mSubmesh.VertexSize;
 
-	// Submesh ����
+	// Submesh 증가
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
@@ -5922,7 +6072,6 @@ void BoxApp::CreateCylinberObject(
 		std::end(Box.Indices32)
 	);
 
-	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
 	obj->mGeometry.IndexSize			+= (UINT)Box.Indices32.size();
 
 	obj->mGeometry.VertexBufferByteSize	+= (UINT)Box.Vertices.size() * sizeof(Vertex);
@@ -6052,7 +6201,7 @@ void BoxApp::CreateGridObject(
 	if (renderType == ObjectData::RenderType::_DRAW_MAP_RENDER_TYPE)
 		obj->isDrawTexture = true;
 
-	// �ϳ��� ������Ʈ ���� ��, �ش� ������Ʈ�� ����(������, ������)�� ����
+	// 서브메쉬의 버텍스, 인덱스 오프셋 로드
 	SubmeshGeometry mSubmesh;
 	mSubmesh.StartIndexLocation = (UINT)obj->mGeometry.IndexBufferByteSize;
 	mSubmesh.BaseVertexLocation = (UINT)obj->mGeometry.VertexBufferByteSize;
@@ -6075,7 +6224,7 @@ void BoxApp::CreateGridObject(
 	obj->mDesc[0].IndexSize = mSubmesh.IndexSize;
 	obj->mDesc[0].VertexSize = mSubmesh.VertexSize;
 
-	// Submesh ����
+	// Submesh 증가
 	r->SubmeshCount += 1;
 
 	obj->mGeometry.subMeshCount += 1;
@@ -6741,7 +6890,7 @@ void BoxApp::CreateFBXSkinnedObject(
 		//memcpy(obj->mPhysResources[inst].Position, &position, sizeof(float) * 3);
 	}
 
-	AnimationClip* clip = new AnimationClip;
+	AnimationClip* clip = new AnimationClip(obj->mInstances.size());
 	clip->mClips.resize(mAnimClips.mClips.size());
 	std::copy(mAnimClips.mClips.begin(), mAnimClips.mClips.end(), clip->mClips.begin());
 	mAnimationClips[Name] = clip;
@@ -6853,7 +7002,7 @@ void BoxApp::CreateFBXSkinnedObject(
 			std::end(meshData[subMeshCount].Indices32)
 		);
 
-		// Texture, Material �ڵ� ����
+		// Load, Bind a Texture, Material
 		{
 			if (obj->mGeometry.DrawArgs[subMeshCount].textureName != "")
 			{
@@ -6869,7 +7018,7 @@ void BoxApp::CreateFBXSkinnedObject(
 				this->uploadTexture(charTex);
 				this->uploadMaterial(charTex.Name, charTex.Name);
 
-				// ���ο� ���׸���, �ؽ��� �߰�
+				// Material Binding
 				this->BindMaterial(r, charTex.Name);
 			}
 			else
@@ -6880,7 +7029,8 @@ void BoxApp::CreateFBXSkinnedObject(
 		}
 
 		startV += meshData[subMeshCount].Vertices.size();
-		// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
+
+		// Update Offset
 		vertexOffset += mSubmesh.VertexSize;
 		indexOffset += mSubmesh.IndexSize;
 
@@ -6952,7 +7102,7 @@ void BoxApp::CreatePMXObject(
 	BoundsIterator = obj->Bounds.begin();
 	(*BoundsIterator).Center = position;
 	//obj->Bounds[0].Extents = scale;
-	(*BoundsIterator).Extents = { 10.0f, 9.0f, 10.0f };
+	(*BoundsIterator).Extents = { 10.0f, 18.0f, 10.0f };
 
 	size_t resourceSize = obj->mInstances.size();
 	for (UINT inst = 0; inst < resourceSize; inst++)
@@ -7021,7 +7171,8 @@ void BoxApp::CreatePMXObject(
 		}
 	}
 
-	AnimationClip* clip = new AnimationClip;
+	// 애니메이션 클립 생성
+	AnimationClip* clip = new AnimationClip(obj->mInstances.size());
 
 	clip->appendClip("IDLE2", 15.0f, 90.0f);
 	clip->appendClip("IDLE2toIDLE1", 91.0f, 131.0f);
@@ -7130,13 +7281,27 @@ void BoxApp::CreatePMXObject(
 		mMorphFrame->mComponents[i]->bindFence(&obj->mMorphDirty.data()[i]);
 	}
 
-	//for (int i = 0; i < obj->mMorph.size(); i++)
-	//{
-	//	std::string name = "Morph" + std::to_string(i);
+	// Append GUI Frame
+	std::shared_ptr<ImGuiFrameComponent> clothParamComp = pushFrame("ClothParamGUI");
 
-	//	mMorphFrame->mComponents[name]->bindFence(&obj->mMorphDirty.data()[i]);
-	//}
+	clothParamComp->pushTextComponent("Title", "LocalScale");
+	clothParamComp->pushSliderFloatComponent(mLocalScale.x, "LocalScaleX", "LocalScaleX", -0.2f, 0.2f);
+	clothParamComp->mComponents[1]->bindFence(&obj->mMorphDirty.data()[0]);
+	clothParamComp->pushSliderFloatComponent(mLocalScale.y, "LocalScaleY", "LocalScaleY", -0.2f, 0.2f);
+	clothParamComp->mComponents[2]->bindFence(&obj->mMorphDirty.data()[1]);
+	clothParamComp->pushSliderFloatComponent(mLocalScale.z, "LocalScaleZ", "LocalScaleZ", -0.2f, 0.2f);
+	clothParamComp->mComponents[3]->bindFence(&obj->mMorphDirty.data()[2]);
 
+	clothParamComp->pushTextComponent("Title1", "WindScale");
+	clothParamComp->pushSliderFloatComponent(mWindScale.x, "WindScaleX", "WindScaleX", -100.0f, 100.0f);
+	clothParamComp->mComponents[5]->bindFence(&obj->mMorphDirty.data()[3]);
+	clothParamComp->pushSliderFloatComponent(mWindScale.y, "WindScaleY", "WindScaleY", -100.0f, 100.0f);
+	clothParamComp->mComponents[6]->bindFence(&obj->mMorphDirty.data()[4]);
+	clothParamComp->pushSliderFloatComponent(mWindScale.z, "WindScaleZ", "WindScaleZ", -100.0f, 100.0f);
+	clothParamComp->mComponents[7]->bindFence(&obj->mMorphDirty.data()[5]);
+
+	//////////////////////////////////////
+	// Load Animation Data
 	//////////////////////////////////////
 
 	DirectX::XMVECTOR S;
@@ -7160,7 +7325,7 @@ void BoxApp::CreatePMXObject(
 	Q.m128_f32[2] = 0.0f;
 	Q.m128_f32[3] = 1.0f;
 
-	// ����� ����
+	// 초기 포즈 매트릭스 by bones.
 	DirectX::XMVECTOR det;
 	for (int i = 0; i < model->bone_count; i++)
 	{
@@ -7184,7 +7349,7 @@ void BoxApp::CreatePMXObject(
 		DirectX::XMStoreFloat4x4(&obj->mOriginRevMatrix[i], M);
 	}
 
-	// �ִϸ��̼� ����
+	// Load and Store Animation Data By Animation Frame
 	for (int i = 0; i < mAnimFrameCount; i++)
 	{
 		for (int j = 0; j < model->bone_count; j++)
@@ -7228,7 +7393,7 @@ void BoxApp::CreatePMXObject(
 	animBuffer.close();
 
 	//////////////////////////////////////////////////////////////
-	// Model�� Cloth Weight�� Submesh ������ isCloth ������ ����
+	// Model의 Cloth Weight 정보 저장
 	//////////////////////////////////////////////////////////////
 
 	//std::vector<std::wstring> mWeightBonesRoot;
@@ -7363,10 +7528,10 @@ void BoxApp::CreatePMXObject(
 
 	//for (int i = 0; i < model->vertex_count; i++)
 	//{
-	//	// �켱 ���ؽ��� �ε����� ����
+	//	// Weight가 0.0f인 Vertices를 제거하고 최적화된 버텍스를 쓴다.
 	//	outFile.write((char*)&i, sizeof(int));
 
-	//	// ���� ����Ʈ�� ������ ��
+	//	// 해당 버텍스의 weight를 저장할 공간
 	//	dWeight = 0.0f;
 
 	//	if (model->vertices[i].skinning_type == pmx::PmxVertexSkinningType::BDEF1)
@@ -7470,7 +7635,7 @@ void BoxApp::CreatePMXObject(
 	//		}
 	//	}
 
-	//	// ����Ʈ ����
+	//	// 현 버텍스의 가중치를 쓴다.
 	//	outFile.write((char*)&dWeight, sizeof(float));
 	//}
 
@@ -7615,17 +7780,16 @@ void BoxApp::CreatePMXObject(
 		SubmeshGeometry mSubmesh;
 		std::string submeshName = Name + std::to_string(subMeshIDX);
 
-		// �� ���׸����� �ؽ��� �ε��� �ε�
+		// 오브젝트의 머테리얼 인덱스를 로드
 		diffuseTextureIDX = model->materials[subMeshIDX].diffuse_texture_index;
 		sphereTextureIDX = model->materials[subMeshIDX].sphere_texture_index;
 		toonTextureIDX = model->materials[subMeshIDX].toon_texture_index;
 
-		// vertex, index�� ������ �ε�
-		// Draw���� ��� Vertices�� �ѹ��� DescriptorSet�� VBV�� ���ε� �� �� (SubMesh ������ ���ε� X)
+		// vertex, index의 시작점(오프셋)
 		mSubmesh.BaseVertexLocation = (UINT)vertexOffset;
 		mSubmesh.StartIndexLocation = (UINT)indexOffset;
 
-		// �� submesh�� ���ε� �� ���ؽ�, �ε��� ����
+		// submesh의 vertex, index 사이즈
 		mSubmesh.VertexSize = (UINT)obj->vertBySubmesh[subMeshIDX].size();
 		mSubmesh.IndexSize = (UINT)model->materials[subMeshIDX].index_count;
 
@@ -7647,7 +7811,7 @@ void BoxApp::CreatePMXObject(
 		obj->mDesc[subMeshIDX].VertexSize = mSubmesh.VertexSize;
 		obj->mDesc[subMeshIDX].IndexSize = mSubmesh.IndexSize;
 
-		// Submesh ����
+		// Submesh 개수 증가
 		r->SubmeshCount += 1;
 
 		obj->mGeometry.subMeshCount += 1;
@@ -7692,6 +7856,7 @@ void BoxApp::CreatePMXObject(
 	obj->mGeometry.IndexBufferByteSize = model->index_count * sizeof(uint32_t);
 }
 
+// 오브젝트의 콜라이더를 보여주는 생성자
 void BoxApp::CreateDebugBoxObject (
 	_In_ RenderItem* r
 	) 
@@ -7774,7 +7939,6 @@ void BoxApp::CreateDebugBoxObject (
 		std::end(Box.Indices32)
 	);
 
-	// ���� ������Ʈ�� ��ü ũ�⸦ ��Ÿ���� ���� ��� ����޽� ũ�⸦ ���Ѵ�.
 	obj->mDebugBoxData->mGeometry.IndexSize += (UINT)Box.Indices32.size();
 
 	obj->mDebugBoxData->mGeometry.VertexBufferByteSize += (UINT)Box.Vertices.size() * sizeof(Vertex);
@@ -7928,9 +8092,9 @@ void BoxApp::uploadMaterial(_In_ std::string name, _In_ bool isSkyTexture) {
 		mat.MatCBIndex = (int)mMaterials.size();
 		mat.DiffuseSrvHeapIndex = -1;
 		mat.NormalSrvHeapIndex = -1;
-		mat.DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-		mat.FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-		mat.Roughness = 0.1f;
+		mat.DiffuseAlbedo = XMFLOAT4(0.8f, 0.7f, 0.68f, 1.0f);
+		mat.FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+		mat.Roughness = 0.2f;
 		mat.isSkyTexture = isSkyTexture;
 
 		mMaterials.push_back(mat);
@@ -7956,9 +8120,9 @@ void BoxApp::uploadMaterial(
 	Material mat;
 	mat.Name = matName.c_str();
 	mat.MatCBIndex = (int)mMaterials.size();
-	mat.DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	mat.FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	mat.Roughness = 0.1f;
+	mat.DiffuseAlbedo = XMFLOAT4(0.8f, 0.7f, 0.68f, 1.0f);
+	mat.FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+	mat.Roughness = 0.2f;
 	mat.isSkyTexture = isSkyTexture;
 
 	// Define Texture
@@ -8762,6 +8926,7 @@ void RenderItem::ParticleUpdate(float delta, float time)
 	else
 	{
 		DirectX::XMMATRIX mWorldMat;
+		DirectX::XMVECTOR mParentRotation = mParticle->getRotation();
 
 		InstanceIterator = obj->mInstances.begin();
 		for (int i = 0; i < obj->mInstances.size(); i++)
@@ -8777,6 +8942,10 @@ void RenderItem::ParticleUpdate(float delta, float time)
 			obj->mTranslate[i].position.m128_f32[0] = mParticle->mDeltaDist[i].m128_f32[0];
 			obj->mTranslate[i].position.m128_f32[1] = mParticle->mDeltaDist[i].m128_f32[1];
 			obj->mTranslate[i].position.m128_f32[2] = mParticle->mDeltaDist[i].m128_f32[2];
+
+			obj->mTranslate[i].rotation.m128_f32[0] = mParentRotation.m128_f32[0];
+			obj->mTranslate[i].rotation.m128_f32[1] = mParentRotation.m128_f32[1];
+			obj->mTranslate[i].rotation.m128_f32[2] = mParentRotation.m128_f32[2];
 
 			if (!isScaleUpdated && mParticle->isUseErrorScale)
 			{
@@ -9030,52 +9199,86 @@ void BoxApp::Pick(int sx, int sy)
 	{
 		obj = (*iter).second;
 
-		if (
-				obj->Bounds.size()	== 0												||
-				obj->mRenderType	== ObjectData::RenderType::_SKY_FORMAT_RENDER_TYPE	||
-				obj->mRenderType	== ObjectData::RenderType::_DEBUG_BOX_TYPE			||
-				obj->mName			== "BottomGeo"										||
-				obj->isDrawTexture
-			)
+		if (obj->mName != "CharactorGeo")
 		{
 			iter++;
 
 			continue;
 		}
 
-		InstanceIterator = obj->mInstances.begin();
 		BoundsIterator = obj->Bounds.begin();
-		for (UINT inst = 0; inst < obj->InstanceCount; inst++)
+
+		XMMATRIX W = obj->mTranslate[0].Matrix();
+		XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
+
+		// Tranform ray to vi space of Mesh.
+		// inv ViewWorld
+		XMMATRIX toLocal = XMMatrixMultiply(invView, invWorld);
+
+		// Camera View World에서 Origin View World로 변경하는
+		rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+		rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
+
+		rayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
+		rayDir = XMVector3TransformNormal(rayDir, toLocal);
+
+		// Make the ray direction unit length for the intersection tests.
+		rayDir = XMVector3Normalize(rayDir);
+
+		XMVECTOR v0, v1, v2;
+
+		// 서브메쉬의 최소 접점 까지의 거리
+		float tmin = 0.0f;
+		// 버텍스의 최소 접점 까지의 거리
+		float t = 0.0f;
+		// 최종적으로 선택된 버텍스의 인덱스
+		bool isUpdated = false;
+		UINT pickedTriangle;
+		
+		// 경계 박스에 광선이 접촉한다면, 해당 오브젝트를 선택한다.
+		// tmin는 접촉한 경계 박스 중 가장 거리가 작은 박스의 거리를 저장한다.
+		// 만일 접촉한 박스가 하나도 없다면 tmin은 0.0이다.
+		tmin = MathHelper::Infinity;
+		if ((*BoundsIterator).Intersects(rayOrigin, rayDir, tmin))
 		{
-			XMMATRIX W = XMLoadFloat4x4(&(*InstanceIterator).World);
-			XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
-
-			// Tranform ray to vi space of Mesh.
-			// inv ViewWorld
-			XMMATRIX toLocal = XMMatrixMultiply(invView, invWorld);
-
-			// Camera View World에서 Origin View World로 변경하는
-			rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
-			rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
-
-			rayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
-			rayDir = XMVector3TransformNormal(rayDir, toLocal);
-
-			// Make the ray direction unit length for the intersection tests.
-			rayDir = XMVector3Normalize(rayDir);
-
-			float tmin = 0.0f;
-			if ((*BoundsIterator).Intersects(rayOrigin, rayDir, tmin))
+			for (int submeshIDX = 0; submeshIDX < obj->SubmeshCount; submeshIDX++)
 			{
-				// 경계 박스에 광선이 접촉한다면, 해당 오브젝트를 선택한다.
-				// tmin는 접촉한 경계 박스 중 가장 거리가 작은 박스의 거리를 저장한다.
-				// 만일 접촉한 박스가 하나도 없다면 tmin은 0.0이다.
+				if (obj->dstDynamicVertexSubmesh[submeshIDX].size() < 3)
+					continue;
 
-				printf("");
+				tmin = MathHelper::Infinity;
+				t = MathHelper::Infinity;
+
+				for (int f = 0; f < obj->srcDynamicVertexSubmesh[submeshIDX].size() - 2; f += 3)
+				{
+					v0 = XMLoadFloat3(obj->dstDynamicVertexSubmesh[submeshIDX][f]);
+					v1 = XMLoadFloat3(obj->dstDynamicVertexSubmesh[submeshIDX][f + 1]);
+					v2 = XMLoadFloat3(obj->dstDynamicVertexSubmesh[submeshIDX][f + 2]);
+
+					if (TriangleTests::Intersects(rayOrigin, rayDir, v0, v1, v2, t))
+					{
+						if (t < tmin)
+						{
+							// This is the new nearest picked triangle.
+							isUpdated = true;
+
+							tmin = t;
+							pickedTriangle = f;
+						}
+					}
+				}
+
+				if (isUpdated)
+				{
+					isUpdated			= false;
+
+					isPicked			= true;
+					obj->mPickedSubmesh = submeshIDX;
+					obj->mPickedIndex	= pickedTriangle;
+
+					break;
+				}
 			}
-
-			InstanceIterator++;
-			BoundsIterator++;
 		}
 
 		iter++;
@@ -9123,7 +9326,6 @@ void BoxApp::PickBrush(int sx, int sy)
 		if (!obj->isDrawTexture)
 		{
 			iter++;
-
 			continue;
 		}
 
@@ -9313,26 +9515,33 @@ int RenderItem::getAnimIsLoop() {
 }
 
 void RenderItem::setAnimClip (
-	_In_ std::string mClipName, 
-	_In_  bool isCompression) 
+	std::string mClipName, 
+	int mInstanceOffset,
+	bool isLoop,
+	bool isCompression) 
 {
-	int res = mAnimationClips[mName]->setCurrentClip(mClipName);
+	int res = mAnimationClips[mName]->setCurrentClip(mClipName, mInstanceOffset);
 
 	// 애니메이션 클립 정보를 업데이트
 	if (!res)
 	{
 		mAnimationClips[mName]->getCurrentClip(
+			mInstanceOffset,
 			mGameObjectDatas[mName]->beginAnimIndex,
 			mGameObjectDatas[mName]->endAnimIndex,
 			isCompression
 		);
 
+		mGameObjectDatas[mName]->isAnimDone = false;
+		mGameObjectDatas[mName]->isLoop = isLoop;
+
 		mGameObjectDatas[mName]->currentDelayPerSec =
-			mGameObjectDatas[mName]->beginAnimIndex;
+			mGameObjectDatas[mName]->beginAnimIndex *
+			mGameObjectDatas[mName]->durationOfFrame[0];
 	}
 }
 
-const std::string RenderItem::getAnimClip() const 
+const std::string RenderItem::getAnimClip(int mInstanceOffset) const 
 {
-	return  mAnimationClips[mName]->getCurrentClipName();
+	return  mAnimationClips[mName]->getCurrentClipName(mInstanceOffset);
 }

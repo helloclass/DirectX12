@@ -301,7 +301,7 @@ int GeometryGenerator::CreateFBXSkinnedModel(
 	loadRes = importer->Initialize(Path.c_str(), -1, manager->GetIOSettings());
 
 	if (!loadRes)
-		throw std::runtime_error("Path�� ���ǵ� �������� ã�� �� �����ϴ�.");
+		throw std::runtime_error("Path를 찾을 수 없습니다.");
 
 	importer->Import(scene);
 
@@ -447,29 +447,10 @@ int GeometryGenerator::ExtractedAnimationBone(
 	// Init Bone List
 	std::vector<std::string> mBoneStack;
 
-	//transSkeletonPairs[std::string("Center")].push_back(std::string("Root"));
 	transSkeletonPairs[std::string("Center")].push_back(std::string("Center"));
-	transSkeletonPairs[std::string("Center")].push_back(std::string("LowerBody"));
-	transSkeletonPairs[std::string("Center")].push_back(std::string("groove"));
-	transSkeletonPairs[std::string("Center")].push_back(std::string("waist"));
-
-	transSkeletonPairs[std::string("LegD.L")].push_back(std::string("LegD.L"));
-	transSkeletonPairs[std::string("KneeD.L")].push_back(std::string("KneeD.L"));
-	transSkeletonPairs[std::string("FootD.L")].push_back(std::string("Foot.L"));
-	transSkeletonPairs[std::string("FootD.L")].push_back(std::string("FootD.L"));
-	transSkeletonPairs[std::string("FootD.L")].push_back(std::string("FootIK.L"));
-	transSkeletonPairs[std::string("FootD.L")].push_back(std::string("leg IKP_L"));
-	//transSkeletonPairs[std::string("FootD.L")].push_back(std::string("toe.L"));
-	//transSkeletonPairs[std::string("FootD.L")].push_back(std::string("toeIK.L"));
-
-	transSkeletonPairs[std::string("LegD.R")].push_back(std::string("LegD.R"));
-	transSkeletonPairs[std::string("KneeD.R")].push_back(std::string("KneeD.R"));
-	transSkeletonPairs[std::string("FootD.R")].push_back(std::string("Foot.R"));
-	transSkeletonPairs[std::string("FootD.R")].push_back(std::string("FootD.R"));
-	transSkeletonPairs[std::string("FootD.R")].push_back(std::string("FootIK.R"));
-	transSkeletonPairs[std::string("FootD.R")].push_back(std::string("leg IKP_R"));
-	//transSkeletonPairs[std::string("FootD.R")].push_back(std::string("toe.R"));
-	//transSkeletonPairs[std::string("FootD.R")].push_back(std::string("toeIK.R"));
+	transSkeletonPairs[std::string("UpperBody")].push_back(std::string("LowerBody"));
+	transSkeletonPairs[std::string("UpperBody")].push_back(std::string("groove"));
+	transSkeletonPairs[std::string("UpperBody")].push_back(std::string("waist"));
 
 	transSkeletonPairs[std::string("UpperBody")].push_back(std::string("UpperBody"));
 	transSkeletonPairs[std::string("UpperBody2")].push_back(std::string("UpperBody2"));
@@ -478,27 +459,51 @@ int GeometryGenerator::ExtractedAnimationBone(
 	transSkeletonPairs[std::string("Neck")].push_back(std::string("Neck"));
 	transSkeletonPairs[std::string("Head")].push_back(std::string("Head"));
 
-	transSkeletonPairs[std::string("Shoulder.L")].push_back(std::string("shoulderP.L"));
-	transSkeletonPairs[std::string("Shoulder.L")].push_back(std::string("Shoulder.L"));
-	transSkeletonPairs[std::string("Arm.L")].push_back(std::string("Arm.L"));
-	transSkeletonPairs[std::string("Bip02 LUpArmTwist")].push_back(std::string("arm twist_L"));
-	transSkeletonPairs[std::string("Elbow.L")].push_back(std::string("Elbow.L"));
-	transSkeletonPairs[std::string("Elbow.L")].push_back(std::string("+Elbow.L"));
-	//transSkeletonPairs[std::string("Bip02 L ForeTwist")].push_back(std::string("wrist twist_L"));
-	//transSkeletonPairs[std::string("Hand.L")].push_back(std::string("Wrist.L"));
-	transSkeletonPairs[std::string("Elbow.L")].push_back(std::string("wrist twist_L"));
-	transSkeletonPairs[std::string("Elbow.L")].push_back(std::string("Wrist.L"));
+	transSkeletonPairs[std::string("LegD.L")].push_back(std::string("LegD.L"));
+	//transSkeletonPairs[std::string("LegD.L")].push_back(std::string("Leg.L"));
+	transSkeletonPairs[std::string("KneeD.L")].push_back(std::string("KneeD.L"));
+	//transSkeletonPairs[std::string("KneeD.L")].push_back(std::string("Knee.L"));
+	//transSkeletonPairs[std::string("FootD.L")].push_back(std::string("FootD.L"));
+	//transSkeletonPairs[std::string("FootD.L")].push_back(std::string("Foot.L"));
+	//transSkeletonPairs[std::string("FootD.L")].push_back(std::string("FootIK.L"));
+	//transSkeletonPairs[std::string("FootD.L")].push_back(std::string("leg IKP_L"));
+	//transSkeletonPairs[std::string("FootD.L")].push_back(std::string("toe.L"));
+	//transSkeletonPairs[std::string("FootD.L")].push_back(std::string("toeIK.L"));
 
-	transSkeletonPairs[std::string("Shoulder.R")].push_back(std::string("shoulderP.R"));
+	transSkeletonPairs[std::string("LegD.R")].push_back(std::string("LegD.R"));
+	//transSkeletonPairs[std::string("LegD.R")].push_back(std::string("Leg.R"));
+	transSkeletonPairs[std::string("KneeD.R")].push_back(std::string("KneeD.R"));
+	//transSkeletonPairs[std::string("KneeD.R")].push_back(std::string("Knee.R"));
+	//transSkeletonPairs[std::string("FootD.R")].push_back(std::string("FootD.R"));
+	//transSkeletonPairs[std::string("FootD.R")].push_back(std::string("Foot.R"));
+	//transSkeletonPairs[std::string("FootD.R")].push_back(std::string("FootIK.R"));
+	//transSkeletonPairs[std::string("FootD.R")].push_back(std::string("leg IKP_R"));
+	//transSkeletonPairs[std::string("FootD.R")].push_back(std::string("toe.R"));
+	//transSkeletonPairs[std::string("FootD.R")].push_back(std::string("toeIK.R"));
+
+	//transSkeletonPairs[std::string("Neck")].push_back(std::string("shoulderP.L"));
+	transSkeletonPairs[std::string("Shoulder.L")].push_back(std::string("Shoulder.L"));
+	transSkeletonPairs[std::string("Bip02 L UpperArm")].push_back(std::string("Arm.L"));
+	transSkeletonPairs[std::string("Bip02 L UpperArm")].push_back(std::string("Bip02 L UpperArm"));
+	//transSkeletonPairs[std::string("Bip02 LUpArmTwist")].push_back(std::string("arm twist_L"));
+	transSkeletonPairs[std::string("Bip02 L Forearm")].push_back(std::string("Elbow.L"));
+	//transSkeletonPairs[std::string("Bip02 L Forearm")].push_back(std::string("+Elbow.L"));
+	//transSkeletonPairs[std::string("Bip02 L ForeTwist")].push_back(std::string("wrist twist_L"));
+	transSkeletonPairs[std::string("Elbow.L")].push_back(std::string("Wrist.L"));
+	//transSkeletonPairs[std::string("Elbow.L")].push_back(std::string("wrist twist_L"));
+
+	//transSkeletonPairs[std::string("Neck")].push_back(std::string("shoulderP.R"));
 	transSkeletonPairs[std::string("Shoulder.R")].push_back(std::string("Shoulder.R"));
-	transSkeletonPairs[std::string("Arm.R")].push_back(std::string("Arm.R"));
-	transSkeletonPairs[std::string("Bip02 RUpArmTwist")].push_back(std::string("arm twist_R"));
+	transSkeletonPairs[std::string("Bip02 R UpperArm")].push_back(std::string("Arm.R"));
+	transSkeletonPairs[std::string("Bip02 R UpperArm")].push_back(std::string("Bip02 R UpperArm"));
+	//transSkeletonPairs[std::string("Bip02 RUpArmTwist")].push_back(std::string("arm twist_R"));
 	transSkeletonPairs[std::string("Elbow.R")].push_back(std::string("Elbow.R"));
-	transSkeletonPairs[std::string("Elbow.R")].push_back(std::string("+Elbow.R"));
+	//transSkeletonPairs[std::string("Bip02 R Forearm")].push_back(std::string("+Elbow.R"));
 	//transSkeletonPairs[std::string("Bip02 R ForeTwist")].push_back(std::string("wrist twist_R"));
-	//transSkeletonPairs[std::string("Hand.R")].push_back(std::string("Wrist.R"));
-	transSkeletonPairs[std::string("Elbow.R")].push_back(std::string("wrist twist_R"));
-	transSkeletonPairs[std::string("Bip02 Rhand_Weapon")].push_back(std::string("Wrist.R"));
+	transSkeletonPairs[std::string("Elbow.R")].push_back(std::string("Wrist.R"));
+	//transSkeletonPairs[std::string("Elbow.R")].push_back(std::string("wrist twist_R"));
+	//transSkeletonPairs[std::string("Bip02 Rhand_Weapon")].push_back(std::string("Wrist.R"));
+
 
 	// Fbx Kit
 	FbxIOSettings* ios = NULL;
@@ -527,7 +532,7 @@ int GeometryGenerator::ExtractedAnimationBone(
 	loadRes = importer->Initialize(Path.c_str(), -1, manager->GetIOSettings());
 
 	if (!loadRes)
-		throw std::runtime_error("Path�� ���ǵ� �������� ã�� �� �����ϴ�.");
+		throw std::runtime_error("Path를 찾지 못하였습니다.");
 
 	importer->Import(scene);
 
@@ -555,7 +560,7 @@ int GeometryGenerator::ExtractedAnimationBone(
 
 		time.SetTime(0, 0, 0, 1, 0, scene->GetGlobalSettings().GetTimeMode());
 
-		// Curr Anim Stack (�켱 0)
+		// Curr Anim Stack
 		FbxAnimStack* currAnimStack = NULL;
 		FbxAnimLayer* currAnimLayer = NULL;
 
@@ -623,7 +628,7 @@ int GeometryGenerator::ExtractedAnimationBone(
 	}
 
 	{
-		// Pmx�� Hello ���� ���ε�
+		// 다음 파일에 애니메이션 정보 저장
 		std::ifstream inFile(std::string("Hello"), std::ios::in | std::ios::binary);
 		if (!inFile.is_open())
 			throw std::runtime_error("");
@@ -640,13 +645,13 @@ int GeometryGenerator::ExtractedAnimationBone(
 		int i = 0;
 
 		std::vector<int> targetBoneIDX;
-		bool test = false;
 
 		std::string findBoneName;
 
 		int bIDX = 0;
 		int scaling = 0;
 
+		// 카피하고자 하는 본만 추출하여 해당 본에만 카피
 		while (true)
 		{
 			inFile.read((char*)&targetCount, sizeof(int));
@@ -687,8 +692,6 @@ int GeometryGenerator::ExtractedAnimationBone(
 
 					if (findTargetBoneName == findBoneName)
 					{
-						test = true;
-
 						targetBoneIDX.push_back(i);
 
 						bones[i].resize(mAnimFrameCount);
@@ -703,8 +706,10 @@ int GeometryGenerator::ExtractedAnimationBone(
 				(sizeof(DirectX::XMFLOAT4) * 2) * mAnimFrameCount
 			);
 
-			for (bIDX = 0; bIDX < targetBoneIDX.size(); bIDX++) {
-				i = targetBoneIDX[bIDX];
+			if (targetBoneIDX.size() > 0)
+			{
+				i = targetBoneIDX[targetBoneIDX.size() - 1];
+
 				for (scaling = 0; scaling < bones[i].size(); scaling++) {
 					bones[i][scaling][0].x = _CopyData[scaling * 2].x;
 					bones[i][scaling][0].y = _CopyData[scaling * 2].y;
@@ -724,7 +729,8 @@ int GeometryGenerator::ExtractedAnimationBone(
 		int rootIDX = 0;
 		bool isUpdate = false;
 
-		// �ִϸ��̼��� Root index�� ã�´�
+		// Root index 설정
+		// 카피 된 본 중 가장 조상인 본을 찾아 루트본으로 한다.
 		for (int i = 0; i < bones.size(); i++)
 		{
 			if (bones[i].size() > 2)
@@ -734,7 +740,7 @@ int GeometryGenerator::ExtractedAnimationBone(
 			}
 		}
 
-		// ��Ʈ�� �θ� ���⿡ ���� ����
+		// 우선 루트 본을 가져온다 (Frame = 0)
 		bones[0].resize(mAnimFrameCount);
 		for (int anim = 0; anim < mAnimFrameCount; anim++)
 		{
@@ -760,14 +766,19 @@ int GeometryGenerator::ExtractedAnimationBone(
 		int j = 0;
 		int parentIDX = 0;
 		int anim = 0;
+		// Frame 1 부터는 루트 본 -> 애니메이션 본의 델타를 구해서 저장.
 		for (i = 1; i < target.bone_count; i++)
 		{
+			// 만일 현재 뼈대가 업데이트 되지 않은 뼈대라면 
 			if (bones[i].size() < 2)
 			{
+				bones[i].resize(mAnimFrameCount);
+
+				// 부모(바로 이전 뼈대)의 뼈대가 업데이트 되었다면
 				if (isUpdate)
 				{
+					rootIDX = target.bones[i].parent_index;
 					parentIDX = target.bones[i].parent_index;
-					bones[i].resize(mAnimFrameCount);
 
 					for (anim = 0; anim < bones[parentIDX].size(); anim++)
 					{
@@ -789,11 +800,9 @@ int GeometryGenerator::ExtractedAnimationBone(
 							bones[parentIDX][anim][1].w;
 					}
 				}
+				// 부모 뼈대가 업데이트 상태가 아니라면
 				else
 				{
-					// �ִϸ��̼ǿ� ���� �������� ���� ��� (������ ���)
-					bones[i].resize(mAnimFrameCount);
-
 					for (anim = 0; anim < mAnimFrameCount; anim++)
 					{
 						bones[i][anim][0].x =
@@ -825,11 +834,26 @@ int GeometryGenerator::ExtractedAnimationBone(
 		for (i = 0; i < mAnimFrameCount; i++)
 			transposeBones[i].resize(target.bone_count);
 
+		float testy(0.0f);
 		for (i = 0; i < target.bone_count; i++)
 		{
+			testy = 0.0f;
+			//if (target.bones[i].bone_english_name == L"Shoulder.L" ||
+			//	target.bones[i].bone_english_name == L"Arm.L")
+			//{
+			//	testy = -0.5f;
+			//}
+			//if (target.bones[i].bone_english_name == L"Shoulder.R" ||
+			//	target.bones[i].bone_english_name == L"Arm.R")
+			//{
+			//	testy = 0.5f;
+			//}
+
 			for (j = 0; j < mAnimFrameCount; j++)
 			{
 				// Transpose Mat
+				bones[i][j][0].y += testy;
+
 				transposeBones[j][i][0] = bones[i][j][0];
 				transposeBones[j][i][1] = bones[i][j][1];
 			}
@@ -1542,22 +1566,17 @@ void DrawBoneRecursive(
 {
 	FbxAMatrix pParentGlobalPosition;
 
-	FbxAMatrix globalPosition = GetGlobalPosition(pNode, pTime, pPose, &pParentGlobalPosition);
+	FbxAMatrix globalPosition = 
+		GetGlobalPosition(
+			pNode, 
+			pTime, 
+			pPose, 
+			&pParentGlobalPosition
+		);
 	pParentGlobalPositions.push_back(globalPosition);
 
 	if (pNode->GetNodeAttribute())
 	{
-		FbxAMatrix geomOffset;
-
-		const FbxVector4 IT = pNode->GetGeometricTranslation(FbxNode::eSourcePivot);
-		const FbxVector4 IR = pNode->GetGeometricRotation(FbxNode::eSourcePivot);
-		const FbxVector4 IS = pNode->GetGeometricScaling(FbxNode::eSourcePivot);
-
-		geomOffset = FbxAMatrix(IT, IR, IS);
-
-		// Tail of bone
-		FbxAMatrix gOffPosition = globalPosition * geomOffset;
-
 		DrawBone(
 			pNode,
 			mStops,
@@ -1584,7 +1603,7 @@ void DrawBoneRecursive(
 	}
 }
 
-// Draw Skeleton ���̵� ����
+// Draw Skeleton
 void DrawSkeleton(
 	FbxNode* pNode,
 	FbxSkeleton* skeleton,
@@ -1636,7 +1655,7 @@ void DrawSkeleton(
 		FbxVector4 globalR;
 		FbxVector4 fbxMatT;
 
-		// Pmx�� Hello ���� ���ε�
+		// Pmx에게 옮길 뼈대의 개수
 		int transSkeletonPairsSize = (int)transSkeletonPairs.at(boneName).size();
 
 		outFile.write((char*)&transSkeletonPairsSize, sizeof(int));
@@ -2393,7 +2412,7 @@ DWORD WINAPI LoadAnimationThread(LPVOID prc)
 
 	FbxSkin* lSkinDeformer = (FbxSkin*)mStaticMesh->GetDeformer(0, FbxDeformer::eSkin);
 
-	// Ŭ������ ���� (���� ����)�� ����
+	// 클러스터 (deform) 개수를 얻어옴
 	lClusterCount = lSkinDeformer->GetClusterCount();
 
 	fbxsdk::FbxAMatrix lVertexTransformMatrix;
@@ -2435,7 +2454,6 @@ DWORD WINAPI LoadAnimationThread(LPVOID prc)
 				mIndices = lCluster->GetControlPointIndices();
 				mWeights = lCluster->GetControlPointWeights();
 
-				//#pragma omp for
 				for (k = 0; k < lVertexIndexCount; ++k)
 				{
 					lIndex = mIndices[k];
@@ -2458,7 +2476,8 @@ DWORD WINAPI LoadAnimationThread(LPVOID prc)
 
 			for (i = 0; i < mStaticVertexCount; i++)
 			{
-				// lClusterDeformation�� �� ������ ������ ���
+				// 현재 버텍스에 animation frame Matrix를 곱하여 다음 애니메이션 포즈에 대응하는 위치로
+				// 버텍스가 변형됨.
 				x = (lClusterDeformation[i].MultT(iter[i]));
 
 				mDatas[i * 4]		= (float)x.Buffer()[0];
@@ -3170,6 +3189,11 @@ void DrawBone(
 {
 	std::string boneName(pNode->GetName());
 
+	if (boneName == "Shoulder.L" || boneName == "Shoulder.R")
+	{
+		printf("");
+	}
+
 	try {
 		int transSkeletonPairSize = transSkeletonPairs.at(boneName).size();
 		if (transSkeletonPairSize == 0)
@@ -3182,29 +3206,35 @@ void DrawBone(
 	FbxAMatrix global, local, finalM;
 	// Default Position
 	FbxVector4 localT, localS, deltaT;
+	FbxVector4 localR;
 	FbxQuaternion localQ;
 
 	global = pOriginGlobalPosition;
 
-	// Pmx�� Hello ���� ���ε�
+	// 현재 뼈대 이름을 key로 갖는 values의 개수를 로드
 	int transSkeletonPairsSize = transSkeletonPairs.at(boneName).size();
 
 	outFile.write((char*)&transSkeletonPairsSize, sizeof(int));
 
+	// 현재 뼈대 이름을 key로 갖는 value들의 이름들을 리스트에 적는다.
 	for (int i = 0; i < transSkeletonPairsSize; i++)
 	{
-		std::string targetBoneName = transSkeletonPairs.at(boneName)[i].c_str();
-
 		outFile.write((const char*)transSkeletonPairs.at(boneName)[i].c_str(), transSkeletonPairs.at(boneName)[i].size());
 		outFile.write("\n", 1);
 	}
 
 	int frameCount = mStops[0].GetFrameCount(FbxTime::eFrames30);
 
+	FbxVector4 reS;
+	reS.mData[0] = 0.1f;
+	reS.mData[1] = 0.1f;
+	reS.mData[2] = 0.1f;
+	reS.mData[3] = 1.0f;
+
 	float convBuf;
 	for (int animFrame = 0; animFrame < frameCount; animFrame++)
 	{
-		// FRAME COUNT Ȯ��
+		// FRAME COUNT 만큼 반복
 		local =
 			GetGlobalPosition(
 				pNode,
@@ -3214,24 +3244,25 @@ void DrawBone(
 			);
 
 		//////////////////////////
-		FbxVector4 reS;
-		reS.mData[0] = 0.1f;
-		reS.mData[1] = 0.1f;
-		reS.mData[2] = 0.1f;
-		reS.mData[3] = 1.0f;
-
 		finalM = local;
 
+		// 로테이션이 초기화 됨.
+		// 로테이션이 잘못된 것 같음 고쳐볼 것
+		//finalM.SetR(localR);
 		finalM.SetS(reS);
 
 		localT = finalM.GetT();
 		localQ = finalM.GetQ();
 		localS = finalM.GetS();
 
-		//////////////////////////
-
 		localT = localS * localT;
 
+		//////////////////////////
+
+		if (boneName == "Shoulder.L" || boneName == "Shoulder.R")
+		{
+			localT.mData[0] += 3000000.0f;
+		}
 		convBuf = (float)localT.mData[0];
 		outFile.write((char*)&convBuf, sizeof(float));
 		convBuf = (float)localT.mData[1];

@@ -68,12 +68,6 @@ public:
 			// Composite for using ODBC Function
 			if (SQL_ERROR != SQLAllocHandle(SQL_HANDLE_DBC, hEnvironment, &hODBC))
 			{
-				//RETCODE ret_code = SQLConnect(
-				//	hODBC,
-				//	(SQLWCHAR*)L"game_db", SQL_NTS,
-				//	(SQLWCHAR*)L"ldj454", SQL_NTS,
-				//	(SQLWCHAR*)L"rainbow970627", SQL_NTS
-				//);
 				RETCODE ret_code = SQLConnect(
 					hODBC,
 					(SQLWCHAR*)L"game_db", SQL_NTS,
@@ -318,6 +312,35 @@ public:
 		}
 	}
 
+	// Counting hunted Skeleton
+	void SetTargetNumber(UINT ID, UINT targetNumber)
+	{
+		CString query;
+		query.Format(L"UPDATE directx_odbc SET target_number = %d WHERE ID = %d", targetNumber, ID);
+
+		SQLHSTMT hStatement;
+		// Alocated Memory for Query
+		if (SQL_SUCCESS == SQLAllocHandle(SQL_HANDLE_STMT, hODBC, &hStatement))
+		{
+			// Set TimeOut for Query
+			SQLSetStmtAttr(hStatement, SQL_ATTR_QUERY_TIMEOUT, (SQLPOINTER)15, SQL_IS_UINTEGER);
+
+			// Execute SQL Query
+			RETCODE ret = SQLExecDirect(hStatement, (SQLWCHAR*)(const wchar_t *)query, SQL_NTS);
+
+			if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO)
+			{
+				// TODO
+			}
+
+			// Successful Querying Commit
+			SQLEndTran(SQL_HANDLE_ENV, hEnvironment, SQL_COMMIT);
+			// Free Query Memory
+			SQLFreeHandle(SQL_HANDLE_STMT, hStatement);
+		}
+	}
+
+	// Quest Complete!!
 	void SetComplete(UINT ID)
 	{
 		CString query;

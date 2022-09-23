@@ -29,7 +29,7 @@ void Physics::Init() {
 	//PxCudaContextManager* gCudaContextManager = PxCreateCudaContextManager(*gFoundation, cudaContextManagerDesc);
 
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
-	sceneDesc.gravity = PxVec3(0.0f, -80.0f, 100.0f);
+	sceneDesc.gravity = PxVec3(0.0f, -55.0f, 0.0f);
 	gDispatcher = PxDefaultCpuDispatcherCreate(4);
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;
@@ -52,6 +52,18 @@ void Physics::Init() {
 
 	//PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 0), *gMaterial);
 	//gScene->addActor(*groundPlane);
+
+	CreateKinematic(
+		PxTransform(physx::PxTransform({ 0, 0, 0 })), 
+		CreateBox(5, 5, 5),
+		1
+	);
+
+	CreateKinematic(
+		PxTransform(physx::PxTransform({ 5, 0, 5 })),
+		CreateBox(10, 7, 10),
+		1
+	);
 }
 
 void Physics::CleanUp() {

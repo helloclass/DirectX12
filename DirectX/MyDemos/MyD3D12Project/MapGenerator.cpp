@@ -317,9 +317,7 @@ int** MapGenerator::RaiseHeight(int** curentMap, int _x, int _z, int maxSize, in
 {
 	// 만일 heightSmooth 기능이 ON 되어있고, 주위 지형에 구멍이 없거나 또는
 	// heightSmooth 기능이 OFF 되어있는 경우 
-	if ((hs == EnableDisable::Enabled &&
-		!IsNeighboringHole(_x, _z, holesMap)) ||
-		hs == EnableDisable::Disabled)
+	if (hs == EnableDisable::Enabled)
 	{
 		// 해당 지형의 높이가 최대 높이 보다 작다면 높이를 1 상승
 		if (curentMap[_x][_z] < maxHeight)

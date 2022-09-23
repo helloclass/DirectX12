@@ -55,10 +55,12 @@ private:
 	virtual void OnMouseDown(_In_ WPARAM btnState, _In_ int x, _In_ int y)override;
 	virtual void OnMouseUp(_In_ WPARAM btnState, _In_ int x, _In_ int y)override;
 	virtual void OnMouseMove(_In_ WPARAM btnState, _In_ int x, _In_ int y)override;
+	virtual void OnMouseWheel(_In_ WPARAM btnState)override;
 
 	static void InitSwapChain(_In_ int numThread);
 	static DWORD WINAPI DrawShadowThread(_In_ LPVOID temp);
 	static DWORD WINAPI DrawThread(_In_ LPVOID temp);
+	static DWORD WINAPI UpdateInstanceThread(_In_ LPVOID temp);
 
 	void RecursionChildItem(
 		_In_ RenderItem* child
@@ -101,7 +103,14 @@ public:
 	// InputVector
 	std::unordered_map<char, char> mInputVector;
 	// If Object is on the this Bound, The Object will be drawn shadow.
-	DirectX::BoundingSphere mSceneBounds;
+	static DirectX::BoundingSphere mSceneBounds;
+	// Mouse Wheel Scale
+	static float mMouseWheel;
+
+	// Skill Hit Bound
+	static DirectX::BoundingBox mTonadoBox;
+	static DirectX::BoundingBox mPunchBox;
+	static DirectX::BoundingBox mLaserBox;
 
 public:
 	void Pick(int sx, int sy);
@@ -318,9 +327,9 @@ private:
 	static std::unique_ptr<DrawTexture> mDrawTexture;
 
 public:
-	BoundingFrustum				mCamFrustum;
-	PassConstants				mMainPassCB;
-	Camera						mCamera;
+	BoundingFrustum	mCamFrustum;
+	static PassConstants	mMainPassCB;
+	Camera			mCamera;
 
 	float mMainCameraDeltaRotationY = 0.0f;
 
@@ -346,10 +355,14 @@ public:
 	MapGenerator mMapGene;
 	// Genetator DB
 	ODBC		 mODBC;
+	// If Quest is Updated
+	bool		 mIsODBCDirty = false;
 
 	// GUI for Quest
 	std::shared_ptr<ImGuiFrameComponent> mQuestParamComp;
 	ODBC::UserData mQuestData;
+
+	int mSkeletonCount;
 
 public:
 	std::vector<Texture> texList;
@@ -424,10 +437,15 @@ private:
 	// Draw Thread Resource
 	static UINT numGlobalThread;
 
+	static HANDLE updateInstanceEvent[8];
+	static HANDLE updateInstanceDoneEvent[8];
 	static HANDLE shadowRenderTargetEvent[8];
 	static HANDLE shadowRecordingDoneEvents[8];
 	static HANDLE renderTargetEvent[8];
 	static HANDLE recordingDoneEvents[8];
+
+	static HANDLE updateInstanceThreads[8];
+	static LPDWORD updateInstanceThreadIndex[8];
 
 	static HANDLE shadowDrawThreads[8];
 	static LPDWORD shadowThreadIndex[8];
@@ -441,6 +459,7 @@ typedef struct ThreadDrawRenderItem
 	ThreadDrawRenderItem() : 
 		mObject(nullptr),
 		mInstanceIDX(0),
+		mInstanceOffsetIDX(0),
 		mOnlySubmeshIDX(0),
 		mOnTheFrustumCount(0)
 	{}
@@ -448,16 +467,19 @@ typedef struct ThreadDrawRenderItem
 	ThreadDrawRenderItem(
 		ObjectData* Object,
 		UINT InstanceIDX,
+		UINT InstanceOffsetIDX,
 		UINT OnlySubmeshIDX,
 		UINT OnTheFrustumCount
 	) : mObject(Object), 
-		mInstanceIDX(InstanceIDX), 
+		mInstanceIDX(InstanceIDX),
+		mInstanceOffsetIDX(InstanceOffsetIDX),
 		mOnlySubmeshIDX(OnlySubmeshIDX), 
 		mOnTheFrustumCount(OnTheFrustumCount)
 	{}
 
 	ObjectData* mObject = nullptr;
 	UINT mInstanceIDX = 0;
+	UINT mInstanceOffsetIDX = 0;
 	UINT mOnlySubmeshIDX = 0;
 	UINT mOnTheFrustumCount = 0;
 

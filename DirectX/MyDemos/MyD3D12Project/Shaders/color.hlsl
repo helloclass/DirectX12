@@ -28,7 +28,7 @@ struct VertexOut
 	float3 TangentW : TANGENT;
     float2 TexC     : TEXCOORD;
     
-    // �� �ν��Ͻ� �� �ؽ��� �ε����� ��ġ�� �ʵ��� ����
+	//
     nointerpolation uint MatIndex : MATINDEX;
 };
 

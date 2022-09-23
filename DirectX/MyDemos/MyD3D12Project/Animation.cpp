@@ -1,22 +1,27 @@
 #include "Animation.h"
 
-bool AnimationClip::CurrentClipIsNULL()
+bool AnimationClip::CurrentClipIsNULL(int mInstanceOffset)
 {
-	return !mCurrentClip;
+	if (mInstanceOffset < mCurrentClip.size())
+		return !mCurrentClip[mInstanceOffset];
+	return false;
 }
 
-const std::string AnimationClip::getCurrentClipName() const
+const std::string AnimationClip::getCurrentClipName(int mInstanceOffset) const
 {
-	return mCurrentClip->mName;
+	if (mInstanceOffset < mCurrentClip.size())
+		return mCurrentClip[mInstanceOffset]->mName;
+	return "";
 }
 
 const int AnimationClip::getCurrentClip(
-	_Out_ float& mBeginTime,
-	_Out_ float& mEndTime,
-	_In_  bool isCompression
+	int mInstanceOffset,
+	float& mBeginTime,
+	float& mEndTime,
+	bool isCompression
 ) const
 {
-	if (!mCurrentClip)
+	if (!mCurrentClip[mInstanceOffset])
 		return 1;
 
 	if (isCompression)
@@ -27,7 +32,7 @@ const int AnimationClip::getCurrentClip(
 		{
 			mEndTime += (mClips[idx].mEndTime - mClips[idx].mStartTime);
 
-			if (mClips[idx].mName == mCurrentClip->mName)
+			if (mClips[idx].mName == mCurrentClip[mInstanceOffset]->mName)
 			{
 				break;
 			}
@@ -37,14 +42,14 @@ const int AnimationClip::getCurrentClip(
 	}
 	else
 	{
-		mBeginTime	= mCurrentClip->mStartTime;
-		mEndTime	= mCurrentClip->mEndTime;
+		mBeginTime	= mCurrentClip[mInstanceOffset]->mStartTime;
+		mEndTime	= mCurrentClip[mInstanceOffset]->mEndTime;
 	}
 
 	return 0;
 }
 
-int AnimationClip::setCurrentClip(
+int AnimationClip::pushClip(
 	_In_ std::string mClipName
 )
 {
@@ -55,7 +60,28 @@ int AnimationClip::setCurrentClip(
 	{
 		if (begin->mName == mClipName)
 		{
-			mCurrentClip = (begin._Ptr);
+			mStackClip.push_back(begin._Ptr);
+			return 0;
+		}
+
+		begin++;
+	}
+	return 1;
+}
+
+int AnimationClip::setCurrentClip(
+	std::string mClipName,
+	int mInstanceOffset
+)
+{
+	std::vector<AnimationClip::Clip>::iterator& begin = mClips.begin();
+	std::vector<AnimationClip::Clip>::iterator& end = mClips.end();
+
+	while (begin != end)
+	{
+		if (begin->mName == mClipName)
+		{
+			mCurrentClip[mInstanceOffset] = (begin._Ptr);
 			return 0;
 		}
 
@@ -65,20 +91,21 @@ int AnimationClip::setCurrentClip(
 }
 
 int AnimationClip::nextEvent(
-	_In_ std::string mEventName
+	std::string mEventName,
+	int mInstanceOffset
 )
 {
-	if (!mCurrentClip || (mCurrentClip->mChildNodes.size() == 0))
+	if (!mCurrentClip[mInstanceOffset] || (mCurrentClip[mInstanceOffset]->mChildNodes.size() == 0))
 		return 1;
 
-	auto& begin = mCurrentClip->mChildNodes.begin();
-	auto& end	= mCurrentClip->mChildNodes.end();
+	auto& begin = mCurrentClip[mInstanceOffset]->mChildNodes.begin();
+	auto& end	= mCurrentClip[mInstanceOffset]->mChildNodes.end();
 
 	while (begin != end)
 	{
 		if (begin->first == mEventName)
 		{
-			mCurrentClip = begin->second;
+			mCurrentClip[mInstanceOffset] = begin->second;
 			return 0;
 		}
 

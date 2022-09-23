@@ -2,7 +2,8 @@
 
 #include "BoxApp.h"
 
-std::vector<int> mapIndex;
+// ΩÃ±€≈Ê
+static std::vector<int> mapIndex;
 
 class MapObject {
 private:
@@ -217,7 +218,7 @@ public:
 		mGroundData = app->GetData("MapYardGeo");
 
 		app->mMapGene.AdditionalFilling(
-			GeneratorParametr::Random,
+			GeneratorParametr::VeryHigh,
 			30,
 			mGroundData->Bounds,
 			mTree,

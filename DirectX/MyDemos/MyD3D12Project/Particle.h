@@ -60,7 +60,7 @@ private:
 
 	bool mIsFilled;
 
-	DirectX::XMVECTOR mRotation;
+	DirectX::XMVECTOR mRotation = {0.0f, 0.0f, 0.0f, 1.0f};
 
 	DirectX::XMFLOAT3 mMinAcc;
 	DirectX::XMFLOAT3 mMaxAcc;
@@ -108,6 +108,7 @@ public:
 	float getStartDelay();
 	float getStartLifeTime();
 	bool getOnPlayAwake();
+	DirectX::XMVECTOR getRotation();
 	DirectX::XMFLOAT3 getMinVelo();
 	DirectX::XMFLOAT3 getMaxVelo();
 

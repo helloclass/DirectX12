@@ -537,18 +537,85 @@ public:
 				false
 			);
 		}
+
+		{
+			RenderItem* RayWaves = new RenderItem("StartSplash10", 5);
+
+			app->CreateFBXObject(
+				"StartSplash10",
+				"D:\\Portfolio\\source\\DX12\\DirectX\\Models",
+				"CylinderFromCenter2.fbx",
+				MainTonadoTexturePaths,
+				RayWaves,
+				{ 0.0f, 0.0f, 0.0f },
+				{ 0.0f, 0.0f, 0.0f },
+				{ 20.0f, 20.0f, 20.0f },
+				ObjectData::RenderType::_SKILL_TONADO_MAIN_TONADO_TYPE
+			);
+
+			RayWaves->InitParticleSystem(
+				1.0f,
+				DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f),
+				DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f),
+				DirectX::XMFLOAT3(0.0f, 0.0f, 30.0f),
+				DirectX::XMFLOAT3(0.0f, 0.0f, 200.0f),
+				true
+			);
+
+			RayWaves->appendScaleAnimation(0.0f, { 0.0f, 0.0f, 0.0f });
+			RayWaves->appendScaleAnimation(0.8f, { 150.0f, 30.0f, 150.0f });
+			RayWaves->appendScaleAnimation(3.0f, { 200.0f, 50.0f, 200.0f });
+
+			RayWaves->appendDiffuseAnimation(0.0f, { 1.0f, 1.0f, 1.0f, 1.0f });
+			RayWaves->appendDiffuseAnimation(1.5f, { 1.0f, 1.0f, 1.0f, 1.0f });
+			RayWaves->appendDiffuseAnimation(2.5f, { 1.0f, 1.0f, 1.0f, 0.0f });
+
+			Tonado->appendChildRenderItem(RayWaves);
+
+			Texture Laser_Diffuse_Tex;
+			Laser_Diffuse_Tex.Name = "Rays_Diffuse_Tex";
+			Laser_Diffuse_Tex.Filename = L"../../Textures/Skill/ToonProject2/Trail54.dds";
+
+			app->uploadTexture(Laser_Diffuse_Tex, false);
+
+			Texture Laser_Mask_Tex;
+			Laser_Mask_Tex.Name = "Ray_Waves_Mask_Tex";
+			Laser_Mask_Tex.Filename = L"../../Textures/Skill/ToonProject2/Gradient11.dds";
+
+			app->uploadTexture(Laser_Mask_Tex, false);
+
+			Texture Laser_Noise_Tex;
+			Laser_Noise_Tex.Name = "Ray_Waves_Noise_Tex";
+			Laser_Noise_Tex.Filename = L"../../Textures/Skill/EpicToon/Noise51.dds";
+
+			app->uploadTexture(Laser_Noise_Tex, false);
+
+			app->uploadMaterial(
+				"SKILL_LASER_RAY_WAVES_LONG_MATERIAL",
+				"Rays_Diffuse_Tex",
+				"Ray_Waves_Mask_Tex",
+				"Ray_Waves_Noise_Tex",
+				false
+			);
+
+			app->BindMaterial(
+				Tonado->getChildRenderItem("StartSplash10"),
+				"SKILL_LASER_RAY_WAVES_LONG_MATERIAL"
+			);
+		}
 	}
 
-	float testestest = 0.0f;
+	float testestest = -1.0f;
 
-	RenderItem* particle;
-	RenderItem* particle2;
-	RenderItem* particle3;
-	RenderItem* particle4;
-	RenderItem* particle5;
-	RenderItem* particle6;
-	RenderItem* particle7;
-	RenderItem* particle9;
+	RenderItem* particle  = nullptr;
+	RenderItem* particle2 = nullptr;
+	RenderItem* particle3 = nullptr;
+	RenderItem* particle4 = nullptr;
+	RenderItem* particle5 = nullptr;
+	RenderItem* particle6 = nullptr;
+	RenderItem* particle7 = nullptr;
+	RenderItem* particle9 = nullptr;
+	RenderItem* particle10 = nullptr;
 
 	void _Start()
 	{
@@ -560,16 +627,36 @@ public:
 		particle6 = Tonado->getChildRenderItem("StartSplash6");
 		particle7 = Tonado->getChildRenderItem("StartSplash7");
 		particle9 = Tonado->getChildRenderItem("StartSplash9");
+		particle10 = Tonado->getChildRenderItem("StartSplash10");
+
+		app->mTonadoBox.Center = { 
+			0.0f, 
+			-1000.0f, 
+			0.0f 
+		};
+		app->mTonadoBox.Extents = {
+			40.0f, 
+			40.0f, 
+			40.0f 
+		};
 	}
 
 	void _Update(const GameTimer& gt)
 	{
 		if (isUpdate)
 		{
-			if (testestest == 0.0f)
+			if (testestest < 0.0f)
 			{
+				testestest = 0.0f;
+
 				app->GetData(Tonado->mName)->mTranslate[0].position = mPosition;
 				app->GetData(Tonado->mName)->mTranslate[0].rotation = mRotation;
+
+				app->mTonadoBox.Center = {
+					mPosition.m128_f32[0] * 10.0f,
+					mPosition.m128_f32[1] * 10.0f,
+					mPosition.m128_f32[2] * 10.0f
+				};
 
 				particle->ParticleReset();
 				particle2->ParticleReset();
@@ -579,14 +666,21 @@ public:
 				particle6->ParticleReset();
 				particle7->ParticleReset();
 				particle9->ParticleReset();
+				particle10->ParticleReset();
 			}
 			else if (testestest > 3.0f)
 			{
 				isUpdate = false;
-				testestest = 0.0f;
+				testestest = -1.0f;
 
 				app->GetData(Tonado->mName)->mTranslate[0].position = 
 					{ 0.0f, -20.0f, 0.0f, 1.0f };
+
+				app->mTonadoBox.Center = {
+					0.0f,
+					-1000.0f,
+					0.0f
+				};
 
 				particle->ParticleReset();
 				particle2->ParticleReset();
@@ -596,6 +690,7 @@ public:
 				particle6->ParticleReset();
 				particle7->ParticleReset();
 				particle9->ParticleReset();
+				particle10->ParticleReset();
 			}
 
 			particle->ParticleUpdate(gt.DeltaTime(), testestest);
@@ -606,6 +701,7 @@ public:
 			particle6->ParticleUpdate(gt.DeltaTime(), testestest);
 			particle7->ParticleUpdate(gt.DeltaTime(), testestest);
 			particle9->ParticleUpdate(gt.DeltaTime(), testestest);
+			particle10->ParticleUpdate(gt.DeltaTime(), testestest);
 
 			testestest += gt.DeltaTime();
 		}

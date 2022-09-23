@@ -577,7 +577,7 @@ public:
 		}
 	}
 
-	float testestest = 0.0f;
+	float testestest = -1.0f;
 
 	RenderItem* particle  = nullptr;
 	RenderItem* particle1 = nullptr;
@@ -603,18 +603,38 @@ public:
 		particle7 = Punch->getChildRenderItem("ShockWave2");
 		particle8 = Punch->getChildRenderItem("ShockWave3");
 		particle9 = Punch->getChildRenderItem("RayWave");
+
+		app->mPunchBox.Center = { 
+			0.0f, 
+			-1000.0f, 
+			0.0f 
+		};
+		app->mPunchBox.Extents = {
+			50.0f, 
+			50.0f, 
+			50.0f 
+		};
 	}
 
 	void _Update(const GameTimer& gt)
 	{
 		if (isUpdate)
 		{
-			if (testestest == 0.0f)
+			if (testestest < 0.0f)
 			{
+				testestest = 0.0f;
+
 				app->GetData(Punch->mName)->mTranslate[0].position = mPosition;
 				app->GetData(Punch->mName)->mTranslate[0].rotation = mRotation;
 
+				app->mPunchBox.Center = {
+					mPosition.m128_f32[0] * 10.0f,
+					mPosition.m128_f32[1] * 10.0f,
+					mPosition.m128_f32[2] * 10.0f
+				};
+
 				particle->ParticleReset();
+				particle1->ParticleReset();
 				particle2->ParticleReset();
 				particle3->ParticleReset();
 				particle4->ParticleReset();
@@ -626,12 +646,19 @@ public:
 			else if (testestest > 1.0f)
 			{
 				isUpdate = false;
-				testestest = 0.0f;
+				testestest = -1.0f;
 
 				app->GetData(Punch->mName)->mTranslate[0].position =
 					{ 0.0f, -20.0f, 0.0f, 1.0f };
 
+				app->mPunchBox.Center = {
+					0.0f,
+					-1000.0f,
+					0.0f
+				};
+
 				particle->ParticleReset();
+				particle1->ParticleReset();
 				particle2->ParticleReset();
 				particle3->ParticleReset();
 				particle4->ParticleReset();

@@ -39,10 +39,10 @@ void DrawTexture::BuildDescriptors(
 {
 	mhCpuSrv			= hCpuDescriptor;
 	mhCpuUav			= hCpuDescriptor.Offset(1, descriptorSize);
-	mBrushShapeCpuSrv	= hCpuDescriptor.Offset(2, descriptorSize);
+	//mBrushShapeCpuSrv	= hCpuDescriptor.Offset(2, descriptorSize);
 	mhGpuSrv			= hGpuDescriptor;
 	mhGpuUav			= hGpuDescriptor.Offset(1, descriptorSize);
-	mBrushShapeGpuSrv	= hGpuDescriptor.Offset(2, descriptorSize);
+	//mBrushShapeGpuSrv	= hGpuDescriptor.Offset(2, descriptorSize);
 
 	BuildDescriptors();
 }
@@ -132,7 +132,7 @@ void DrawTexture::BuildDescriptors()
 
 	md3dDevice->CreateShaderResourceView(mOutput.Get(), &srvDesc, mhCpuSrv);
 	md3dDevice->CreateUnorderedAccessView(mOutput.Get(), nullptr, &uavDesc, mhCpuUav);
-	md3dDevice->CreateShaderResourceView(mOutput.Get(), &srvDesc, mBrushShapeCpuSrv);
+	//md3dDevice->CreateShaderResourceView(mOutput.Get(), &srvDesc, mBrushShapeCpuSrv);
 }
 
 void DrawTexture::BuildResource()

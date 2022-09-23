@@ -2,19 +2,20 @@
 
 #include <sstream>
 #include "BoxApp.h"
+#include "Skeleton.h"
 #include "Tonado.h"
 #include "Punch.h"
 #include "Laser.h"
-#include "Map.h"
 
 class Player {
 private:
 	BoxApp* app = nullptr;
 
-	MapObject* mMap = nullptr;
-	TonadoSkillEffect* mTonado = nullptr;
-	PunchSkillEffect* mPunch = nullptr;
-	LaserSkillEffect* mLaser = nullptr;
+	MapObject*			mMap		= nullptr;
+	Skeleton*			mSkeleton	= nullptr;
+	TonadoSkillEffect*	mTonado		= nullptr;
+	PunchSkillEffect*	mPunch		= nullptr;
+	LaserSkillEffect*	mLaser		= nullptr;
 
 private:
 	RenderItem* SkyBox = nullptr;
@@ -24,9 +25,10 @@ private:
 	std::vector<std::string> CharactorNormalTextures;
 	std::vector<std::string> CharactorAlphaTextures;
 
-	RenderItem* Skeleton = nullptr;
 	RenderItem* Pinix = nullptr;
 	RenderItem* TestBox = nullptr;
+
+	float mControlY = 0.0f;
 
 public:
 	Player() {}
@@ -41,14 +43,17 @@ public:
 		std::vector<std::string> PinixTexturePaths;
 		std::vector<std::string> MainTonadoTexturePaths;
 
+		app->mMouseWheel = 50.0f;
+
 		// Create Init Objects
 		{
 			SkyBox		= app->CreateGameObject("SkyBoxGeo", 1);
 
 			Charactor	= app->CreateDynamicGameObject("CharactorGeo", 1);
-			Skeleton	= app->CreateDynamicGameObject("SkeletonGeo", 1);
 			Pinix		= app->CreateDynamicGameObject("PinixGeo", 1);
 			TestBox		= app->CreateDynamicGameObject("TestGeo", 1);
+
+			Charactor->InstanceCount = 1;
 
 			//app->ExtractAnimBones (
 			//	std::string("D:\\Animation\\ImportAnimation\\Assets\\m\\Wisard"),
@@ -82,7 +87,7 @@ public:
 			(
 				"CharactorGeo",
 				std::string("D:\\Modeling\\9c801715_Ganyu_HiPolySet_1.01\\Ganyu_HiPolySet_1.01"),
-				std::string("test1.pmx"),
+				std::string("test2.pmx"),
 				texturePaths,
 				Charactor,
 				XMFLOAT3(0.0f, 0.0f, 0.0f),
@@ -90,9 +95,10 @@ public:
 				XMFLOAT3(1, 1, 1),
 				true
 			);
+
 			//app->CreateDebugBoxObject(Charactor);
 			Charactor->setIsDrawShadow(true);
-			Charactor->setAnimClip("RUN", false);
+			Charactor->setAnimClip("RUN", 0, true);
 
 			renderType = ObjectData::RenderType::_DRAW_MAP_RENDER_TYPE;
 
@@ -115,41 +121,7 @@ public:
 			);
 			//app->CreateDebugBoxObject(TestBox);
 
-			AnimationClip mSkeletonAnimation;
-
-			mSkeletonAnimation.appendClip("IDLE",			0.0f,		100.0f);
-			mSkeletonAnimation.appendClip("HIT",			330.0f,		365.0f);
-			mSkeletonAnimation.appendClip("WALKING",		2186.0f,	2217.0f);
-			mSkeletonAnimation.appendClip("WALKING BACK",	1332.0f,	1365.0f);
-			mSkeletonAnimation.appendClip("RUN",			1633.0f,	1655.0f);
-			mSkeletonAnimation.appendClip("KNIFE DOWN",		2041.0f,	2076.0f);
-			mSkeletonAnimation.appendClip("KNIFE LEFT",		2077.0f,	2112.0f);
-			mSkeletonAnimation.appendClip("KNIFE RIGHT",	2113.0f,	2148.0f);
-			mSkeletonAnimation.appendClip("KNIFE THRUST",	2149.0f,	2184.0f);
-			mSkeletonAnimation.appendClip("BOW CHARGING",	2348.0f,	2383.0f);
-			mSkeletonAnimation.appendClip("BOW AIM",		2384.0f,	2484.0f);
-			mSkeletonAnimation.appendClip("BOW SHOOT",		2485.0f,	2520.0f);
-
-			renderType = ObjectData::RenderType::_OPAQUE_RENDER_TYPE;
-
-			app->CreateFBXSkinnedObject
-			(
-				"SkeletonGeo",
-				std::string("D:\\Portfolio\\source\\DX12\\DirectX\\Models\\Mob\\ARMY_of__SKELETONS_pack"),
-				std::string("Skeleton_archer.FBX"),
-				PinixTexturePaths,
-				Skeleton,
-				XMFLOAT3(21.0f, 100.0f, 0.0f),
-				XMFLOAT3(0.0f, 0.0f, 0.0f),
-				XMFLOAT3(0.11f, 0.11f, 0.11f),
-				mSkeletonAnimation,
-				true
-			);
-			Skeleton->setBoundaryScale({ 10.0f, 10.5f, 10.0f });
-			Skeleton->setIsDrawShadow(true);
-			Skeleton->setAnimClip("IDLE");
-
-			AnimationClip mPinixAnimation;
+			AnimationClip mPinixAnimation(1);
 
 			app->CreateFBXSkinnedObject
 			(
@@ -168,6 +140,11 @@ public:
 			Pinix->setIsDrawShadow(true);
 		}
 
+
+
+		mSkeleton = new Skeleton();
+		mSkeleton->_Awake(app);
+
 		mTonado = new TonadoSkillEffect(app);
 		mTonado->_Awake();
 		mPunch = new PunchSkillEffect(app);
@@ -184,15 +161,15 @@ public:
 			lightData.mLightType = LightType::DIR_LIGHTS;
 			lightData.mPosition = { 0.0f, 0.0f, 0.0f, 0.0f };
 			lightData.mDirection = { 0.57735f, -0.57735f, 0.57735f, 0.0f };
-			lightData.mStrength = { 0.8f, 0.8f, 0.8f, 0.0f };
+			lightData.mStrength = { 0.75f, 0.75f, 0.8f, 0.0f };
 			lightData.mFalloffStart = 0.0f;
 			lightData.mFalloffEnd = 100.0f;
 			app->uploadLight(lightData);
 
-			lightData.mLightType = LightType::POINT_LIGHT;
+			lightData.mLightType = LightType::DIR_LIGHTS;
 			lightData.mPosition = { 0.0f, 0.0f, 0.0f, 0.0f };
 			lightData.mDirection = { -0.57735f, -0.57735f, 0.57735f, 0.0f };
-			lightData.mStrength = { 0.4f, 0.4f, 0.4f, 0.0f };
+			lightData.mStrength = { 0.5f, 0.4f, 0.4f, 0.0f };
 			lightData.mFalloffStart = 0.0f;
 			lightData.mFalloffEnd = 100.0f;
 			app->uploadLight(lightData);
@@ -208,12 +185,10 @@ public:
 	}
 
 	ObjectData* mCharactorData = nullptr;
-	ObjectData* mSkeletonData = nullptr;
 	ObjectData* mGroundData = nullptr;
 
 	std::list<InstanceData>::iterator mCharactorInstanceIterator;
 	std::list<DirectX::BoundingBox>::iterator mCharactorBoundsIterator;
-	std::list<DirectX::BoundingBox>::iterator mSkeletonBoundsIterator;
 
 	std::list<DirectX::BoundingBox>::iterator mGroundBoundsIterator;
 	std::list<DirectX::BoundingBox>::iterator mForwardGroundBoundsIterator;
@@ -223,13 +198,13 @@ public:
 
 	void _Start()
 	{
+		mSkeleton->_Start();
 		mMap->_Start();
 		mTonado->_Start();
 		mPunch->_Start();
 		mLaser->_Start();
 
 		mCharactorData = app->GetData("CharactorGeo");
-		mSkeletonData = app->GetData("SkeletonGeo");
 		mGroundData = app->GetData("MapYardGeo");
 
 		mCharactorInstanceIterator = mCharactorData->mInstances.begin();
@@ -244,6 +219,9 @@ public:
 		app->mInputVector.insert(std::make_pair('1', 0));
 		app->mInputVector.insert(std::make_pair('2', 0));
 		app->mInputVector.insert(std::make_pair('3', 0));
+
+		app->mInputVector.insert(std::make_pair(VK_UP, 0));
+		app->mInputVector.insert(std::make_pair(VK_DOWN, 0));
 
 		// Update Player HP, MP State
 		ImGuiWindowFlags window_flags = 0;
@@ -263,26 +241,27 @@ public:
 
 	bool isGround = true;
 	
+	const float mPlayerSpeed = 30.0f;
+
 	int pre = 0;
 	float gravity = -90.0f;
 	std::string charactorName = "IDLE1";
 
-	// Skeleton
-	bool isSkeletonGround = true;
-	std::string skeletonName = "IDLE";
-
 	void _Update(const GameTimer& gt)
 	{
+		mSkeleton->_Update(gt);
 		mMap->_Update(gt);
 		mTonado->_Update(gt);
 		mPunch->_Update(gt);
 		mLaser->_Update(gt);
 
 		mCharactorBoundsIterator = mCharactorData->Bounds.begin();
-		mSkeletonBoundsIterator = mSkeletonData->Bounds.begin();
 		DirectX::XMVECTOR playerPos = mCharactorData->mTranslate[0].position;
 		playerPos.m128_f32[0] += 5.0f;
 		playerPos.m128_f32[2] += 10.0f;
+
+		DirectX::XMVECTOR closeUpPos = mCharactorData->mTranslate[0].position;
+		closeUpPos.m128_f32[1] += mControlY;
 
 		//////
 		// 이후 각 라이트마다의 경계구로 변형 요망
@@ -292,30 +271,26 @@ public:
 		// Find under the floor of main charactor
 		int mForwardBottomIndex = 0;
 		int mBottomIndex = ((int)playerPos.m128_f32[0] / 20) * 30 + (int)playerPos.m128_f32[2] / 20;
+		mBottomIndex = mBottomIndex > -1 ? mBottomIndex : 0;
 		mGroundBoundsIterator = std::next(mGroundData->Bounds.begin(), mapIndex[mBottomIndex]);
 
+		float mOffsetScale = app->mMouseWheel;
+
 		DirectX::XMVECTOR offset = {
-			-100.0f * sinf(app->mMainCameraDeltaRotationY),
-			40.0f,
-			-100.0f * cosf(app->mMainCameraDeltaRotationY),
+			-2.0f * mOffsetScale * sinf(app->mMainCameraDeltaRotationY),
+			mOffsetScale,
+			-2.0f * mOffsetScale * cosf(app->mMainCameraDeltaRotationY),
 			1.0f
 		};
 
-		mCharactorData->mTranslate[0].rotation = {
-			0.0f,
-			app->mMainCameraDeltaRotationY,
-			0.0f,
-			1.0f 
-		};
-
 		app->mCamera.SetPosition(
-			playerPos +
+			closeUpPos +
 			offset
 		);
 
 		app->mCamera.LookAt(
 			app->mCamera.GetPosition(),
-			playerPos +
+			closeUpPos +
 			DirectX::XMVECTOR({ 0.0f, 7.0f, 0, 1.0f }),
 			{ 0.0f, 1.0f, 0.0f }
 		);
@@ -340,33 +315,53 @@ public:
 				isPutShift = true;
 			}
 
+			if (app->mInputVector[VK_UP])
+			{
+				app->mInputVector[VK_UP] = 0;
+
+				mControlY += gt.DeltaTime();
+			}
+			else if (app->mInputVector[VK_DOWN])
+			{
+				app->mInputVector[VK_DOWN] = 0;
+				
+				mControlY -= gt.DeltaTime();
+			}
+
 			if(app->mInputVector['W'])
 			{
 				isNotPut = true;
 				app->mInputVector['W'] = 0;
 
+				mCharactorData->mTranslate[0].rotation = {
+					0.0f,
+					app->mMainCameraDeltaRotationY,
+					0.0f,
+					1.0f
+				};
+
 				if (!isPutShift)
 				{
 					stockY = mCharactorData->mTranslate[0].velocity.m128_f32[1];
-					mCharactorData->mTranslate[0].setVelocity({ 0.0f, 0.0f, 20.0f, 1.0f });
+					mCharactorData->mTranslate[0].setVelocity({ 0.0f, 0.0f, mPlayerSpeed, 1.0f });
 					mCharactorData->mTranslate[0].addVelocityY(stockY);
 
 					if (charactorName != "RUN")
 					{
 						charactorName = "RUN";
-						Charactor->setAnimClip(charactorName, false);
+						Charactor->setAnimClip(charactorName, 0, true);
 					}
 				}
 				else
 				{
 					stockY = mCharactorData->mTranslate[0].velocity.m128_f32[1];
-					mCharactorData->mTranslate[0].setVelocity({ 0.0f, 0.0f, 60.0f, 1.0f });
+					mCharactorData->mTranslate[0].setVelocity({ 0.0f, 0.0f, mPlayerSpeed, 1.0f });
 					mCharactorData->mTranslate[0].addVelocityY(stockY);
 
 					if (charactorName != "RUN")
 					{
 						charactorName = "RUN";
-						Charactor->setAnimClip(charactorName, false);
+						Charactor->setAnimClip(charactorName, 0, true);
 					}
 				}
 			}
@@ -374,15 +369,22 @@ public:
 			{
 				isNotPut = true;
 				app->mInputVector['S'] = 0;
+				
+				mCharactorData->mTranslate[0].rotation = {
+					0.0f,
+					app->mMainCameraDeltaRotationY,
+					0.0f,
+					1.0f
+				};
 
 				stockY = mCharactorData->mTranslate[0].velocity.m128_f32[1];
-				mCharactorData->mTranslate[0].setVelocity({ 0.0f, 0.0f, -20.0f, 1.0f });
+				mCharactorData->mTranslate[0].setVelocity({ 0.0f, 0.0f, -mPlayerSpeed, 1.0f });
 				mCharactorData->mTranslate[0].addVelocityY(stockY);
 
 				if (charactorName != "RUN")
 				{
 					charactorName = "RUN";
-					Charactor->setAnimClip(charactorName, false);
+					Charactor->setAnimClip(charactorName, 0, true);
 				}
 			}
 			if (app->mInputVector['A'])
@@ -391,13 +393,13 @@ public:
 				app->mInputVector['A'] = 0;
 
 				stockY = mCharactorData->mTranslate[0].velocity.m128_f32[1];
-				mCharactorData->mTranslate[0].setVelocity({ -20.0f, 0.0f, 0.0f, 1.0f });
+				mCharactorData->mTranslate[0].setVelocity({ -mPlayerSpeed, 0.0f, 0.0f, 1.0f });
 				mCharactorData->mTranslate[0].addVelocityY(stockY);
 
 				if (charactorName != "RUN")
 				{
 					charactorName = "RUN";
-					Charactor->setAnimClip(charactorName, false);
+					Charactor->setAnimClip(charactorName, 0, true);
 				}
 			}
 			else if (app->mInputVector['D'])
@@ -406,13 +408,13 @@ public:
 				app->mInputVector['D'] = 0;
 
 				stockY = mCharactorData->mTranslate[0].velocity.m128_f32[1];
-				mCharactorData->mTranslate[0].setVelocity({ 20.0f, 0.0f, 0.0f, 1.0f });
+				mCharactorData->mTranslate[0].setVelocity({ mPlayerSpeed, 0.0f, 0.0f, 1.0f });
 				mCharactorData->mTranslate[0].addVelocityY(stockY);
 
 				if (charactorName != "RUN")
 				{
 					charactorName = "RUN";
-					Charactor->setAnimClip(charactorName, false);
+					Charactor->setAnimClip(charactorName, 0, true);
 				}
 			}
 
@@ -428,7 +430,7 @@ public:
 				if (charactorName != "IDLE1")
 				{
 					charactorName = "IDLE1";
-					Charactor->setAnimClip(charactorName, false);
+					Charactor->setAnimClip(charactorName, 0, true);
 				}
 			}
 		}
@@ -441,9 +443,10 @@ public:
 			if (charactorName != "JUMP_BACK")
 			{
 				charactorName = "JUMP_BACK";
-				Charactor->setAnimClip(charactorName, false);
+				Charactor->setAnimClip(charactorName, 0, false);
 			}
 
+			// 리스폰
 			if (mCharactorData->mTranslate[0].position.m128_f32[1] < -30.0f)
 			{
 				mCharactorData->mTranslate[0].velocity.m128_f32[0] = 0.0f;
@@ -460,6 +463,12 @@ public:
 		{
 			app->mInputVector['1'] = 0;
 
+			if (charactorName != "EARTHQUAKE_SPELL")
+			{
+				charactorName = "EARTHQUAKE_SPELL";
+				Charactor->setAnimClip(charactorName, 0, false);
+			}
+
 			mTonado->mPosition = mCharactorData->mTranslate[0].position;
 			mTonado->mRotation = mCharactorData->mTranslate[0].rotation;
 
@@ -472,6 +481,12 @@ public:
 		else if (app->mInputVector['2'])
 		{
 			app->mInputVector['2'] = 0;
+
+			if (charactorName != "EARTHQUAKE_SPELL")
+			{
+				charactorName = "EARTHQUAKE_SPELL";
+				Charactor->setAnimClip(charactorName, 0, false);
+			}
 
 			mPunch->mPosition = mCharactorData->mTranslate[0].position;
 			mPunch->mRotation = mCharactorData->mTranslate[0].rotation;
@@ -488,6 +503,12 @@ public:
 		{
 			app->mInputVector['3'] = 0;
 
+			if (charactorName != "EARTHQUAKE_SPELL")
+			{
+				charactorName = "EARTHQUAKE_SPELL";
+				Charactor->setAnimClip(charactorName, 0, false);
+			}
+
 			mLaser->mPosition = mCharactorData->mTranslate[0].position;
 			mLaser->mRotation = mCharactorData->mTranslate[0].rotation;
 
@@ -498,102 +519,6 @@ public:
 			mLaser->mPosition.m128_f32[1] += 1.0f;
 
 			mLaser->isUpdate = true;
-		}
-
-
-		DirectX::XMVECTOR skeletonPos;
-
-		// Calc Skeleton to Player
-		DirectX::XMVECTOR Skeleton2Player;
-
-		for (int i = 0; i < mSkeletonData->mTranslate.size(); i++)
-		{
-			skeletonPos = mSkeletonData->mTranslate[i].position;
-			skeletonPos.m128_f32[0] += 10.0f;
-			skeletonPos.m128_f32[2] += 10.0f;
-
-			///////////////
-				Skeleton2Player = playerPos - skeletonPos;
-				Skeleton2Player = DirectX::XMVector4Normalize(Skeleton2Player);
-
-				// 길이 20 벡터의 3차원 노말 34.6410f
-				Skeleton2Player.m128_f32[0] *= 34.6410f;
-				Skeleton2Player.m128_f32[2] *= 34.6410f;
-
-			mForwardBottomIndex = 
-				(int)(skeletonPos.m128_f32[0] + Skeleton2Player.m128_f32[0]) / 20 * 30 +
-				(int)(skeletonPos.m128_f32[2] + Skeleton2Player.m128_f32[2]) / 20;
-			mForwardBottomIndex =
-				mForwardBottomIndex >= 0 ? mForwardBottomIndex : 0;
-
-			///////////////
-
-			mBottomIndex = ((int)skeletonPos.m128_f32[0] / 20) * 30 + (int)skeletonPos.m128_f32[2] / 20;
-			mBottomIndex = mBottomIndex >= 0 ? mBottomIndex : 0;
-
-			mGroundBoundsIterator = std::next(mGroundData->Bounds.begin(), mapIndex[mBottomIndex]);
-			mForwardGroundBoundsIterator = std::next(mGroundData->Bounds.begin(), mapIndex[mForwardBottomIndex]);
-
-			isNotPut = false;
-			if ((*mSkeletonBoundsIterator).Contains(*(mGroundBoundsIterator)))
-			{
-				if (skeletonName != "RUN")
-				{
-					skeletonName = "RUN";
-					Skeleton->setAnimClip(skeletonName);
-				}
-
-				mSkeletonData->mTranslate[i].velocity.m128_f32[0] = Skeleton2Player.m128_f32[0];
-				mSkeletonData->mTranslate[i].velocity.m128_f32[2] = Skeleton2Player.m128_f32[2];
-
-				mSkeletonData->mTranslate[i].rotation = {
-					0.0f,
-					sinf(Skeleton2Player.m128_f32[1]) + cosf(Skeleton2Player.m128_f32[1]),
-					0.0f,
-					1.0f
-				};
-
-				if ((*mGroundBoundsIterator).Center.y < (*mForwardGroundBoundsIterator).Center.y ||
-					mapIndex[mForwardBottomIndex] == 0)
-				{
-					isNotPut = true;
-
-					mSkeletonData->mTranslate[i].velocity.m128_f32[1] = 100.0f;
-				}
-				if (!isNotPut || !isGround)
-				{
-					isSkeletonGround = true;
-
-					//mSkeletonData->mTranslate[i].velocity.m128_f32[0] = 0.0f;
-					mSkeletonData->mTranslate[i].velocity.m128_f32[1] = 0.0f;
-					//mSkeletonData->mTranslate[i].velocity.m128_f32[2] = 0.0f;
-					mSkeletonData->mTranslate[i].accelerate = { 0.0f, 0.0f, 0.0f, 1.0f };
-				}
-			}
-			// Non-Ground
-			else
-			{
-				isSkeletonGround = false;
-
-				mSkeletonData->mTranslate[i].accelerate = { 0.0f, gravity, 0.0f, 1.0f };
-				
-				if (mSkeletonData->mTranslate[i].position.m128_f32[1] < -30.0f)
-				{
-					if (skeletonName != "IDLE")
-					{
-						skeletonName = "IDLE";
-						Skeleton->setAnimClip(skeletonName);
-					}
-
-					mSkeletonData->mTranslate[i].velocity.m128_f32[0] = 0.0f;
-					mSkeletonData->mTranslate[i].velocity.m128_f32[1] = 0.0f;
-					mSkeletonData->mTranslate[i].velocity.m128_f32[2] = 0.0f;
-
-					mSkeletonData->mTranslate[i].position.m128_f32[0] = 21.0f;
-					mSkeletonData->mTranslate[i].position.m128_f32[1] = 50.0f;
-					mSkeletonData->mTranslate[i].position.m128_f32[2] = 0.0f;
-				}
-			}
 		}
 	}
 
