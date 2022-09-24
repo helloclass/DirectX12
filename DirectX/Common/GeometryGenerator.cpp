@@ -239,7 +239,7 @@ int GeometryGenerator::CreateFBXModel(
 	loadRes = importer->Initialize(Path.c_str(), -1, manager->GetIOSettings());
 
 	if (!loadRes)
-		throw std::runtime_error("FBX MODEL�� �ε��ϴµ� ���� �Ͽ����ϴ�.");
+		throw std::runtime_error("FBX 파일을 찾지 못하였습니다.");
 
 	importer->Import(scene);
 	importer->Destroy();
@@ -374,8 +374,7 @@ int GeometryGenerator::CreateFBXSkinnedModel(
 	return 0;
 }
 
-// meshData�� 0�������� Vertex ����Ʈ�� �� �����Ǿ� �ְ�
-// meshData�� 1���� ���� ���ʹ� Submesh Indices�� ������ �����Ǿ� ����.
+// PMX Loader
 int GeometryGenerator::CreatePMXModel(
 	std::vector<GeometryGenerator::MeshData>& meshData,
 	std::string Path,
@@ -392,7 +391,7 @@ int GeometryGenerator::CreatePMXModel(
 		texturePaths.push_back(model.textures[i]);
 	}
 
-	// 0���� Mesh�� Vertices ����
+	// Vertex 정보가 담긴 Mesh를 저장하는 공간
 	GeometryGenerator::MeshData mesh;
 	pmx::PmxVertex* cv = NULL;
 
@@ -1860,11 +1859,11 @@ void ComputeClusterDeformation(
 	FbxAMatrix lClusterRelativeInitPosition;
 	FbxAMatrix lClusterRelativeCurrentPositionInverse;
 
-	// Ŭ�������� �ʱ�(T��) Ʈ������ ��Ʈ������ ��� ��
+	// 현재 뼈대의 변환 행렬을 lReferenceGlobalInitPosition에 복제
 	pCluster->GetTransformMatrix(lReferenceGlobalInitPosition);
 	lReferenceGlobalCurrentPosition = pGlobalPosition;
 	// Multiply lReferenceGlobalInitPosition by Geometric Transformation
-	// �ʱ� Ʈ�������� �̵� ���͸� ����
+
 	FbxNode* pNode = pMesh->GetNode();
 
 	lReferenceGeometry = FbxAMatrix(
@@ -1876,7 +1875,7 @@ void ComputeClusterDeformation(
 	lReferenceGlobalInitPosition *= lReferenceGeometry;
 
 	// Get the link initial global position and the link current global position.
-	// �ʱ� �۷ι� �������� ��� �۷ι� ������ ��ũ�� ����
+	// 초기 T 포즈에서의 Position과 현재 포즈에서의 Position을 이어주는 Link Matrix를 제공 
 	pCluster->GetTransformLinkMatrix(lClusterGlobalInitPosition);
 
 	// lClusterGlobalCurrentPosition = GetGlobalPosition(pCluster->GetLink(), pTime, NULL);
@@ -1884,19 +1883,19 @@ void ComputeClusterDeformation(
 
 
 	// Compute the initial position of the link relative to the reference.
-	// ��ũ�� ���õ� ���۷����� "�ʱ�"(T) �������� ���
+	// T 포즈인 모든 뼈대를 원점으로 만들어주는 변환 행렬
 	lClusterRelativeInitPosition =
 		lClusterGlobalInitPosition.Inverse() *
 		lReferenceGlobalInitPosition;
 
 	// Compute the current position of the link relative to the reference.
-	// ��ũ�� ���۷����� ���õ� "����" �������� ���
+	// 원점 위치의 뼈대를 현재 포즈로 만들어주는 변환 행렬
 	lClusterRelativeCurrentPositionInverse =
 		lReferenceGlobalCurrentPosition.Inverse() *
 		lClusterGlobalCurrentPosition;
 
 	// Compute the shift of the link relative to the reference.
-	// ���� ����� ���� ��� ����ϴ� ���� ��Ʈ���� ���
+	// 다음 포즈를 만들어주는 변환 행렬을 만들어냅니다.
 	pVertexTransformMatrix = lClusterRelativeCurrentPositionInverse * lClusterRelativeInitPosition;
 }
 
@@ -1936,8 +1935,6 @@ void MatrixAdd(FbxAMatrix& pDstMatrix, FbxAMatrix& pSrcMatrix)
 
 // Deform the vertex array in classic linear way.
 
-// lClusterDeformation, lWeight�� �Ź� VBV�� ������Ʈ ��Ű��
-
 void ComputeLinearDeformation(
 	FbxAMatrix& pGlobalPosition,
 	FbxMesh* pMesh,
@@ -1970,7 +1967,7 @@ void ComputeLinearDeformation(
 	int lClusterCount = 0;
 	int lClusterIndex = 0;
 	FbxCluster* lCluster = nullptr;
-	// �ִϸ��̼ǿ� ���� Diff ������ ��Ʈ����
+	// 각 프레임에 따른 뼈대 변형 행렬
 	FbxAMatrix lVertexTransformMatrix;
 	int lVertexIndexCount;
 	int i = 0;
@@ -1981,28 +1978,27 @@ void ComputeLinearDeformation(
 
 	for (lSkinIndex = 0; lSkinIndex < lSkinCount; ++lSkinIndex)
 	{
-		// ��Ų�� ����
+		// Skin 로드
 		lSkinDeformer = (FbxSkin*)pMesh->GetDeformer(lSkinIndex, FbxDeformer::eSkin);
 
-		// Ŭ������ ���� (���� ����)�� ����
+		// 한 Skin에 클러스터(뼈대) 개수 로드 
 		lClusterCount = lSkinDeformer->GetClusterCount();
 		for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex)
 		{
-			// Ŭ�����͸� ����
+			// 뼈대 로드 
 			lCluster = lSkinDeformer->GetCluster(lClusterIndex);
-			// �� Ŭ�����Ϳ� ��Ī�ϴ� �����Ӱ� ���� ��
+			// 정보가 없다면 패스
 			if (!lCluster->GetLink())
 				continue;
 
-			// ���ؽ��� �̵��ؾ� �� ��Ʈ������ ���ϴ� �Լ�
+			// pTime 프레임 에서의 포즈 변환 행렬을 얻어옴.
 			ComputeClusterDeformation(pGlobalPosition, pMesh, lCluster, lVertexTransformMatrix, pTime);
-
-			// �ε��� ������ ���ؽ��� ������Ʈ ��ų �Žô�!
+			// 정점의 개수 로드
 			lVertexIndexCount = lCluster->GetControlPointIndicesCount();
 
 			for (k = 0; k < lVertexIndexCount; ++k)
 			{
-				// ���� �ε��� ��ġ
+				// 버텍스가 존재하는 인덱스 위치를 얻어옴
 				lIndex = lCluster->GetControlPointIndices()[k];
 
 				// Sometimes, the mesh can have less points than at the time of the skinning
@@ -2012,17 +2008,15 @@ void ComputeLinearDeformation(
 
 				// Get Bone Weight
 				lWeight = lCluster->GetControlPointWeights()[k];
-				// Weight�� 0 �̸� ��� �ǹǷ� �н�
+				// Weight가 0.0일 때 Cloth Weight를 업데이트 하지 않음
 				if (lWeight == 0.0)
 					continue;
 
-				// Compute the influence of the link on the vertex.
-				// �� ���ؽ��� �̾��ִ� ������� ����մϴ�
+				// 현 버텍스가 받는 영향력을 계산 합니다.
 				lInfluence = lVertexTransformMatrix;
-				// ����� * ����ġ
 				MatrixScale(lInfluence, lWeight);
 
-
+				// 하나의 Vertex가 2개 이상의 Bone에 대해 영향을 받을 때
 				if (lClusterMode == FbxCluster::eAdditive)
 				{
 					// Multiply with the product of the deformations on the vertex.
@@ -2060,7 +2054,7 @@ void ComputeLinearDeformation(
 		// Deform the vertex if there was at least a link with an influence on the vertex,
 		if (lWeight != 0.0)
 		{
-			// lClusterDeformation�� �� ������ ������ ���
+			// 기본 IDLE Vertex Position에서 Pose 변형 행렬을 곱하여 결과 Vertex Position을 구한다
 			lDstVertex = lClusterDeformation[i].MultT(lSrcVertex);
 
 			if (lClusterMode == FbxCluster::eNormalize)
@@ -2089,13 +2083,13 @@ int DrawMesh(
 {
 	FbxMesh* lMesh = pNode->GetMesh();
 
-	// Node���� Mesh�� ���� ������ ��´�.
+	// FbxMesh
 	FbxMesh* mesh = nullptr;
-	// Material�� ���� ������ Node���� ã�´�. (GetSrcObject<FbxSurfaceMaterial>)
+	// Material단위의 Surface
 	FbxSurfaceMaterial* smat = nullptr;
-	// Mesh�� ���� �ִ� Ư�� ����(���⼭�� SurfaceMaterial)�� �Ӽ� ���� ��� ��ġ 
+	// Mesh 속성
 	FbxProperty prop;
-	// Propperties ���� �аų� ���� ���� IPC ����ü 
+	// Material당 Texture  
 	FbxLayeredTexture* layered_texture = nullptr;
 	FbxFileTexture* fTexture = nullptr;
 
@@ -2223,7 +2217,7 @@ int DrawMesh(
 ;
 		}
 
-		// ���ε� �ε���
+		// Index Count
 		uint32_t numIndex = -1;
 		meshData.Indices32.resize(numIndices);
 
@@ -2310,7 +2304,6 @@ int DrawMesh(
 
 								//if (uvMode) 
 								//{
-								//	//�ؽ��� uv�� ���մϴ�.
 								//	int mTextureUVIndex = lMesh->GetTextureUVIndex(lPolyIndex, lVertIndex);
 
 								//	lUVValue = lUVElement->GetDirectArray().GetAt(mTextureUVIndex);
@@ -2512,11 +2505,10 @@ void DrawMesh(
 {
 	FbxMesh* lMesh = pNode->GetMesh();
 
-	// Material�� ���� ������ Node���� ã�´�. (GetSrcObject<FbxSurfaceMaterial>)
+	// Surface에서 Material 추출. (GetSrcObject<FbxSurfaceMaterial>)
 	FbxSurfaceMaterial* smat = nullptr;
-	// Mesh�� ���� �ִ� Ư�� ����(���⼭�� SurfaceMaterial)�� �Ӽ� ���� ��� ��ġ 
-	FbxProperty prop;
-	// Propperties ���� �аų� ���� ���� IPC ����ü 
+	// Mesh 속성 
+	FbxProperty prop; 
 	FbxLayeredTexture* layered_texture = nullptr;
 	FbxFileTexture* fTexture = nullptr;
 
@@ -2644,7 +2636,7 @@ void DrawMesh(
 		;
 	}
 
-	// ���ε� �ε���
+	// Index Count
 	uint32_t numIndex = -1;
 	meshData.Indices32.resize(numIndices);
 
@@ -2781,14 +2773,14 @@ void DrawMesh(
 	FbxSkin* lSkinDeformer = (FbxSkin*)lMesh->GetDeformer(0, FbxDeformer::eSkin);
 	FbxSkin::EType lSkinningType = lSkinDeformer->GetSkinningType();
 
-	// Ŭ������ ���� (���� ����)�� ����
+	// Cluster(뼈대) 개수
 	lClusterCount = lSkinDeformer->GetClusterCount();
 
 	// For all skins and all clusters, accumulate their deformation and weight
 	// on each vertices and store them in lClusterDeformation and lClusterWeight.
 	int lClusterIndex = 0;
 	FbxCluster* lCluster = nullptr;
-	// �ִϸ��̼ǿ� ���� Diff ������ ��Ʈ����
+
 	fbxsdk::FbxAMatrix lVertexTransformMatrix;
 	fbxsdk::FbxAMatrix lClusterRelativeInitPosition;
 
@@ -2823,8 +2815,6 @@ void DrawMesh(
 		(lSkinningType == FbxSkin::eLinear ||
 			lSkinningType == FbxSkin::eRigid);
 
-	// Multiply lReferenceGlobalInitPosition by Geometric Transformation
-	// �ʱ� Ʈ�������� �̵� ���͸� ����
 	mStaticMesh = lMesh;
 	mStaticVertexCount = lVertexCount;
 	pNode = lMesh->GetNode();
@@ -2866,23 +2856,19 @@ void DrawMesh(
 		fbxsdk::FbxAMatrix res;
 
 		for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex) {
-			// Ŭ�����͸� ����
+			// 클러스터 로드
 			lCluster = lSkinDeformer->GetCluster(lClusterIndex);
-			//// �� Ŭ�����Ϳ� ��Ī�ϴ� �����Ӱ� ���� ��
-			//if (!lCluster->GetLink())
-			//	continue;
-
-			// Ŭ�������� �ʱ�(T��) Ʈ������ ��Ʈ������ ��� ��
+			// 현 클러스터에서 글로벌 변형 매트릭스를 로드
 			lCluster->GetTransformMatrix(lReferenceGlobalInitPosition);
 
 			lReferenceGlobalInitPosition *= lReferenceGeometry;
 
 			// Get the link initial global position and the link current global position.
-			// �ʱ� �۷ι� �������� ��� �۷ι� ������ ��ũ�� ����
+			// 초기 T 포즈에서의 Position과 현재 포즈에서의 Position을 이어주는 Link Matrix를 제공 
 			lCluster->GetTransformLinkMatrix(lClusterGlobalInitPosition);
 
 			// Compute the initial position of the link relative to the reference.
-			// ��ũ�� ���õ� ���۷����� "�ʱ�"(T) �������� ���
+			// 초기 포즈에서 모든 뼈대를 원점으로 만들어주는 변형 행렬을 만듦
 			lClusterRelativeInitPositions[lClusterIndex] =
 				lClusterGlobalInitPosition.Inverse() *
 				lReferenceGlobalInitPosition;
@@ -2894,22 +2880,19 @@ void DrawMesh(
 				mTime = mFrame * animFrame;
 
 				for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex) {
-					// Ŭ�����͸� ����
+					// 클러스터 로드
 					lCluster = lSkinDeformer->GetCluster(lClusterIndex);
-					//// �� Ŭ�����Ϳ� ��Ī�ϴ� �����Ӱ� ���� ��
-					//if (!lCluster->GetLink())
-					//	continue;
 
 					lClusterGlobalCurrentPosition = lCluster->GetLink()->EvaluateGlobalTransform(mTime);
 
 					// Compute the current position of the link relative to the reference.
-					// ��ũ�� ���۷����� ���õ� "����" �������� ���
+					// mTime 프레임 에서의 Pose를 만드는 Matrix
 					lClusterRelativeCurrentPositionInverse =
 						lReferenceGlobalCurrentPosition *
 						lClusterGlobalCurrentPosition;
 
 					// Compute the shift of the link relative to the reference.
-					// ���� ����� ���� ��� ����ϴ� ���� ��Ʈ���� ���
+					// 결과적으로 T포즈에서 mTime 프레임 에서의 Pose로 한번에 변형되는 Matrix를 계산
 					res =
 						pGlobalPosition *
 						lClusterRelativeCurrentPositionInverse *
@@ -2930,22 +2913,18 @@ void DrawMesh(
 					mTime = mFrame * animFrame;
 
 					for (lClusterIndex = 0; lClusterIndex < lClusterCount; ++lClusterIndex) {
-						// Ŭ�����͸� ����
+						// 클러스터 로드
 						lCluster = lSkinDeformer->GetCluster(lClusterIndex);
-						//// �� Ŭ�����Ϳ� ��Ī�ϴ� �����Ӱ� ���� ��
-						//if (!lCluster->GetLink())
-						//	continue;
-
 						lClusterGlobalCurrentPosition = lCluster->GetLink()->EvaluateGlobalTransform(mTime);
 
 						// Compute the current position of the link relative to the reference.
-						// ��ũ�� ���۷����� ���õ� "����" �������� ���
+						// mTime 프레임 에서의 Pose를 만드는 Matrix
 						lClusterRelativeCurrentPositionInverse =
 							lReferenceGlobalCurrentPosition *
 							lClusterGlobalCurrentPosition;
 
 						// Compute the shift of the link relative to the reference.
-						// ���� ����� ���� ��� ����ϴ� ���� ��Ʈ���� ���
+						// 결과적으로 T포즈에서 mTime 프레임 에서의 Pose로 한번에 변형되는 Matrix를 계산
 						res =
 							pGlobalPosition *
 							lClusterRelativeCurrentPositionInverse *
@@ -2965,7 +2944,7 @@ void DrawMesh(
 	std::ifstream mClusterFile(mStreamName, std::ifstream::binary);
 	std::vector<float*> mVertexArray;
 
-	// ���� �ִϸ��̼� ������ ���� ����޽��� ��츦 �����Ѵ�.
+	// 현 Node에 Cluster(뼈대)가 존재하는지, Deform이 존재하는지의 여부가 true일 때
 	if (passCondition)
 	{
 		mAnimVertexSizes.push_back(vertexCount);
