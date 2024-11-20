@@ -2,7 +2,8 @@ Japanese -
 
 Youtube Link :
 
-Tech_Description :
+Tech_Description :[ポートフォリオ_技術_説明書.pptx](https://github.com/user-attachments/files/17827325/_._.pptx)
+
 
 
 Korean -
